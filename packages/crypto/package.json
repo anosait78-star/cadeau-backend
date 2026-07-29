@@ -1,0 +1,26 @@
+{
+  "name": "@cadeau/crypto",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Self-built security primitives: password hashing (scrypt), authenticated PII encryption (AES-256-GCM), and JWT (HS256). Node crypto only — no external auth service (locked stack).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "4.1.10",
+    "vitest": "4.1.10"
+  }
+}
