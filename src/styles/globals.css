@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/* Theme is controlled by [data-theme] on <html>, not the OS by default, so the
+   in-app toggle is authoritative. Dark utilities apply under [data-theme="dark"]. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   Brand identity is monochrome red (#E11931) + white + neutral grays.
+   No gold, no foreign accent color (project design system). */
+:root {
+  --background: #ffffff;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #6b7280;
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --ring: #e11931;
+
+  --primary: #e11931;
+  --primary-foreground: #ffffff;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  --radius: 0.5rem;
+}
+
+[data-theme="dark"] {
+  --background: #0b0b0c;
+  --foreground: #f4f4f5;
+  --card: #161618;
+  --card-foreground: #f4f4f5;
+  --muted: #1f1f23;
+  --muted-foreground: #a1a1aa;
+  --border: #2a2a2e;
+  --input: #2a2a2e;
+  --ring: #e11931;
+
+  --primary: #e11931;
+  --primary-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+}
+
+/* Expose tokens as Tailwind theme values (utilities like bg-background,
+   text-foreground, bg-primary resolve to the CSS variables above and so react
+   to the active [data-theme]). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --radius-sm: calc(var(--radius) - 0.125rem);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 0.25rem);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family:
+    system-ui, -apple-system, "Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Command palette (cmdk) — the primitive is unstyled, so style its parts here. */
+[cmdk-group-heading] {
+  padding: 0.375rem 0.5rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+}
+[cmdk-item] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  cursor: pointer;
+  user-select: none;
+}
+[cmdk-item][data-selected="true"] {
+  background-color: var(--color-muted);
+}
+[cmdk-item][data-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
