@@ -25,7 +25,7 @@ packages/database   Prisma client, migrations, RLS context, seeds, health (docs/
 
 Cross-cutting references: [API conventions](docs/api-conventions.md) ·
 [API contracts](docs/api/README.md) · [architecture tests](docs/architecture-tests.md) ·
-[ADRs](docs/adr/README.md).
+[ADRs](docs/adr/README.md) · **[execution plan / continuation guide](docs/execution-plan.md)**.
 
 ## Prerequisites
 
