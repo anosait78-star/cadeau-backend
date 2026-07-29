@@ -1,0 +1,52 @@
+# =============================================================================
+# Cadeau CRM — local development database (M1.4).
+#
+# PostgreSQL for the DEVELOPMENT environment only. Staging/production databases
+# are managed by the platform / secrets manager and are NOT defined here.
+#
+# ADR-001 (supply-chain hardening): the image is pinned by immutable digest,
+# never by a floating tag. Update the digest deliberately in its own commit.
+#
+# Usage:
+#   docker compose up -d db          # start Postgres (persists in a named volume)
+#   docker compose ps                # check health
+#   docker compose down              # stop (data is preserved in the volume)
+#   docker compose down -v           # stop AND delete the volume (destroys data)
+#
+# Credentials below are LOCAL, non-secret dev defaults that match
+# .env.development.example. Never reuse them outside local development.
+# =============================================================================
+
+services:
+  db:
+    # postgres:17-alpine — pinned by digest (ADR-001). Refresh with:
+    #   docker buildx imagetools inspect postgres:17-alpine
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    container_name: cadeau-db
+    restart: unless-stopped
+    # Local dev credentials — overridable via a local .env if desired.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cadeau}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cadeau}
+      POSTGRES_DB: ${POSTGRES_DB:-cadeau_dev}
+      # Deterministic collation/encoding so dev matches prod behaviour.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      # host:container — matches DATABASE_URL in .env.development.example.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Named volume => data survives `docker compose down` (persistence, M1.4).
+      - cadeau-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cadeau} -d ${POSTGRES_DB:-cadeau_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Hardening: no new privileges; drop the default root shell surface.
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  cadeau-db-data:
+    name: cadeau-db-data

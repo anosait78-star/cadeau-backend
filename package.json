@@ -1,0 +1,66 @@
+{
+  "name": "cadeau-crm",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cadeau CRM — secure, multi-tenant CRM/OMS for COD social-commerce (monorepo root).",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yaml,yml}\"",
+    "type-check": "turbo run type-check",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "arch:check": "node scripts/check-architecture.mjs",
+    "perf:bundle": "node scripts/check-bundle-size.mjs",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "19.6.1",
+    "@commitlint/config-conventional": "19.6.0",
+    "@eslint/js": "10.0.1",
+    "@lhci/cli": "0.15.1",
+    "@types/node": "24.0.10",
+    "dependency-cruiser": "18.1.0",
+    "eslint": "10.8.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.8.0",
+    "husky": "9.1.7",
+    "lint-staged": "15.3.0",
+    "prettier": "3.4.2",
+    "turbo": "2.10.7",
+    "typescript": "5.7.2",
+    "typescript-eslint": "8.65.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yaml,yml}": [
+      "prettier --write"
+    ]
+  },
+  "pnpm": {
+    "overrides": {
+      "minimatch@<10.2.6": ">=10.2.6",
+      "brace-expansion@<5.0.8": ">=5.0.8",
+      "yaml@<2.8.3": ">=2.8.3",
+      "js-yaml@>=5.0.0 <5.2.2": ">=5.2.2",
+      "tmp@<0.2.6": ">=0.2.6"
+    },
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild"
+    ]
+  }
+}

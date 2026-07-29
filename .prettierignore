@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+.turbo/
+coverage/
+playwright-report/
+test-results/
+pnpm-lock.yaml
+CHANGELOG.md
+
+# Frozen knowledge-base documents (00-22) and planning docs — do not reformat.
+0*_*.md
+1*_*.md
+2*_*.md
+Cadeau_CRM_*.md
+OrdersFlow-Reverse-Engineering-Analysis.md

@@ -1,0 +1,42 @@
+// Cadeau CRM — Prisma schema.
+//
+// M1.4 delivered the database *foundation* (extensions, the multi-tenant RLS
+// context, migrations, seed framework). EPIC-3 adds the security/data-layer
+// foundation: the append-only `audit_log` and the reusable RLS + trigger
+// patterns. Tenant tables (companies/members/profiles) and domain tables are
+// owned by their epics (Auth EPIC-4, Access EPIC-5, Master Data/… EPIC-7+).
+//
+// Objects Prisma cannot model (extensions, functions, RLS policies, triggers)
+// live in hand-written SQL migrations under ./migrations, applied with
+// `prisma migrate deploy`. No preview features are enabled (ADR-001: stable-only),
+// so all models stay in the default `public` schema.
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Append-only audit trail (EPIC-3 foundation). Every tenant-scoped, security-
+/// relevant change appends a row here. Tenant-isolated and protected by RLS
+/// (FORCE); rows are never updated or deleted. `actorId` is nullable until Auth
+/// (EPIC-4) provides members; `changes` holds a JSON before/after or payload.
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  changes    Json?
+  requestId  String?  @map("request_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "audit_log_keyset_idx")
+  @@index([companyId, entityType, entityId], map: "audit_log_entity_idx")
+  @@map("audit_log")
+}

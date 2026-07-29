@@ -1,0 +1,21 @@
+# Gitleaks configuration (ADR-001: no secrets in the repository).
+# Extends the maintained default ruleset, then narrows false positives.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for known-safe, non-secret sample material."
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)pnpm-lock\.yaml$''',
+  # Frozen knowledge-base and planning documents (no live secrets).
+  '''(^|/)\d{2}_.*\.md$''',
+  '''(^|/)Cadeau_CRM_.*\.md$''',
+  '''(^|/)OrdersFlow-Reverse-Engineering-Analysis\.md$''',
+]
+# Placeholder tokens used in documentation/examples must never look like real secrets.
+regexTargets = ["match"]
+regexes = [
+  '''(?i)your[-_]?(api[-_]?key|token|secret|password)[-_]?here''',
+  '''(?i)example[-_]?(key|token|secret)''',
+]

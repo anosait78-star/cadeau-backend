@@ -1,0 +1,292 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege by default (ADR-001).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24.15.0"
+  PNPM_VERSION: "10.15.0"
+
+jobs:
+  quality:
+    name: Quality (lint · format · types · test · build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Format check
+        run: pnpm format:check
+      - name: Lint
+        run: pnpm lint
+      - name: Type check
+        run: pnpm type-check
+      - name: Unit + integration tests
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+
+  architecture:
+    name: Architecture tests (boundaries · layers · cycles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      # Fail the build on any circular dependency, layer violation, forbidden
+      # import, or direct cross-feature import (see docs/architecture-tests.md).
+      - name: Architecture tests
+        run: pnpm arch:check
+
+  dependency-audit:
+    name: SCA · Dependency audit + Stable-only (ADR-001)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      # ADR-001: block merge on any unresolved Critical/High advisory.
+      - name: Dependency audit (fail on High/Critical)
+        run: pnpm audit --audit-level high
+      # ADR-001: no Beta/Alpha/RC in the resolved tree.
+      - name: Enforce Stable-only
+        run: node scripts/check-stable-only.mjs
+
+  secret-scanning:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          # Public repos: no token needed. Private/org repos require a
+          # GITLEAKS_LICENSE secret (see https://gitleaks.io).
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  database:
+    name: Database (migrate deploy + seed on Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Pinned by digest for supply-chain integrity (ADR-001). Same image as
+        # the local dev database in docker-compose.yml.
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_USER: cadeau
+          POSTGRES_PASSWORD: cadeau
+          POSTGRES_DB: cadeau_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U cadeau -d cadeau_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    # Non-secret dummy configuration (matches .env.test.example). NODE_ENV=test
+    # so no production hardening applies.
+    env:
+      NODE_ENV: test
+      APP_URL: http://localhost:3001
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      DATABASE_URL: postgresql://cadeau:cadeau@localhost:5432/cadeau_test
+      DATABASE_SSL: "false"
+      JWT_ACCESS_SECRET: "2222222222222222222222222222222222222222"
+      JWT_REFRESH_SECRET: "3333333333333333333333333333333333333333"
+      JWT_ACCESS_TTL: 5m
+      JWT_REFRESH_TTL: 1d
+      ENCRYPTION_KEY: "000000000000000000000000000000000000000000000000000000000000ffff"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Build (generates Prisma client, builds @cadeau/config)
+        run: pnpm build
+      # Forward-only migrations (never `migrate dev` outside local development).
+      - name: Apply migrations
+        run: pnpm --filter @cadeau/database db:migrate:deploy
+      - name: Verify no pending migrations
+        run: pnpm --filter @cadeau/database db:migrate:status
+      - name: System seed
+        run: pnpm --filter @cadeau/database db:seed
+      # Idempotency gate: a second seed must succeed and change nothing.
+      - name: System seed again (idempotent)
+        run: pnpm --filter @cadeau/database db:seed
+
+  e2e:
+    name: E2E smoke (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Build web
+        run: pnpm --filter @cadeau/web build
+      - name: Install Playwright browser (chromium)
+        run: pnpm --filter @cadeau/web exec playwright install --with-deps chromium
+      - name: Playwright smoke (builds + previews the app)
+        run: pnpm --filter @cadeau/web test:e2e
+
+  performance:
+    name: Performance budget (bundle · Lighthouse §2.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Build web
+        run: pnpm --filter @cadeau/web build
+      # Initial JS ≤ 200KB gzip (Roadmap §2.4).
+      - name: Bundle-size budget
+        run: pnpm perf:bundle
+      # Lighthouse Performance/Accessibility ≥ 90 (uses the runner's Chrome).
+      # Desktop form factor → Desktop shell; mobile form factor → Mobile shell —
+      # both shells' budgets are gated (ADR-002 / Roadmap §2.4).
+      - name: Lighthouse CI (desktop shell)
+        run: pnpm exec lhci autorun
+      - name: Lighthouse CI (mobile shell)
+        run: pnpm exec lhci autorun --config=lighthouserc.mobile.json
+
+  api-load:
+    name: API load (k6 §2.4)
+    runs-on: ubuntu-latest
+    # Non-secret dummy config so the API boots (health is liveness — no DB needed;
+    # the Prisma client is constructed lazily and never connects for this test).
+    env:
+      NODE_ENV: test
+      APP_URL: http://localhost:3001
+      APP_PORT: "3001"
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      DATABASE_URL: postgresql://cadeau:cadeau@localhost:5432/cadeau_test
+      DATABASE_SSL: "false"
+      JWT_ACCESS_SECRET: "2222222222222222222222222222222222222222"
+      JWT_REFRESH_SECRET: "3333333333333333333333333333333333333333"
+      JWT_ACCESS_TTL: 5m
+      JWT_REFRESH_TTL: 1d
+      ENCRYPTION_KEY: "000000000000000000000000000000000000000000000000000000000000ffff"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build
+      - name: Start API and wait for health
+        run: |
+          node apps/api/dist/main.js &
+          echo "API_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/v1/health >/dev/null; then
+              echo "API is healthy"; exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy in time" >&2; exit 1
+      # Install k6 from Grafana's GPG-signed APT repository (verified packages;
+      # no unpinnable third-party action or guessed image digest — ADR-001).
+      - name: Install k6
+        run: |
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+      # Thresholds (read P95 < 300ms) are hard gates — k6 exits non-zero on breach.
+      - name: k6 load test
+        run: k6 run perf/k6/health-smoke.js
+        env:
+          API_BASE_URL: http://localhost:3001
+
+  sast:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    container:
+      # Pinned by digest for supply-chain integrity (ADR-001).
+      image: semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8 # 1.171.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Semgrep scan (fail on findings)
+        run: >-
+          semgrep scan
+          --config p/default
+          --config p/typescript
+          --config p/owasp-top-ten
+          --config p/secrets
+          --error
+          --metrics=off
