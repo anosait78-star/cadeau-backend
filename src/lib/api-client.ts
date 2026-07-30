@@ -57,7 +57,7 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   /** Attach the bearer access token and refresh-and-retry on a 401. Default true. */
   auth?: boolean;

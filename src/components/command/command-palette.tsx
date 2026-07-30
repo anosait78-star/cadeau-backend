@@ -1,7 +1,7 @@
 import { Command } from "cmdk";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { NAV_ITEMS } from "@/config/navigation";
+import { useNavItems } from "@/features/access/use-nav-items";
 import { useI18n } from "@/i18n/i18n-provider";
 import { useTheme } from "@/providers/theme-provider";
 
@@ -20,6 +20,7 @@ export function CommandPalette({
   const navigate = useNavigate();
   const { t, toggleLocale } = useI18n();
   const { toggleTheme } = useTheme();
+  const navItems = useNavItems();
 
   const run = (action: () => void): void => {
     onOpenChange(false);
@@ -45,7 +46,7 @@ export function CommandPalette({
         </Command.Empty>
 
         <Command.Group heading={t("command.navigation")}>
-          {NAV_ITEMS.map(({ to, labelKey, icon: Icon }) => (
+          {navItems.map(({ to, labelKey, icon: Icon }) => (
             <Command.Item
               key={to}
               value={t(labelKey)}

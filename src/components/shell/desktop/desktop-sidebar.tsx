@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
-import { NAV_ITEMS } from "@/config/navigation";
+import { useNavItems } from "@/features/access/use-nav-items";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
 
 /** Desktop-only left sidebar: brand + primary navigation (logical `border-e`). */
 export function DesktopSidebar(): ReactNode {
   const { t } = useI18n();
+  const navItems = useNavItems();
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-e border-border bg-card">
@@ -14,7 +15,7 @@ export function DesktopSidebar(): ReactNode {
         {t("app.name")}
       </div>
       <nav className="flex flex-1 flex-col gap-1 p-2" aria-label={t("nav.primary")}>
-        {NAV_ITEMS.map(({ to, labelKey, icon: Icon, end }) => (
+        {navItems.map(({ to, labelKey, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
