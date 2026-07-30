@@ -60,6 +60,22 @@ export interface EventPayloads {
     /** What happened to the row. */
     readonly change: "created" | "updated" | "deactivated";
   };
+  /**
+   * A catalog product was created. Emitted by the EPIC-8 products service
+   * alongside its durable audit write; consumers (inventory EPIC-9, analytics)
+   * can react.
+   */
+  "product.created": {
+    readonly productId: string;
+  };
+  /** A catalog product's attributes or one of its variants changed (EPIC-8). */
+  "product.updated": {
+    readonly productId: string;
+  };
+  /** A catalog product was archived (`is_active = false`) (EPIC-8). */
+  "product.archived": {
+    readonly productId: string;
+  };
 
   // ---- Forward-declared (owning epic finalizes the payload) --------------
   /** An order was created. Shape finalized in EPIC-11. */

@@ -92,6 +92,8 @@ model Company {
   orderLabels       OrderLabel[]
   orderReasons      OrderReason[]
   shippingZones     ShippingZone[]
+  products          Product[]
+  productVariants   ProductVariant[]
 
   @@map("companies")
 }
@@ -471,6 +473,7 @@ model Unit {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products Product[]
 
   @@unique([companyId, name], map: "units_company_name_key")
   @@index([companyId, name, id], map: "units_keyset_idx")
@@ -493,6 +496,7 @@ model ProductCategory {
   company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   parent  ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children ProductCategory[] @relation("ProductCategoryTree")
+  products Product[]
 
   @@unique([companyId, name], map: "product_categories_company_name_key")
   @@index([companyId, name, id], map: "product_categories_keyset_idx")
@@ -561,4 +565,70 @@ model ShippingZone {
   @@index([companyId, name, id], map: "shipping_zones_keyset_idx")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_zones_created_keyset_idx")
   @@map("shipping_zones")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-8 — Products. The product catalog, built on the EPIC-7 master data
+// (categories, units). Two tenant-editable tables (base columns + FORCE RLS by
+// company_id + `touch_updated_at`). Deletes are soft (archive: `isActive =
+// false`) so historical orders / COGS keep resolving their references.
+// ---------------------------------------------------------------------------
+
+/// Product catalog item (EPIC-8). Tenant-editable. Optionally classified by a
+/// `product_categories` row and measured in a `units` row (both EPIC-7, same
+/// tenant). A product groups one or more sellable {@link ProductVariant}s.
+/// Unique per company by name; archived via `isActive`.
+model Product {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  description String?
+  categoryId  String?  @map("category_id") @db.Uuid
+  unitId      String?  @map("unit_id") @db.Uuid
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  unit     Unit?            @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  variants ProductVariant[]
+
+  @@unique([companyId, name], map: "products_company_name_key")
+  @@index([companyId, name, id], map: "products_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "products_created_keyset_idx")
+  @@index([categoryId], map: "products_category_idx")
+  @@index([unitId], map: "products_unit_idx")
+  @@map("products")
+}
+
+/// Product variant / SKU (EPIC-8). A concrete sellable unit under a
+/// {@link Product}. `sku`/`barcode` are unique per company when present.
+/// `averageCost` is the moving-average cost in integer minor units, DERIVED
+/// from receipts (EPIC-13) and never written by API clients; it starts at 0.
+/// `companyId` is denormalized (same tenant as the parent product) so RLS
+/// scopes the row directly. Archived via `isActive`.
+model ProductVariant {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  name        String
+  sku         String?
+  barcode     String?
+  averageCost BigInt   @default(0) @map("average_cost")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, name], map: "product_variants_product_name_key")
+  @@index([productId, name, id], map: "product_variants_product_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "product_variants_company_keyset_idx")
+  @@map("product_variants")
 }

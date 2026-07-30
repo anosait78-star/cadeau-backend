@@ -72,6 +72,9 @@ logged and, later, queued for delivery.
 | `access.feature_toggled`     | `AdminService` (Super-Admin)    | `featureKey`, `enabled`                    | **Live**            |
 | `subscription.changed`       | `AdminService` (Super-Admin)    | `planCode`                                 | **Live**            |
 | `master_data.changed`        | `MasterDataService` (EPIC-7)    | `resource`, `id`, `change`                 | **Live** (EPIC-7)   |
+| `product.created`            | `ProductsService` (EPIC-8)      | `productId`                                | **Live** (EPIC-8)   |
+| `product.updated`            | `ProductsService` (EPIC-8)      | `productId`                                | **Live** (EPIC-8)   |
+| `product.archived`           | `ProductsService` (EPIC-8)      | `productId`                                | **Live** (EPIC-8)   |
 | `order.created`              | Orders (EPIC-11)                | `orderId`                                  | Forward-declared    |
 | `order.status_changed`       | Orders (EPIC-11)                | `orderId`, `fromStatus`, `toStatus`        | Forward-declared    |
 | `stock.changed`              | Inventory (EPIC-9)              | `inventoryId`, `variantId`, `onHandDelta`  | Forward-declared    |

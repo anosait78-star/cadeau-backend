@@ -35,7 +35,15 @@ collections — three system-seeded (currencies, country configs, governorates)
 and five tenant-editable (units, product categories, order labels, order reasons,
 shipping zones) — three-layer gated, keyset-paginated, soft-deleting, with a 60s
 reference cache and the live `master_data.changed` event; plus the Master Data
-frontend screen. Next: EPIC-6 + EPIC-7 §2.5 quality gates, then EPIC-8 (Products).
+frontend screen. **EPIC-8 delivered** on `feat/epic-8-products`: the
+[products module](../apps/api/src/modules/products/) (`/v1/products` — catalog +
+variants) with migration `20260803000000_products`, moving-average `averageCost`
+per variant (derived, read-only), SKU/barcode uniqueness per company, keyset
+list with `q`/`categoryId`/`active`, three-layer gating (`products.read`/
+`products.manage` under the `products` feature — already in the EPIC-5 catalog),
+the live `product.created`/`product.updated`/`product.archived` events, and the
+Products frontend screen (dual view, inline variant management). Next: EPIC-6 +
+EPIC-7 + EPIC-8 §2.5 quality gates, then EPIC-9 (Inventory & Warehouses).
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -49,8 +57,8 @@ frontend screen. Next: EPIC-6 + EPIC-7 §2.5 quality gates, then EPIC-8 (Product
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 476 unit/integration after EPIC-7 (config 37 · web 80 ·
-crypto 25 · database 71 · api 269). Keep it growing; never let a gate regress.
+**Test count baseline:** 552 unit/integration after EPIC-8 (config 37 · web 90 ·
+crypto 25 · database 71 · api 329). Keep it growing; never let a gate regress.
 
 ---
 
@@ -306,11 +314,45 @@ via API) vs tenant-editable; a cached reference source for later modules; every
 write emits `master_data.changed`. DB migration + RLS validated in CI. Then the
 §2.5 quality gate.
 
-### EPIC-8 — Products
+### EPIC-8 — Products ✅ — `feat/epic-8-products`
 
-Contract: [api/products.md](api/products.md). Catalog + variants
-(`parent_product_id`, cascading selects), SKU/barcode field, moving-average cost /
-COGS per variant, dual view (table/cards). _Depends on:_ EPIC-7.
+Contract: [api/products.md](api/products.md). Delivered M8.1–M8.5:
+
+- **M8.1 Data + migration** ✅ — `Product` + `ProductVariant` Prisma models +
+  migration `20260803000000_products`. Both tenant-editable (base columns +
+  `FORCE` RLS by `company_id` + `touch_updated_at`). `products` optionally
+  references `product_categories` / `units` (EPIC-7, `ON DELETE SET NULL`);
+  `product_variants` cascade off their product and denormalize `company_id` for
+  RLS. `sku`/`barcode` are unique per company via partial unique indexes;
+  `average_cost` is a `bigint` (integer minor units, `CHECK >= 0`) derived from
+  receipts (EPIC-13), never client-set. No system seed (tenant data). No access
+  catalog change — the `products` feature + `products.read`/`products.manage`
+  were already seeded in EPIC-5.
+- **M8.2 Backend module** ✅ — `modules/products` (domain/application/
+  infrastructure/presentation). `/v1/products` CRUD + `/{id}/variants`
+  add/update, three-layer gated, keyset-paginated (`name` | `-createdAt`),
+  `q` search over name + variant sku/barcode, `categoryId`/`active` filters,
+  same-tenant reference checks (`422`), `sku`/`barcode` conflict (`409`), soft
+  archive. Every write records a durable `audit_log` row and emits
+  `product.created`/`updated`/`archived` (added to the EPIC-6 catalog).
+- **M8.3 Tests + gates** ✅ — unit tests across list-query / service /
+  repository / controller / audit adapter (api 269→329); all local gates green.
+- **M8.4 Frontend** ✅ — a capability-gated Products screen in the Dual Shell
+  (`pages/products`, `features/products`): search, responsive card list (card
+  alternative for both shells), create/edit/archive, inline per-product variant
+  management, category/unit selects sourced from the EPIC-7 master data, standard
+  states, ar/en, nav + route. Vitest + Testing Library specs (web 80→90).
+- **M8.5 Docs + gates** ✅ — [api/products.md](api/products.md) marked delivered
+  (endpoints, params, payloads, events, deferrals: `hasStock`→EPIC-9,
+  Idempotency-Key→later), [events.md](events.md) lists the three `product.*`
+  events live, this plan updated.
+
+_Acceptance met:_ catalog + variants; SKU/barcode uniqueness; moving-average
+`averageCost` (derived, read-only); dual view; three-layer gating; every write
+emits a `product.*` event. DB migration + RLS validated in CI. _Deviations:_
+permissions use the `read`/`manage` convention (not the draft's `.write`);
+`hasStock` and `Idempotency-Key` are deferred (see the contract). Then the §2.5
+quality gate.
 
 ### EPIC-9 — Inventory & Warehouses
 
