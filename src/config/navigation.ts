@@ -1,4 +1,5 @@
 import {
+  Database,
   LayoutDashboard,
   Package,
   Settings,
@@ -39,6 +40,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/customers", labelKey: "nav.customers", icon: Users, feature: "customers" },
   { to: "/products", labelKey: "nav.products", icon: Package, feature: "products" },
   { to: "/inventory", labelKey: "nav.inventory", icon: Warehouse, feature: "inventory" },
+  {
+    to: "/master-data",
+    labelKey: "nav.masterData",
+    icon: Database,
+    feature: "master-data",
+    permission: "master-data.read",
+  },
   { to: "/settings/roles", labelKey: "nav.roles", icon: ShieldCheck, permission: "access.read" },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
   { to: "/admin", labelKey: "nav.admin", icon: ShieldAlert, superAdmin: true },
