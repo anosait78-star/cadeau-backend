@@ -191,8 +191,10 @@ and expected to pass on push/PR to `main`.
       directed closure conditional on all quality gates passing (2026-07-30); the
       condition is met, so EPIC-5 is **officially closed** and EPIC-6 planning
       begins.
-- [ ] **Owner approval to begin EPIC-6 _implementation_** (a separate sign-off —
-      no EPIC-6 code lands until this is checked).
+- [x] **Owner approval to begin EPIC-6 _implementation_** (a separate sign-off —
+      no EPIC-6 code lands until this is checked). The owner directed EPIC-6
+      implementation (2026-07-30); delivered on `feat/epic-6-core` — see
+      [epic-6-quality-gate.md](epic-6-quality-gate.md).
 
 > **EPIC-5 status: CLOSED.** EPIC-6 (Extensible Core / Event Bus) planning is
 > prepared (see [execution-plan.md](execution-plan.md) §3 EPIC-6). Per §2.5, no

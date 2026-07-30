@@ -3,6 +3,8 @@ import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors } from "../../../shared/errors/app-exception";
 import { CapabilityCache } from "../../../shared/access/capability-cache";
+import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
+import { CLOCK, type Clock } from "../../../shared/time/clock";
 import { ACCESS_AUDIT, type AccessAuditPort } from "../domain/access-audit.port";
 import {
   ACCESS_MANAGEMENT_REPOSITORY,
@@ -24,6 +26,8 @@ export class AdminService {
     @Inject(ACCESS_MANAGEMENT_REPOSITORY)
     private readonly repo: AccessManagementRepositoryPort,
     @Inject(ACCESS_AUDIT) private readonly audit: AccessAuditPort,
+    @Inject(EVENT_BUS) private readonly events: EventBusPort,
+    @Inject(CLOCK) private readonly clock: Clock,
     private readonly cache: CapabilityCache,
   ) {}
 
@@ -68,6 +72,14 @@ export class AdminService {
       changes: { featureKey, enabled },
     });
     this.cache.invalidateCompany(companyId);
+    // Additive to the durable audit write: notify subscribers via the bus.
+    await this.events.publish({
+      type: "access.feature_toggled",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: { featureKey, enabled },
+    });
     return { featureKey, enabled };
   }
 
@@ -91,6 +103,13 @@ export class AdminService {
       changes: { planCode },
     });
     this.cache.invalidateCompany(companyId);
+    await this.events.publish({
+      type: "subscription.changed",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: { planCode },
+    });
     return { planCode };
   }
 }

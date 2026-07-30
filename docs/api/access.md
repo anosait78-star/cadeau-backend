@@ -36,13 +36,16 @@ code from tenant roles. Draft — follows [../api-conventions.md](../api-convent
 
 ## Events emitted (ADR-004)
 
-- `access.permissions_changed`, `access.feature_toggled`, `subscription.changed`.
+- `access.permissions_changed`, `access.feature_toggled`, `subscription.changed`
+  — published on the live in-process **event bus** (EPIC-6) alongside the durable
+  audit write. Payloads and the emit/subscribe contract: [events.md](../events.md).
 
 ## Notes
 
 - Every access change is **audited** (who, what, before/after) to the durable,
-  append-only `audit_log` (tenant-scoped). Event-bus emission of the same
-  vocabulary is wired in EPIC-6.
+  append-only `audit_log` (tenant-scoped) — the source of truth. The event-bus
+  emission of the same vocabulary (EPIC-6) is **additive** to that write, never a
+  replacement; see [events.md](../events.md).
 - Menus, pages, buttons, reports, and APIs are all gated by the same triple check;
   a failure of any layer is `403 FORBIDDEN`.
 - Effective-capabilities cache is invalidated on any permission/flag/plan change.

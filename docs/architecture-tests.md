@@ -19,12 +19,12 @@ enforced.
 
 The rules cover the four families of constraint requested for the foundation:
 
-| #   | Constraint                                          | Rule(s)                                                                                                                                                    |
-| --- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **No circular dependencies**                        | `no-circular`                                                                                                                                              |
-| 2   | **No layer violations** (dependencies point inward) | `layer-domain-is-pure`, `layer-application-no-outer`, `layer-presentation-no-infrastructure`                                                               |
-| 3   | **No forbidden imports**                            | `data-access-only-in-infrastructure`, `no-deep-package-internals`, `app-imports-package-by-name`, `packages-do-not-depend-on-apps`, `no-prod-code-to-test` |
-| 4   | **No direct cross-feature imports**                 | `no-cross-feature-imports`                                                                                                                                 |
+| #   | Constraint                                          | Rule(s)                                                                                                                                                                     |
+| --- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No circular dependencies**                        | `no-circular`                                                                                                                                                               |
+| 2   | **No layer violations** (dependencies point inward) | `layer-domain-is-pure`, `layer-application-no-outer`, `layer-presentation-no-infrastructure`                                                                                |
+| 3   | **No forbidden imports**                            | `data-access-only-in-infrastructure`, `no-deep-package-internals`, `app-imports-package-by-name`, `packages-do-not-depend-on-apps`, `no-prod-code-to-test`, `no-ai-imports` |
+| 4   | **No direct cross-feature imports**                 | `no-cross-feature-imports`                                                                                                                                                  |
 
 Every rule is `severity: error` — there are no warnings to ignore.
 
@@ -87,6 +87,22 @@ choice stays swappable and the inner layers stay pure.
 - **Lower-level packages never depend on apps** — the arrow points from `apps/*`
   to `packages/*`, not back.
 - **Production code never imports test/spec/mock modules.**
+
+### No AI imports (ADR-0004)
+
+The `no-ai-imports` rule (EPIC-6, M6.4) fails the build on **any** import of an
+AI SDK or hosted-inference client — `@anthropic-ai/*`, `openai`, `@azure/openai`,
+`@google/generative-ai`, `@google/genai`, `@google-cloud/vertexai`,
+`@mistralai/*` / `mistralai`, `@langchain/*` / `langchain`, `llamaindex`,
+`cohere-ai`, `@huggingface/*`, `replicate`, `groq-sdk`, `ollama`,
+`@aws-sdk/client-bedrock-runtime`. It matches by path segment (so an unrelated
+name that merely contains the substring is not flagged) and catches **unresolved**
+specifiers too — an AI import fails the gate even before the dependency is
+installed. Type-only imports are included: a type dependency still means the SDK
+is present. The v1.0 core is AI-free by construction; the `ai` feature is a
+described, inactive extension point (see [extensibility.md](extensibility.md)),
+never a runtime dependency. Adopting AI requires a new ADR and arrives as a paid
+add-on behind the event bus + feature catalog — not by adding a dependency here.
 
 ## Running locally
 

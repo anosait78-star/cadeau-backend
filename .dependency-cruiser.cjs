@@ -43,6 +43,34 @@ const TEST_OR_SPEC = "\\.(spec|test)\\.[cm]?[tj]sx?$|(^|/)(__tests__|__mocks__|t
 // therefore exempt from the inward-only layer rules.
 const COMPOSITION_ROOT = "(^|/)(main|app\\.module)\\.[cm]?ts$|(^|/)[^/]+\\.module\\.[cm]?ts$";
 
+// AI SDK / hosted-inference client package families (ADR-0004: no AI in v1.0).
+// Matched as a path segment so a bare unresolved specifier (`openai`) and an
+// installed one (`node_modules/openai/...`) both hit, and unrelated names that
+// merely contain the substring (e.g. `cohere-utils`) do not. Type-only imports
+// are included on purpose — a type dependency still means the SDK is present.
+const AI_PACKAGES =
+  "(^|/)(" +
+  [
+    "@anthropic-ai/", // Claude SDK
+    "openai(/|$)", // OpenAI
+    "@azure/openai(/|$)", // Azure OpenAI
+    "@google/generative-ai(/|$)", // Google Gemini (legacy)
+    "@google/genai(/|$)", // Google Gemini (GA)
+    "@google-cloud/vertexai(/|$)", // Vertex AI
+    "@mistralai/", // Mistral
+    "mistralai(/|$)",
+    "@langchain/", // LangChain
+    "langchain(/|$)",
+    "llamaindex(/|$)", // LlamaIndex
+    "cohere-ai(/|$)", // Cohere
+    "@huggingface/", // Hugging Face
+    "replicate(/|$)", // Replicate
+    "groq-sdk(/|$)", // Groq
+    "ollama(/|$)", // Ollama
+    "@aws-sdk/client-bedrock-runtime(/|$)", // AWS Bedrock inference
+  ].join("|") +
+  ")";
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
@@ -124,6 +152,20 @@ module.exports = {
     },
 
     // ------------------------------------------------------- forbidden imports
+    {
+      name: "no-ai-imports",
+      severity: "error",
+      comment:
+        "ADR-0004 (AI-out / Extensible): the v1.0 core ships with NO AI. No " +
+        "module may import an AI SDK or hosted-inference client — order parsing, " +
+        "analytics deltas, and every 'smart' path are deterministic (Regex / " +
+        "heuristics / computed queries). The 'AI' feature is a described, inactive " +
+        "extension point (docs/extensibility.md), not a runtime dependency. If AI " +
+        "is ever adopted it arrives as a paid add-on behind the event bus + " +
+        "feature catalog — via a new ADR, never by adding a dependency here.",
+      from: {},
+      to: { path: AI_PACKAGES },
+    },
     {
       name: "data-access-only-in-infrastructure",
       severity: "error",

@@ -7,6 +7,8 @@ import {
   PLATFORM_ADMIN_REPOSITORY,
   type PlatformAdminRepositoryPort,
 } from "../../../shared/access/access-repository.port";
+import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
+import { CLOCK, type Clock } from "../../../shared/time/clock";
 import { ACCESS_AUDIT, type AccessAuditPort } from "../domain/access-audit.port";
 import {
   ACCESS_MANAGEMENT_REPOSITORY,
@@ -42,6 +44,8 @@ export class AccessService {
     @Inject(ACCESS_MANAGEMENT_REPOSITORY)
     private readonly repo: AccessManagementRepositoryPort,
     @Inject(ACCESS_AUDIT) private readonly audit: AccessAuditPort,
+    @Inject(EVENT_BUS) private readonly events: EventBusPort,
+    @Inject(CLOCK) private readonly clock: Clock,
     private readonly cache: CapabilityCache,
   ) {}
 
@@ -118,6 +122,17 @@ export class AccessService {
       changes: { before: result.before, after: result.after },
     });
     this.cache.invalidateMember(companyId, result.memberUserId);
+    await this.events.publish({
+      type: "access.permissions_changed",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: {
+        memberId,
+        memberUserId: result.memberUserId,
+        ...(input.templateKey !== undefined ? { templateKey: input.templateKey } : {}),
+      },
+    });
 
     return result.after;
   }

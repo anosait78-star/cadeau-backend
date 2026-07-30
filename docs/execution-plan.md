@@ -20,12 +20,16 @@ canonical sources before writing code:
 
 **Done:** EPIC-1 (M1.1–M1.7), EPIC-2 (M2.1–M2.4), EPIC-3 (foundation only), EPIC-4
 M4.1–M4.5 (complete — backend + frontend auth), EPIC-5 (M5.1–M5.6 — three-layer
-access, backend + frontend). **EPIC-5 §2.5 quality gate: all eleven review
-dimensions PASS** ([epic-5-quality-gate.md](epic-5-quality-gate.md)); closure docs
-in [access-review.md](access-review.md), [permission-matrix.md](permission-matrix.md),
-[epic-5-retrospective.md](epic-5-retrospective.md). **EPIC-5 is closed pending the
-owner-approval checkbox in the gate doc.** Next: EPIC-6 (Extensible Core / Event
-Bus) — planning ready below, implementation begins on owner sign-off.
+access, backend + frontend), EPIC-6 (M6.1–M6.5 — extensible core / event bus,
+backend-only). **EPIC-5 §2.5 quality gate: all eleven review dimensions PASS**
+([epic-5-quality-gate.md](epic-5-quality-gate.md)); closure docs in
+[access-review.md](access-review.md), [permission-matrix.md](permission-matrix.md),
+[epic-5-retrospective.md](epic-5-retrospective.md). **EPIC-6 delivered** on
+`feat/epic-6-core`: the in-process typed [event bus](../apps/api/src/shared/events/)
+([events.md](events.md)), the EPIC-5 access stubs now emit through it (additive to
+audit), the `no-ai-imports` architecture guard (ADR-0004), and
+[extensibility.md](extensibility.md). Next: EPIC-6 §2.5 quality gate, then EPIC-7
+(Master Data).
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -216,58 +220,48 @@ tenancy members-list endpoint (the `PUT …/permissions` API is delivered + test
 event-bus emission of `access.*`/`subscription.changed` is stubbed to audit now,
 wired to the real bus in EPIC-6. DB migration + RLS and e2e are validated in CI.
 
-### EPIC-6 — Extensible Core (ADR-0004) — planned (branch `feat/epic-6-core`)
+### EPIC-6 — Extensible Core (ADR-0004) ✅ — `feat/epic-6-core`
 
 **Goal.** Make the core event-driven and extension-ready **by description**
 (ADR-0004: no AI, no runtime plugin loading in v1.0) so later epics emit/subscribe
 domain events instead of calling each other, and so an AI import can never sneak
-in. This epic writes the plumbing EPIC-5 stubbed (the `access.*` /
+in. This epic wrote the plumbing EPIC-5 stubbed (the `access.*` /
 `subscription.changed` emissions) and that EPIC-9/11/13/15 will depend on.
+Contract: [events.md](events.md), [extensibility.md](extensibility.md).
 
-**Prerequisite:** owner approval to begin implementation (see
-[epic-5-quality-gate.md](epic-5-quality-gate.md) — the second checkbox).
+- **M6.1 In-process Event Bus** ✅ — `apps/api/src/shared/events`: `EventBusPort`
+  (`publish` + `subscribe`), a **closed typed event catalog** (`event-catalog.ts`
+  — the three live `access.*`/`subscription.changed` events plus forward-declared
+  `order.*`/`stock.changed`/`payment.collected` for their owning epics), and
+  `InProcessEventBus` with **synchronous dispatch** + **subscriber isolation**
+  (a throwing/rejecting handler is caught, logged, and skipped — never breaks the
+  publisher or peers). Global `EventBusModule`. **Decision: sync-now**, documented
+  in [events.md](events.md) §1; the async durable queue/retry lands in EPIC-15
+  behind the same port. Unit-tested (9 cases). _Acceptance met._
+- **M6.2 Wire the EPIC-5 stubs to the bus** ✅ — `AdminService.toggleFeature`/
+  `setSubscription` and `AccessService.assignMemberPermissions` now
+  `eventBus.publish(...)` **alongside** the durable audit write (audit stays the
+  source of truth; the bus is additive), after cache invalidation. Emitter tests
+  assert the published event; all access tests green.
+- **M6.3 Extension points + plugin registry (description only, §15.7)** ✅ —
+  [extensibility.md](extensibility.md): the described `ExtensionPoint` contract and
+  the three real seams (event bus, feature catalog, permission catalog), how a
+  future module / paid add-on / AI plugin attaches without core changes, **no
+  dynamic code loading**. `ai` feature stays **inactive** in the catalog.
+- **M6.4 AI-import guard (CI, ADR-0004)** ✅ — `no-ai-imports`
+  `dependency-cruiser` rule (forbids `@anthropic-ai/*`, `openai`, Azure/Google/
+  Vertex, `@mistralai`, `langchain`, `llamaindex`, `cohere-ai`, `@huggingface`,
+  `replicate`, `groq-sdk`, `ollama`, Bedrock — incl. **unresolved** and
+  **type-only** imports), wired into `arch:check`/CI. Verified: a planted `openai`
+  import failed the gate; clean tree passes (329→327 modules, 0 violations).
+- **M6.5 Tests + gates + docs** ✅ — bus unit tests; [events.md](events.md),
+  [extensibility.md](extensibility.md), [architecture-tests.md](architecture-tests.md)
+  updated; this plan + [api/access.md](api/access.md) "Events emitted" point at
+  the live bus; all local gates green.
 
-Milestone breakdown (follow §2.6 order; backend-only epic except the small
-guard-check tooling — no UI):
-
-- **M6.1 In-process Event Bus.** A typed synchronous-dispatch bus in
-  `apps/api/src/shared/events` (or a `@cadeau/events` package if it needs to be
-  shared) behind a `EventBusPort`: `publish(event)` + `subscribe(type, handler)`,
-  a closed **event catalog** of typed payloads (`order.created`,
-  `order.status_changed`, `stock.changed`, `payment.collected`,
-  `access.permissions_changed`, `access.feature_toggled`, `subscription.changed`,
-  …), and a handler-error policy that never lets a subscriber break the publisher
-  (isolate + log + optionally audit). Register as a global Nest module.
-  _Acceptance:_ publish reaches all subscribers; a throwing subscriber is isolated;
-  unit-tested. Decide sync-now vs. async-queue-later and document it (queue/retry
-  for notifications lands in EPIC-15).
-- **M6.2 Wire the EPIC-5 stubs to the bus.** Replace the audit-only emission in
-  `access`/`admin` services with a real `eventBus.publish(...)` **alongside** the
-  existing durable audit write (audit stays — the bus is additive). _Acceptance:_
-  a feature toggle / subscription change / member-permission change publishes the
-  documented event; existing access tests still green.
-- **M6.3 Extension points + plugin registry (description only, §15.7).** A
-  documented registry interface and the catalog of extension points (event
-  subscribers, feature-catalog entries, permission additions) — **no dynamic code
-  loading** in v1.0. Ship `docs/extensibility.md` describing how a future module /
-  paid add-on / the AI plugin attaches without core changes, mapped to the real
-  seams (event bus, feature catalog, permission catalog). `AI` feature stays
-  **inactive** in the catalog (already seeded so).
-- **M6.4 AI-import guard (CI, ADR-0004).** A check that **fails the build on any
-  AI SDK / service import** — new `dependency-cruiser` rule (forbid
-  `@anthropic-ai/*`, `openai`, `@google/generative-ai`/`genai`, `mistralai`,
-  `cohere`, `langchain*`, `ollama`, …) plus, if needed, a small `scripts/`
-  scanner, wired into `arch:check`/CI. _Acceptance:_ a planted AI import fails the
-  gate; the clean tree passes. Verify with a temporary fixture, then remove it
-  (the M1 architecture-tests precedent).
-- **M6.5 Tests + gates + docs.** Unit tests for the bus + guard; `docs/events.md`
-  (the catalog + emit/subscribe contract) and `docs/extensibility.md`; all local
-  gates green; update this plan + the affected [api/](api/README.md) contracts'
-  "Events emitted (ADR-004)" sections to point at the live bus.
-
-_Acceptance (epic):_ events emit/subscribe with subscriber isolation; the EPIC-5
-access events flow through the bus; the AI-import guard blocks a planted import in
-CI; extension points documented; `AI` flag OFF. Then the §2.5 quality gate.
+_Acceptance met:_ events emit/subscribe with subscriber isolation; the EPIC-5
+access events flow through the bus; the AI-import guard blocks a planted import;
+extension points documented; `AI` flag OFF. Then the §2.5 quality gate.
 
 ### EPIC-7 — Master Data
 

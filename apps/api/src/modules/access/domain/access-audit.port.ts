@@ -19,7 +19,9 @@ export interface AccessAuditRecord {
  * Port for recording access changes to the durable, append-only `audit_log`
  * (who, what, before/after). Implementations MUST NOT record secrets. Every
  * access mutation (permission assignment, feature toggle, plan change) writes
- * one record. Event-bus emission of the same vocabulary is wired in EPIC-6.
+ * one record. This durable write is the source of truth; the additive event-bus
+ * emission of the same vocabulary (EPIC-6, `EVENT_BUS`) rides alongside it and
+ * must never replace it.
  */
 export interface AccessAuditPort {
   record(record: AccessAuditRecord): Promise<void>;

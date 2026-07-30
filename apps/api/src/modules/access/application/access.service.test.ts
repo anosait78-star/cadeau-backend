@@ -4,6 +4,7 @@ import { AppException } from "../../../shared/errors/app-exception";
 import type { AccessResolverService } from "../../../shared/access/access-resolver.service";
 import { CapabilityCache } from "../../../shared/access/capability-cache";
 import type { PlatformAdminRepositoryPort } from "../../../shared/access/access-repository.port";
+import type { EventBusPort } from "../../../shared/events/event-bus.port";
 import type { AccessAuditPort } from "../domain/access-audit.port";
 import type {
   AccessManagementRepositoryPort,
@@ -20,6 +21,7 @@ function build(overrides: {
 }): {
   service: AccessService;
   audit: AccessAuditPort;
+  events: EventBusPort;
   cache: CapabilityCache;
 } {
   const resolver = {
@@ -37,10 +39,23 @@ function build(overrides: {
     ...overrides.repo,
   } as unknown as AccessManagementRepositoryPort;
   const audit: AccessAuditPort = { record: vi.fn().mockResolvedValue(undefined) };
+  const events: EventBusPort = {
+    publish: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn(),
+  };
   const cache = new CapabilityCache({ now: () => 0 });
   return {
-    service: new AccessService(resolver, platformAdmins, repo, audit, cache),
+    service: new AccessService(
+      resolver,
+      platformAdmins,
+      repo,
+      audit,
+      events,
+      { now: () => 42 },
+      cache,
+    ),
     audit,
+    events,
     cache,
   };
 }
@@ -110,7 +125,7 @@ describe("AccessService.assignMemberPermissions", () => {
 
   it("assigns, audits, and invalidates the member's cache", async () => {
     const assign = vi.fn().mockResolvedValue(result);
-    const { service, audit, cache } = build({ repo: { assignMemberPermissions: assign } });
+    const { service, audit, events, cache } = build({ repo: { assignMemberPermissions: assign } });
     const invalidate = vi.spyOn(cache, "invalidateMember");
 
     const after = await service.assignMemberPermissions(PRINCIPAL, "m1", {
@@ -124,6 +139,13 @@ describe("AccessService.assignMemberPermissions", () => {
       expect.objectContaining({ action: "access.permissions_changed", companyId: "c1" }),
     );
     expect(invalidate).toHaveBeenCalledWith("c1", "u2");
+    expect(events.publish).toHaveBeenCalledWith({
+      type: "access.permissions_changed",
+      companyId: "c1",
+      actorId: "u1",
+      occurredAt: 42,
+      payload: { memberId: "m1", memberUserId: "u2", templateKey: "store_manager" },
+    });
   });
 
   it("forbids assignment without an active tenant", async () => {

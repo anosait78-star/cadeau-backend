@@ -7,6 +7,7 @@ import { AccessModule } from "./modules/access/access.module";
 import { AccessCoreModule } from "./shared/access/access.module";
 import { ConfigModule } from "./shared/config/config.module";
 import { AllExceptionsFilter } from "./shared/errors/all-exceptions.filter";
+import { EventBusModule } from "./shared/events/event-bus.module";
 import { LoggingModule } from "./shared/logging/logging.module";
 
 /**
@@ -18,6 +19,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
   imports: [
     ConfigModule,
     LoggingModule,
+    EventBusModule,
     AccessCoreModule,
     HealthModule,
     AuthModule,
