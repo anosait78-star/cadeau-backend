@@ -3,6 +3,8 @@ import { APP_FILTER } from "@nestjs/core";
 import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { TenancyModule } from "./modules/tenancy/tenancy.module";
+import { AccessModule } from "./modules/access/access.module";
+import { AccessCoreModule } from "./shared/access/access.module";
 import { ConfigModule } from "./shared/config/config.module";
 import { AllExceptionsFilter } from "./shared/errors/all-exceptions.filter";
 import { LoggingModule } from "./shared/logging/logging.module";
@@ -13,7 +15,15 @@ import { LoggingModule } from "./shared/logging/logging.module";
  * app-wide (as a provider so it can inject the logger).
  */
 @Module({
-  imports: [ConfigModule, LoggingModule, HealthModule, AuthModule, TenancyModule],
+  imports: [
+    ConfigModule,
+    LoggingModule,
+    AccessCoreModule,
+    HealthModule,
+    AuthModule,
+    TenancyModule,
+    AccessModule,
+  ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })
 export class AppModule {}

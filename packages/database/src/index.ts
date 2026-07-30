@@ -24,6 +24,18 @@ export { DEV_SEEDERS, assertNotProduction, runDevSeed } from "./seed/dev-seed";
 export type { SeedEnv } from "./seed/dev-seed";
 export type { Seeder, SeederResult, SeederReportEntry, SeedReport, SeedKind } from "./seed/types";
 
+// Access catalog seed (EPIC-5)
+export { ACCESS_SEEDERS } from "./seed/access/access-seeders";
+export { createPlatformAdminsSeeder } from "./seed/access/platform-admins-seeder";
+export {
+  FEATURES,
+  PERMISSIONS,
+  PLANS,
+  TEMPLATES,
+  ALL_PERMISSION_KEYS,
+} from "./seed/access/catalog";
+export type { FeatureDef, PermissionDef, PlanDef, TemplateDef } from "./seed/access/catalog";
+
 // Keyset (cursor) pagination
 export { clampLimit, encodeCursor, decodeCursor, buildKeysetPage } from "./keyset";
 export type { CursorValues, KeysetLimitOptions, KeysetPage } from "./keyset";

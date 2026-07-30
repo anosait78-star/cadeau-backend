@@ -79,6 +79,11 @@ export const envSchema = z
     // Secret: Encryption (AES-256 key, 32 bytes as 64 hex chars)
     ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, "must be 64 hex characters (32 bytes)"),
 
+    // Platform Super-Admin bootstrap (optional, CSV of emails). The access seed
+    // (EPIC-5) promotes matching profiles into `platform_admins`; privilege is a
+    // separate DB-backed grant, never a tenant-token claim.
+    SUPER_ADMIN_EMAILS: z.string().optional(),
+
     // Secret: OAuth (optional — reserved for future social/store login)
     OAUTH_GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     OAUTH_GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),

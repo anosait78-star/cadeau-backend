@@ -63,6 +63,7 @@ model Profile {
   memberships       CompanyMember[]
   sessions          Session[]
   acceptedInvites   Invitation[]    @relation("InvitationAcceptedBy")
+  platformAdmin     PlatformAdmin?
 
   @@map("profiles")
 }
@@ -82,6 +83,10 @@ model Company {
   members     CompanyMember[]
   sessions    Session[]
   invitations Invitation[]
+  subscription      Subscription?
+  featureFlags      CompanyFeatureFlag[]
+  addOns            AddOn[]
+  memberPermissions MemberPermission[]
 
   @@map("companies")
 }
@@ -101,6 +106,7 @@ model CompanyMember {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user    Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions MemberPermission[]
 
   @@unique([companyId, userId], map: "company_members_company_user_key")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "company_members_keyset_idx")
@@ -157,4 +163,224 @@ model Invitation {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "invitations_keyset_idx")
   @@index([companyId, email], map: "invitations_email_idx")
   @@map("invitations")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-5 — Three-Layer Access (ADR-0003). The catalog tables below are SYSTEM
+// reference data (not tenant-scoped): readable by any signed-in user for
+// server-side resolution, written only by the idempotent system seed. The
+// tenant-scoped tables (subscriptions, company_feature_flags, add_ons,
+// member_permissions) carry the base columns + FORCE RLS scoped by company_id.
+// A request is allowed only when Subscription ∧ Feature-Flag ∧ Permission agree.
+// ---------------------------------------------------------------------------
+
+/// Feature catalog (EPIC-5). One row per FEATURE_KEY the product knows about;
+/// adding a module = seeding a key here (no core change — ADR-004). `category`
+/// groups features for the admin surface; `isActive` is a platform-wide kill
+/// switch (a globally-inactive feature is never effective for anyone).
+model Feature {
+  key         String   @id
+  name        String
+  description String?
+  category    String   @default("core")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  planFeatures       PlanFeature[]
+  featurePermissions FeaturePermission[]
+  companyFeatureFlags CompanyFeatureFlag[]
+  addOns             AddOn[]
+
+  @@map("features")
+}
+
+/// Subscription plan / tier (EPIC-5). System reference data. The plan a company
+/// is on determines its base feature set via {@link PlanFeature}.
+model Plan {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique(map: "plans_code_key")
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  features      PlanFeature[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+/// The features a plan includes (EPIC-5). System reference data.
+model PlanFeature {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId     String @map("plan_id") @db.Uuid
+  featureKey String @map("feature_key")
+
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@unique([planId, featureKey], map: "plan_features_plan_feature_key")
+  @@index([featureKey], map: "plan_features_feature_idx")
+  @@map("plan_features")
+}
+
+/// Permission catalog (EPIC-5). One row per permission key (e.g. `orders.read`).
+/// System reference data; the permission graph edges live in {@link RolePermission}
+/// (template → permission) and {@link FeaturePermission} (feature → permission).
+model Permission {
+  key         String   @id
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  featurePermissions FeaturePermission[]
+  rolePermissions    RolePermission[]
+  memberPermissions  MemberPermission[]
+
+  @@map("permissions")
+}
+
+/// Feature → permission edge (EPIC-5). A permission with a row here is only
+/// effective when its feature is enabled for the company; a permission with no
+/// row is feature-independent (e.g. the core `access.*` permissions).
+model FeaturePermission {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  featureKey    String @map("feature_key")
+  permissionKey String @map("permission_key")
+
+  feature    Feature    @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@unique([featureKey, permissionKey], map: "feature_permissions_feature_permission_key")
+  @@index([permissionKey], map: "feature_permissions_permission_idx")
+  @@map("feature_permissions")
+}
+
+/// Permission template / role preset (EPIC-5). The six system presets (Owner,
+/// Store Manager, Call Center, Warehouse, Finance, Marketing). A member's
+/// `company_members.role` names one of these keys; the base permission set comes
+/// from {@link RolePermission}, refined per-member by {@link MemberPermission}.
+model PermissionTemplate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String   @unique(map: "permission_templates_key_key")
+  name        String
+  description String?
+  isSystem    Boolean  @default(true) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  permissions RolePermission[]
+
+  @@map("permission_templates")
+}
+
+/// Template → permission edge (EPIC-5). The permissions each template grants.
+/// System reference data.
+model RolePermission {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId    String @map("template_id") @db.Uuid
+  permissionKey String @map("permission_key")
+
+  template   PermissionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  permission Permission         @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@unique([templateId, permissionKey], map: "role_permissions_template_permission_key")
+  @@index([permissionKey], map: "role_permissions_permission_idx")
+  @@map("role_permissions")
+}
+
+/// Platform Super-Admin grant (EPIC-5). NOT tenant-scoped — a platform-level
+/// privilege isolated from tenant roles and never carried in a tenant token. The
+/// `SuperAdminGuard` looks a caller up here by user id. Seeded from
+/// `SUPER_ADMIN_EMAILS`; RLS lets a user read only their own grant row.
+model PlatformAdmin {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @unique(map: "platform_admins_user_key") @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("platform_admins")
+}
+
+/// A company's active subscription (EPIC-5). Tenant-scoped by `companyId`
+/// (one per company). Set by a Super-Admin; determines the base feature set.
+model Subscription {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String    @unique(map: "subscriptions_company_key") @map("company_id") @db.Uuid
+  planId           String    @map("plan_id") @db.Uuid
+  status           String    @default("active")
+  currentPeriodEnd DateTime? @map("current_period_end") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@map("subscriptions")
+}
+
+/// Per-company feature override (EPIC-5). Tenant-scoped by `companyId`. A
+/// Super-Admin toggles a feature on/off for a company with no code change; an
+/// explicit `false` disables a feature the plan would otherwise include.
+model CompanyFeatureFlag {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  featureKey String   @map("feature_key")
+  enabled    Boolean  @default(true)
+  createdBy  String?  @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@unique([companyId, featureKey], map: "company_feature_flags_company_feature_key")
+  @@map("company_feature_flags")
+}
+
+/// Feature granted to a company beyond its plan (EPIC-5). Tenant-scoped by
+/// `companyId`. Additive: an add-on enables a feature even when the plan omits it.
+model AddOn {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  featureKey String   @map("feature_key")
+  createdBy  String?  @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@unique([companyId, featureKey], map: "add_ons_company_feature_key")
+  @@map("add_ons")
+}
+
+/// Per-member permission override (EPIC-5). Tenant-scoped by `companyId`. Layered
+/// on top of the member's template (`company_members.role`): `granted = true`
+/// adds a permission, `granted = false` revokes one the template would grant.
+model MemberPermission {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  memberId      String   @map("member_id") @db.Uuid
+  permissionKey String   @map("permission_key")
+  granted       Boolean  @default(true)
+  createdBy     String?  @map("created_by") @db.Uuid
+  updatedBy     String?  @map("updated_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  member     CompanyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  permission Permission    @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@unique([companyId, memberId, permissionKey], map: "member_permissions_member_permission_key")
+  @@index([companyId, memberId], map: "member_permissions_member_idx")
+  @@map("member_permissions")
 }

@@ -67,4 +67,9 @@ export interface AppConfig {
   readonly encryption: EncryptionConfig;
   readonly oauth: OAuthConfig;
   readonly thirdParty: ThirdPartyConfig;
+  /**
+   * Emails that bootstrap the platform Super-Admin grant (EPIC-5). The access
+   * seed promotes matching profiles into `platform_admins`. Empty when unset.
+   */
+  readonly superAdminEmails: readonly string[];
 }

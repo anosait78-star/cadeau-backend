@@ -65,6 +65,7 @@ export function buildConfig(env: ValidatedEnv): AppConfig {
     encryption: { key: env.ENCRYPTION_KEY },
     oauth,
     thirdParty,
+    superAdminEmails: env.SUPER_ADMIN_EMAILS !== undefined ? splitList(env.SUPER_ADMIN_EMAILS) : [],
   };
 
   return deepFreeze(config);
@@ -101,5 +102,6 @@ export function redactConfig(config: AppConfig): Record<string, unknown> {
       whatsappApiKey: config.thirdParty.whatsappApiKey ? REDACTED : undefined,
       shippingBostaApiKey: config.thirdParty.shippingBostaApiKey ? REDACTED : undefined,
     },
+    superAdminEmails: config.superAdminEmails,
   };
 }

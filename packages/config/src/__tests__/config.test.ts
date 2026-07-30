@@ -81,6 +81,14 @@ describe("loadConfig — valid input", () => {
     }).toThrow();
   });
 
+  it("parses SUPER_ADMIN_EMAILS into a list (empty when unset)", () => {
+    expect(loadConfig({ env: validEnv() }).superAdminEmails).toEqual([]);
+    const withAdmins = loadConfig({
+      env: validEnv({ SUPER_ADMIN_EMAILS: "root@cadeau.example, ops@cadeau.example" }),
+    });
+    expect(withAdmins.superAdminEmails).toEqual(["root@cadeau.example", "ops@cadeau.example"]);
+  });
+
   it("includes optional OAuth config only when both id and secret are present", () => {
     const without = loadConfig({ env: validEnv() });
     expect(without.oauth.google).toBeUndefined();

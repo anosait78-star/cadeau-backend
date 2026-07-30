@@ -80,10 +80,18 @@ describe("runSeeders", () => {
 });
 
 describe("runSystemSeed", () => {
-  it("applies the empty registry cleanly (no changes at M1.4)", async () => {
+  it("applies the registered access catalog seeders (EPIC-5)", async () => {
+    // The fake executor reports 0 affected rows, so a catalog already in place
+    // yields totalChanged 0 while still running every registered seeder.
     const report = await runSystemSeed(fakeRunner());
     expect(report.kind).toBe("system");
-    expect(report.seeders).toEqual([]);
+    expect(report.seeders.map((s) => s.name)).toEqual([
+      "access:features",
+      "access:permissions",
+      "access:feature_permissions",
+      "access:plans",
+      "access:permission_templates",
+    ]);
     expect(report.totalChanged).toBe(0);
   });
 });

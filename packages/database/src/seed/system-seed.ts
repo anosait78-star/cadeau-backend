@@ -1,4 +1,5 @@
 import type { TransactionRunner } from "../types";
+import { ACCESS_SEEDERS } from "./access/access-seeders";
 import { runSeeders } from "./run";
 import type { SeedReport, Seeder } from "./types";
 
@@ -7,11 +8,13 @@ import type { SeedReport, Seeder } from "./types";
  * that is part of the product and belongs in every environment (including
  * production).
  *
- * EMPTY at M1.4 by design. M1.4 delivers only the seed *framework*. The
- * reference data the roadmap lists (currencies, feature catalog, permission
- * templates, …) is registered here by the epic that owns it, never front-run.
+ * EPIC-5 registers the access catalog here (features, permissions + feature
+ * edges, plans, and the six permission templates). The platform Super-Admin
+ * seeder is env-parameterized (`SUPER_ADMIN_EMAILS`) and appended by the seed
+ * entrypoint, not listed here. Later epics register their reference data
+ * (currencies, …) the same way, never front-run.
  */
-export const SYSTEM_SEEDERS: readonly Seeder[] = [];
+export const SYSTEM_SEEDERS: readonly Seeder[] = [...ACCESS_SEEDERS];
 
 /**
  * Run the system seed: apply every registered system seeder atomically and
