@@ -3,8 +3,9 @@
 // M1.4 delivered the database *foundation* (extensions, the multi-tenant RLS
 // context, migrations, seed framework). EPIC-3 adds the security/data-layer
 // foundation: the append-only `audit_log` and the reusable RLS + trigger
-// patterns. Tenant tables (companies/members/profiles) and domain tables are
-// owned by their epics (Auth EPIC-4, Access EPIC-5, Master Data/… EPIC-7+).
+// patterns. EPIC-4 · M4.2 adds the Auth + tenancy tables (profiles, companies,
+// company_members, sessions, invitations). Later domain tables are owned by
+// their epics (Access EPIC-5, Master Data/… EPIC-7+).
 //
 // Objects Prisma cannot model (extensions, functions, RLS policies, triggers)
 // live in hand-written SQL migrations under ./migrations, applied with
@@ -39,4 +40,121 @@ model AuditLog {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "audit_log_keyset_idx")
   @@index([companyId, entityType, entityId], map: "audit_log_entity_idx")
   @@map("audit_log")
+}
+
+/// User account (EPIC-4 · M4.2). Not tenant-scoped — a user exists independently
+/// of companies and may belong to several. `email` is case-insensitive (citext);
+/// `passwordHash` is a self-built hash (@cadeau/crypto); `phoneEncrypted` stores
+/// an AES-256-GCM token (never plaintext PII). RLS scopes rows to the current
+/// principal (`app.current_user_id()`).
+model Profile {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email               String    @unique(map: "profiles_email_key") @db.Citext
+  passwordHash        String    @map("password_hash")
+  fullName            String?   @map("full_name")
+  phoneEncrypted      String?   @map("phone_encrypted")
+  /// AES-256-GCM ciphertext of the base32 TOTP secret (@cadeau/crypto); never plaintext.
+  totpSecretEncrypted String?   @map("totp_secret_encrypted")
+  /// When 2FA was confirmed; NULL ⇒ enrolled-but-unconfirmed or off.
+  totpEnabledAt       DateTime? @map("totp_enabled_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  memberships       CompanyMember[]
+  sessions          Session[]
+  acceptedInvites   Invitation[]    @relation("InvitationAcceptedBy")
+
+  @@map("profiles")
+}
+
+/// Tenant (EPIC-4 · M4.2). The tenant root: the tenant key *is* the row id, so
+/// RLS scopes by `id = app.current_company_id()`.
+model Company {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String?  @unique(map: "companies_slug_key") @db.Citext
+  status    String   @default("active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  members     CompanyMember[]
+  sessions    Session[]
+  invitations Invitation[]
+
+  @@map("companies")
+}
+
+/// Membership + role of a user in a company (EPIC-4 · M4.2). Tenant-scoped by
+/// `companyId`. Unique `(companyId, userId)`: a user joins a company at most once.
+model CompanyMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String   @default("member")
+  status    String   @default("active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId], map: "company_members_company_user_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "company_members_keyset_idx")
+  @@index([userId], map: "company_members_user_idx")
+  @@map("company_members")
+}
+
+/// Refresh-token family per sign-in (EPIC-4 · M4.2). User-owned (RLS by
+/// `userId`), carrying the tenant the token is scoped to. Only the *hash* of the
+/// refresh token is stored; rotation replaces it, reuse detection revokes the
+/// whole `familyId`.
+model Session {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  companyId        String?   @map("company_id") @db.Uuid
+  familyId         String    @default(dbgenerated("gen_random_uuid()")) @map("family_id") @db.Uuid
+  refreshTokenHash String    @unique(map: "sessions_refresh_token_hash_key") @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user    Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "sessions_user_keyset_idx")
+  @@index([familyId], map: "sessions_family_idx")
+  @@map("sessions")
+}
+
+/// Revocable, expiring invite to join a company (EPIC-4 · M4.2). Tenant-scoped
+/// by `companyId`; only the *hash* of the shareable code is stored.
+model Invitation {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  email      String    @db.Citext
+  role       String    @default("member")
+  codeHash   String    @unique(map: "invitations_code_hash_key") @map("code_hash")
+  status     String    @default("pending")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(6)
+  acceptedBy String?   @map("accepted_by") @db.Uuid
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdBy  String?   @map("created_by") @db.Uuid
+  updatedBy  String?   @map("updated_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  acceptedByUser Profile? @relation("InvitationAcceptedBy", fields: [acceptedBy], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "invitations_keyset_idx")
+  @@index([companyId, email], map: "invitations_email_idx")
+  @@map("invitations")
 }

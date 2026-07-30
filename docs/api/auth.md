@@ -1,11 +1,11 @@
 # Auth API Contract
 
-**Status:** ⬜ Draft — planned in **EPIC-4** · **Base path:** `/v1/auth` ·
-**Access:** public endpoints + self-service · **Feature key:** — (core)
+**Status:** ✅ Implemented — **EPIC-4** (M4.3 sessions, M4.4 2FA) · **Base path:**
+`/v1/auth` · **Access:** public endpoints + self-service · **Feature key:** — (core)
 
 Self-built JWT auth (access + refresh), 2FA, and session management. **No external
-identity provider** (ADR / locked stack). Draft — follows
-[../api-conventions.md](../api-conventions.md); shapes finalized in EPIC-4.
+identity provider** (ADR / locked stack). Follows
+[../api-conventions.md](../api-conventions.md).
 
 ## Resources
 
@@ -14,16 +14,25 @@ identity provider** (ADR / locked stack). Draft — follows
 
 ## Planned endpoints
 
-| Method | Path                            | Purpose                                                    | Permission             |
-| ------ | ------------------------------- | ---------------------------------------------------------- | ---------------------- |
-| POST   | `/v1/auth/register`             | Create an account (invite-gated).                          | public                 |
-| POST   | `/v1/auth/login`                | Exchange credentials for tokens. Idempotency-Key optional. | public                 |
-| POST   | `/v1/auth/refresh`              | Rotate the access token from a refresh token.              | public (refresh token) |
-| POST   | `/v1/auth/logout`               | Revoke the current session.                                | authenticated          |
-| GET    | `/v1/auth/sessions`             | List the caller's active sessions.                         | authenticated          |
-| DELETE | `/v1/auth/sessions/{sessionId}` | Revoke a session.                                          | authenticated          |
-| POST   | `/v1/auth/2fa/enroll`           | Begin TOTP enrolment.                                      | authenticated          |
-| POST   | `/v1/auth/2fa/verify`           | Confirm a 2FA code.                                        | authenticated          |
+| Method | Path                            | Purpose                                                     | Permission             |
+| ------ | ------------------------------- | ----------------------------------------------------------- | ---------------------- |
+| POST   | `/v1/auth/register`             | Create an account (invite-gated).                           | public                 |
+| POST   | `/v1/auth/login`                | Exchange credentials (+ `totpCode` when 2FA on) for tokens. | public                 |
+| POST   | `/v1/auth/refresh`              | Rotate the access token from a refresh token.               | public (refresh token) |
+| POST   | `/v1/auth/logout`               | Revoke the current session.                                 | authenticated          |
+| GET    | `/v1/auth/sessions`             | List the caller's active sessions.                          | authenticated          |
+| DELETE | `/v1/auth/sessions/{sessionId}` | Revoke a session.                                           | authenticated          |
+| POST   | `/v1/auth/2fa/enroll`           | Begin TOTP enrolment (returns secret + otpauth URI, once).  | authenticated          |
+| POST   | `/v1/auth/2fa/verify`           | Confirm a 6-digit code, enabling 2FA.                       | authenticated          |
+
+## 2FA (TOTP) flow
+
+Self-built TOTP (RFC 6238, base32 + HMAC-SHA1, `@cadeau/crypto`; no external OTP
+library). `enroll` generates a secret, stores it **encrypted** (AES-256-GCM),
+unconfirmed; `verify` checks a code (±1 step skew) and sets `totpEnabledAt`. Once
+enabled, `login` requires `totpCode`: a missing code returns `401` with
+`error.details.twoFactorRequired = true` (so the client can prompt); a wrong code
+is an ordinary invalid-credentials `401`. Secrets/codes never appear in logs.
 
 ## List parameters
 

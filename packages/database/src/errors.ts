@@ -23,6 +23,21 @@ export class InvalidCompanyIdError extends DatabaseError {
   }
 }
 
+/**
+ * Thrown when a value that must be a user (principal) UUID is not one. Guards the
+ * user RLS context so a malformed identifier can never reach the database.
+ */
+export class InvalidUserIdError extends DatabaseError {
+  constructor(received: unknown) {
+    super(`Invalid user id: expected a UUID, received ${InvalidUserIdError.describe(received)}.`);
+  }
+
+  private static describe(received: unknown): string {
+    if (typeof received === "string") return `"${received}"`;
+    return typeof received;
+  }
+}
+
 /** Thrown when the development seed is invoked against a production database. */
 export class DevSeedInProductionError extends DatabaseError {
   constructor() {

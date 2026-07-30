@@ -11,8 +11,11 @@ export type { DatabaseHealth } from "./health";
 // Multi-tenant RLS context
 export { TENANT_GUC, isCompanyId, assertCompanyId, setTenantContext } from "./tenant-context";
 
+// User (principal) RLS context — for user-owned tables (profiles, sessions)
+export { USER_GUC, isUserId, assertUserId, setUserContext } from "./user-context";
+
 // Transactions
-export { withTransaction, withTenantTransaction } from "./transaction";
+export { withTransaction, withTenantTransaction, withUserTransaction } from "./transaction";
 
 // Seed framework
 export { runSeeders } from "./seed/run";
@@ -33,6 +36,7 @@ export type { TenantActor } from "./repository";
 export {
   DatabaseError,
   InvalidCompanyIdError,
+  InvalidUserIdError,
   DevSeedInProductionError,
   InvalidCursorError,
 } from "./errors";

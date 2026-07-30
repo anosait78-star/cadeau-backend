@@ -66,6 +66,9 @@ importers:
       '@cadeau/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@cadeau/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@cadeau/database':
         specifier: workspace:*
         version: link:../../packages/database

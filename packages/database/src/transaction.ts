@@ -1,4 +1,5 @@
 import { assertCompanyId, setTenantContext } from "./tenant-context";
+import { assertUserId, setUserContext } from "./user-context";
 import type { SqlExecutor, TransactionRunner } from "./types";
 
 /**
@@ -28,6 +29,31 @@ export async function withTenantTransaction<T>(
   assertCompanyId(companyId);
   return client.$transaction(async (tx) => {
     await setTenantContext(tx, companyId);
+    return fn(tx);
+  });
+}
+
+/**
+ * Run `fn` inside a transaction with the user (principal) RLS context bound for
+ * its whole duration — the user-scoped twin of {@link withTenantTransaction}. The
+ * user id is validated, then set as the transaction-local `app.user_id` GUC
+ * before `fn` runs, so every statement it issues against user-owned tables
+ * (profiles, sessions) is scoped to that principal by RLS. The context is
+ * discarded when the transaction ends.
+ *
+ * Pre-authentication flows (register/login/refresh) that must act *before* a
+ * principal is known deliberately run without this (a null `app.user_id`); the
+ * RLS policies on those tables permit the narrow bootstrap path, and the
+ * application layer scopes them explicitly.
+ */
+export async function withUserTransaction<T>(
+  client: TransactionRunner,
+  userId: string,
+  fn: (tx: SqlExecutor) => Promise<T>,
+): Promise<T> {
+  assertUserId(userId);
+  return client.$transaction(async (tx) => {
+    await setUserContext(tx, userId);
     return fn(tx);
   });
 }

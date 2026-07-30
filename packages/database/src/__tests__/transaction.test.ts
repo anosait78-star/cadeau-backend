@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { InvalidCompanyIdError } from "../errors";
-import { withTenantTransaction, withTransaction } from "../transaction";
+import { InvalidCompanyIdError, InvalidUserIdError } from "../errors";
+import { withTenantTransaction, withTransaction, withUserTransaction } from "../transaction";
 import type { SqlExecutor, TransactionRunner } from "../types";
 
 const VALID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -52,6 +52,32 @@ describe("withTenantTransaction", () => {
     await expect(
       withTenantTransaction(runner, "not-a-uuid", () => Promise.resolve(1)),
     ).rejects.toThrow(InvalidCompanyIdError);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("withUserTransaction", () => {
+  it("binds the principal before running the callback and returns its result", async () => {
+    const calls: QueryCall[] = [];
+    const runner = runnerWithRecording(calls);
+    const seen: string[] = [];
+    const result = await withUserTransaction(runner, VALID, async () => {
+      seen.push("ran");
+      return "ok";
+    });
+    expect(result).toBe("ok");
+    // set_config bound the principal exactly once, before the callback ran.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.values).toEqual([VALID]);
+    expect(seen).toEqual(["ran"]);
+  });
+
+  it("validates the user id before opening a transaction", async () => {
+    const transaction = vi.fn();
+    const runner = { $transaction: transaction } as unknown as TransactionRunner;
+    await expect(
+      withUserTransaction(runner, "not-a-uuid", () => Promise.resolve(1)),
+    ).rejects.toThrow(InvalidUserIdError);
     expect(transaction).not.toHaveBeenCalled();
   });
 });

@@ -11,3 +11,6 @@ export class EncryptionError extends CryptoError {}
 
 /** Malformed, unsupported, expired, or invalidly-signed JWT. */
 export class JwtError extends CryptoError {}
+
+/** Malformed TOTP secret, or invalid TOTP generation/verification parameters. */
+export class TotpError extends CryptoError {}

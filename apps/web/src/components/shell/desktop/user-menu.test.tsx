@@ -1,13 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { AuthProvider } from "@/auth/auth-provider";
 import { I18nProvider } from "@/i18n/i18n-provider";
 import { UserMenu } from "./user-menu";
 
 function renderMenu() {
   return render(
     <I18nProvider>
-      <UserMenu />
+      <AuthProvider>
+        <UserMenu />
+      </AuthProvider>
     </I18nProvider>,
   );
 }

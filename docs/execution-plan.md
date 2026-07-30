@@ -18,22 +18,24 @@ canonical sources before writing code:
 
 ## 0. Current state (keep this section updated)
 
-**Done:** EPIC-1 (M1.1–M1.7), EPIC-2 (M2.1–M2.4), EPIC-3 (foundation only), EPIC-4 M4.1.
+**Done:** EPIC-1 (M1.1–M1.7), EPIC-2 (M2.1–M2.4), EPIC-3 (foundation only), EPIC-4
+M4.1–M4.5 (complete — backend + frontend auth). Next: EPIC-4 §2.5 quality gate,
+then EPIC-5.
 
-| Package / app      | What it is                                                                      | Status          |
-| ------------------ | ------------------------------------------------------------------------------- | --------------- |
-| `@cadeau/config`   | Validated typed env config (single source; no `process.env` elsewhere)          | ✅              |
-| `@cadeau/database` | Prisma 6 + RLS context, keyset pagination, repository helpers, `audit_log`      | ✅ (foundation) |
-| `@cadeau/crypto`   | Self-built password hashing (scrypt), PII encryption (AES-256-GCM), JWT (HS256) | ✅              |
-| `@cadeau/api`      | NestJS BFF — health, unified errors, logging, OpenAPI, layered modules          | ✅ (foundation) |
-| `@cadeau/web`      | React 19 + Vite — Dual Shell (Desktop+Mobile), design system, i18n, ⌘K          | ✅ (foundation) |
+| Package / app      | What it is                                                                        | Status          |
+| ------------------ | --------------------------------------------------------------------------------- | --------------- |
+| `@cadeau/config`   | Validated typed env config (single source; no `process.env` elsewhere)            | ✅              |
+| `@cadeau/database` | Prisma 6 + RLS context, keyset pagination, repository helpers, `audit_log`        | ✅ (foundation) |
+| `@cadeau/crypto`   | Self-built scrypt hashing, AES-256-GCM PII encryption, HS256 JWT, TOTP (RFC-6238) | ✅              |
+| `@cadeau/api`      | NestJS BFF — health, unified errors, logging, OpenAPI, layered modules            | ✅ (foundation) |
+| `@cadeau/web`      | React 19 + Vite — Dual Shell (Desktop+Mobile), design system, i18n, ⌘K            | ✅ (foundation) |
 
 **Git:** `main` = initial import (`681321a`). `feat/epic-4-auth` = EPIC-4 work.
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** ~176 unit/integration (config 36 · web 38 · crypto 16 ·
-database 47 · api 39). Keep it growing; never let a gate regress.
+**Test count baseline:** ~252 unit/integration (config 36 · web 60 · crypto 25 ·
+database 47 · api 84). Keep it growing; never let a gate regress.
 
 ---
 
@@ -131,27 +133,45 @@ Exact-pin versions; **stable only** (no alpha/beta/rc/next/canary). Every new de
 Contracts: [api/auth.md](api/auth.md), [api/tenancy.md](api/tenancy.md). No external service.
 
 - **M4.1 Crypto foundation** ✅ — `@cadeau/crypto`.
-- **M4.2 Tenancy data model.** Prisma models + migration for `profiles` (users;
+- **M4.2 Tenancy data model** ✅ — Prisma models + migration for `profiles` (users;
   email `citext` unique; `password_hash`; PII like phone encrypted via
   `@cadeau/crypto`), `companies`, `company_members` (role, status; unique
   `(company_id,user_id)`), `sessions` (refresh-token family, `expires_at`,
   `revoked_at`), `invitations` (revocable code, `expires_at`). RLS on tenant-scoped
   tables; `profiles`/`sessions` scoped by user. Base columns + triggers throughout.
   _Acceptance:_ migration applies in CI; models generate.
-- **M4.3 Auth module (NestJS).** `POST /v1/auth/register|login|refresh|logout`,
+- **M4.3 Auth module (NestJS)** ✅ — `POST /v1/auth/register|login|refresh|logout`,
   `GET/DELETE /v1/auth/sessions`. Password via `hashPassword/verifyPassword`;
   access+refresh JWTs via `signJwt/verifyJwt` (config secrets/TTLs/issuer);
   **refresh-token rotation** + reuse detection; a `JwtAuthGuard` + `@CurrentUser()`
   decorator; rate-limit login/refresh; audit auth events. _Acceptance:_ full
   login→refresh→logout cycle; expired/rotated tokens rejected; unified errors.
-- **M4.4 2FA + invitations + multi-company.** TOTP enrol/verify (self-built, base32
-  - HMAC-SHA1 RFC-6238, or a stable pinned lib only if unavoidable); `GET /v1/me`,
-    company create/switch (re-issue token scoped to tenant), invite create/accept/
-    revoke. PII encryption for stored personal data. _Acceptance:_ 2FA challenge;
-    a user in multiple companies switches tenant; revoked invite rejected.
-- **M4.5 Frontend auth.** Login/register/2fa screens (both shells), token storage +
-  refresh, route guards, `useAuth`, company switcher in the shells. _Acceptance:_
-  end-to-end sign-in in browser; guarded routes redirect.
+- **M4.4 2FA + invitations + multi-company.** ✅ — Self-built TOTP (`@cadeau/crypto`
+  `totp.ts`: base32 + HMAC-SHA1 RFC-6238, RFC-6238 test vectors) with `POST
+/v1/auth/2fa/enroll|verify` (secret stored AES-256-GCM) and a login challenge
+  (`totpCode`; `401` + `details.twoFactorRequired`). New `tenancy` module: `GET
+/v1/me`, `GET/POST /v1/companies`, `POST /v1/companies/{id}/switch` (both
+  create+switch re-issue tenant-scoped tokens via the shared `SESSION_REISSUE`
+  contract), `POST/DELETE .../invitations`, `POST /v1/invitations/accept`. Migration
+  `20260731000000` adds `profiles.totp_*` and widens RLS for the tenant-bootstrap
+  flows (company create, cross-tenant "my companies", invite code lookup) using the
+  null-context pattern — no SECURITY DEFINER / privileged role. _Acceptance met:_
+  2FA challenge; multi-company switch; revoked/expired/mis-addressed invite rejected.
+- **M4.5 Frontend auth.** ✅ — Login/register screens + an inline TOTP challenge
+  step (`auth/login-page`, `auth/register-page`, shared `AuthLayout`, one
+  responsive layout for both shells). Session layer: `lib/api-client` (unified
+  error envelope, bearer injection, single-flight refresh-and-retry on `401`,
+  2FA-challenge passthrough), `auth/auth-storage` (localStorage token pair +
+  derived expiry), `auth/auth-api` (typed login/register/logout/me/switch),
+  `AuthProvider` + `useAuth` (hydrate-from-tokens, login/register/logout/
+  switchCompany/reload), and a `RequireAuth` route guard. Company switcher wired
+  into both shells; user-menu sign-out + mobile More-sheet sign-out. i18n ar/en
+  for all strings. API base via `VITE_API_BASE_URL` (default
+  `http://localhost:3000/v1`). _Acceptance met:_ guarded routes redirect to
+  `/login` (verified live); sign-in / 2FA / switch / logout covered by unit +
+  integration tests against a mocked BFF (live end-to-end needs the API + Postgres
+  → CI). Gates: format/lint/type-check/web-build green; web tests 60 (coverage
+  91%).
 
 ### EPIC-5 — Three-Layer Access (ADR-0003)
 
