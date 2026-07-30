@@ -1,11 +1,14 @@
 import { createBrowserRouter } from "react-router";
 import { RequireAuth } from "@/auth/require-auth";
 import { AppShell } from "@/components/shell/app-shell";
+import { RequireSuperAdmin } from "@/features/access/require-super-admin";
+import { AdminPage } from "@/pages/admin/admin-page";
 import { HomePage } from "@/pages/home-page";
 import { LoginPage } from "@/pages/auth/login-page";
 import { RegisterPage } from "@/pages/auth/register-page";
 import { NotFoundPage } from "@/pages/not-found-page";
 import { PlaceholderPage } from "@/pages/placeholder-page";
+import { RolesPage } from "@/pages/settings/roles-page";
 
 /**
  * Application routes. Public auth screens (`/login`, `/register`) render on their
@@ -26,7 +29,16 @@ export const router = createBrowserRouter([
           { path: "customers", element: <PlaceholderPage titleKey="nav.customers" /> },
           { path: "products", element: <PlaceholderPage titleKey="nav.products" /> },
           { path: "inventory", element: <PlaceholderPage titleKey="nav.inventory" /> },
+          { path: "settings/roles", element: <RolesPage /> },
           { path: "settings", element: <PlaceholderPage titleKey="nav.settings" /> },
+          {
+            path: "admin",
+            element: (
+              <RequireSuperAdmin>
+                <AdminPage />
+              </RequireSuperAdmin>
+            ),
+          },
           { path: "*", element: <NotFoundPage /> },
         ],
       },

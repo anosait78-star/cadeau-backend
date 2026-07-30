@@ -4,8 +4,9 @@ import { useNavigate } from "react-router";
 import { useAuth } from "@/auth/use-auth";
 import { AppActions } from "@/components/shell/app-actions";
 import { BottomSheet } from "@/components/ui/sheet";
+import { useNavItems } from "@/features/access/use-nav-items";
 import { useI18n } from "@/i18n/i18n-provider";
-import { MOBILE_OVERFLOW } from "./mobile-bottom-nav";
+import { MOBILE_PRIMARY_COUNT } from "./mobile-bottom-nav";
 
 /**
  * The "More" bottom sheet: the overflow navigation destinations plus the shared
@@ -21,6 +22,7 @@ export function MobileMoreSheet({
   const { t } = useI18n();
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const overflow = useNavItems().slice(MOBILE_PRIMARY_COUNT);
 
   const go = (to: string): void => {
     onOpenChange(false);
@@ -35,7 +37,7 @@ export function MobileMoreSheet({
   return (
     <BottomSheet open={open} onOpenChange={onOpenChange} title={t("nav.more")}>
       <div className="flex flex-col gap-1">
-        {MOBILE_OVERFLOW.map(({ to, labelKey, icon: Icon }) => (
+        {overflow.map(({ to, labelKey, icon: Icon }) => (
           <button
             key={to}
             type="button"

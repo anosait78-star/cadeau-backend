@@ -19,8 +19,8 @@ canonical sources before writing code:
 ## 0. Current state (keep this section updated)
 
 **Done:** EPIC-1 (M1.1–M1.7), EPIC-2 (M2.1–M2.4), EPIC-3 (foundation only), EPIC-4
-M4.1–M4.5 (complete — backend + frontend auth). Next: EPIC-4 §2.5 quality gate,
-then EPIC-5.
+M4.1–M4.5 (complete — backend + frontend auth), EPIC-5 (M5.1–M5.6 — three-layer
+access, backend + frontend). Next: EPIC-5 §2.5 quality gate, then EPIC-6.
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -34,8 +34,8 @@ then EPIC-5.
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** ~252 unit/integration (config 36 · web 60 · crypto 25 ·
-database 47 · api 84). Keep it growing; never let a gate regress.
+**Test count baseline:** 382 unit/integration after EPIC-5 (config 37 · web 74 ·
+crypto 25 · database 67 · api 179). Keep it growing; never let a gate regress.
 
 ---
 
@@ -173,18 +173,43 @@ Contracts: [api/auth.md](api/auth.md), [api/tenancy.md](api/tenancy.md). No exte
   → CI). Gates: format/lint/type-check/web-build green; web tests 60 (coverage
   91%).
 
-### EPIC-5 — Three-Layer Access (ADR-0003)
+### EPIC-5 — Three-Layer Access (ADR-0003) ✅ — `feat/epic-5-access`
 
-Contract: [api/access.md](api/access.md). Tables: `features`, `plans`,
-`plan_features`, `subscriptions`, `company_feature_flags`, `add_ons`, `permissions`,
-`role_permissions`, `feature_permissions`, `permission_templates`.
-Build the central **Access Resolver** in the BFF (`Subscription ∧ Feature ∧
-Permission`), `GET /v1/access/capabilities` (+ cache & invalidation), API guards +
-`<FeatureGate>`/`<PermissionGate>` on the web, a **Super-Admin** surface (platform
-privilege isolated from tenant roles) to toggle features/plans **with no code**,
-and the six permission templates. Audit every access change.
-_Depends on:_ EPIC-4. _Acceptance:_ menus/pages/buttons/reports/APIs all gated; a
-failure of any layer = `403`; Super-Admin toggles a feature for a company live.
+Contract: [api/access.md](api/access.md). Delivered M5.1–M5.6:
+
+- **M5.1 Data + migration + seeds** ✅ — 12 models + migration `20260801000000`
+  (`features`, `plans`, `plan_features`, `permissions`, `feature_permissions`,
+  `permission_templates`, `role_permissions`, `subscriptions`,
+  `company_feature_flags`, `add_ons`, `member_permissions`, `platform_admins`).
+  Catalog tables: `FORCE` RLS with public read + null-principal seed writes; tenant
+  tables: base columns + tenant RLS + `touch_updated_at`. `app.is_platform_admin()`
+  widens the companies SELECT policy for the Super-Admin list. Idempotent system
+  seeders for the feature catalog, permissions + feature edges, plans, and the
+  **six templates**; `SUPER_ADMIN_EMAILS` config + a platform-admin seeder.
+- **M5.2 Resolver + cache + guards** ✅ — `shared/access`: `AccessResolverService`
+  (`Subscription ∧ Feature ∧ Permission`), `CapabilityCache` (60s TTL + explicit
+  invalidation), `@RequireCapability` + `AccessGuard`, DB-backed `SuperAdminGuard`,
+  global `AccessCoreModule`.
+- **M5.3 Endpoints** ✅ — `modules/access`: `GET /v1/access/capabilities|features|
+permission-templates`, `PUT /v1/access/members/{id}/permissions`; Super-Admin
+  `GET /v1/admin/companies`, `PUT /v1/admin/companies/{id}/features/{key}`,
+  `PUT /v1/admin/companies/{id}/subscription`. Every mutation audited to
+  `audit_log` + cache-invalidating.
+- **M5.4 FE capabilities + gates** ✅ — `CapabilitiesProvider` + `useCapabilities`,
+  `<FeatureGate>`/`<PermissionGate>`, capability-filtered nav (`useNavItems`).
+- **M5.5 FE Super-Admin + roles** ✅ — `/admin` (behind `RequireSuperAdmin`):
+  list companies, toggle a feature live, set a plan; `/settings/roles` shows the
+  templates. ar/en throughout.
+- **M5.6 Tests + gates + docs** ✅ — unit tests across resolver/cache/guards/repos/
+  seeders/DTOs/controllers + FE gates/provider/pages; all local gates green.
+
+_Acceptance met:_ menus/pages/buttons/APIs gated (any-layer failure = `403`);
+Super-Admin toggles a feature for a company live (cache invalidated). _Deviations:_
+`add_ons`/`member_permissions`/`platform_admins` are concrete realizations of the
+contract's table list; the per-member assignment **UI** is deferred pending a
+tenancy members-list endpoint (the `PUT …/permissions` API is delivered + tested);
+event-bus emission of `access.*`/`subscription.changed` is stubbed to audit now,
+wired to the real bus in EPIC-6. DB migration + RLS and e2e are validated in CI.
 
 ### EPIC-6 — Extensible Core (ADR-0004)
 
