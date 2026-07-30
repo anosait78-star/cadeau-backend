@@ -36,6 +36,11 @@ export {
 } from "./seed/access/catalog";
 export type { FeatureDef, PermissionDef, PlanDef, TemplateDef } from "./seed/access/catalog";
 
+// Master-data reference catalog seed (EPIC-7)
+export { MASTER_DATA_SEEDERS } from "./seed/master-data/master-data-seeders";
+export { CURRENCIES, COUNTRIES } from "./seed/master-data/catalog";
+export type { CurrencyDef, CountryDef } from "./seed/master-data/catalog";
+
 // Keyset (cursor) pagination
 export { clampLimit, encodeCursor, decodeCursor, buildKeysetPage } from "./keyset";
 export type { CursorValues, KeysetLimitOptions, KeysetPage } from "./keyset";

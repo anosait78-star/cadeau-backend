@@ -11,6 +11,8 @@
  *   - **Live now (EPIC-5 access surface):** `access.permissions_changed`,
  *     `access.feature_toggled`, `subscription.changed`. These are emitted by the
  *     `access`/`admin` services alongside their durable audit write (EPIC-6 M6.2).
+ *   - **Live now (EPIC-7 master data):** `master_data.changed`, emitted by the
+ *     master-data service on every reference-row create/update/deactivate.
  *   - **Forward-declared** for the domain epics that will emit them
  *     (`order.*` → EPIC-11, `stock.changed` → EPIC-9, `payment.collected` →
  *     EPIC-13). Their payloads are intentionally minimal; the owning epic
@@ -44,6 +46,19 @@ export interface EventPayloads {
   /** The company's subscription plan changed (Super-Admin action). */
   "subscription.changed": {
     readonly planCode: string;
+  };
+  /**
+   * A master-data reference row changed (create/update/deactivate). Consumers
+   * (later modules that cache reference data) invalidate on this. Emitted by the
+   * EPIC-7 master-data service alongside its durable audit write.
+   */
+  "master_data.changed": {
+    /** The resource collection that changed (e.g. `order-labels`). */
+    readonly resource: string;
+    /** The affected row's id (uuid) or code (for code-keyed reference tables). */
+    readonly id: string;
+    /** What happened to the row. */
+    readonly change: "created" | "updated" | "deactivated";
   };
 
   // ---- Forward-declared (owning epic finalizes the payload) --------------

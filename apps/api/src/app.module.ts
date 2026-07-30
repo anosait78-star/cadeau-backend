@@ -4,6 +4,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { TenancyModule } from "./modules/tenancy/tenancy.module";
 import { AccessModule } from "./modules/access/access.module";
+import { MasterDataModule } from "./modules/master-data/master-data.module";
 import { AccessCoreModule } from "./shared/access/access.module";
 import { ConfigModule } from "./shared/config/config.module";
 import { AllExceptionsFilter } from "./shared/errors/all-exceptions.filter";
@@ -25,6 +26,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     AuthModule,
     TenancyModule,
     AccessModule,
+    MasterDataModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

@@ -87,6 +87,11 @@ model Company {
   featureFlags      CompanyFeatureFlag[]
   addOns            AddOn[]
   memberPermissions MemberPermission[]
+  units             Unit[]
+  productCategories ProductCategory[]
+  orderLabels       OrderLabel[]
+  orderReasons      OrderReason[]
+  shippingZones     ShippingZone[]
 
   @@map("companies")
 }
@@ -383,4 +388,177 @@ model MemberPermission {
   @@unique([companyId, memberId, permissionKey], map: "member_permissions_member_permission_key")
   @@index([companyId, memberId], map: "member_permissions_member_idx")
   @@map("member_permissions")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-7 — Master Data. Shared reference data every later module builds on,
+// served as a cached, authoritative source (feature key `master-data`, gated by
+// the three-layer access model). Two kinds of table:
+//
+//   1. SYSTEM REFERENCE (not tenant-scoped): currencies, country_configs,
+//      governorates. Product reference data — the same in every tenant — written
+//      only by the idempotent system seed and readable by anyone for lookups.
+//      RLS mirrors the EPIC-5 catalog: public SELECT + null-context seed writes.
+//
+//   2. TENANT-EDITABLE (base columns + FORCE RLS by company_id, per
+//      docs/core-data.md §16.2): units, product_categories, order_labels,
+//      order_reasons, shipping_zones. Each company curates its own rows.
+//
+// Deletes are soft (`isActive = false`) so historical references never break.
+// ---------------------------------------------------------------------------
+
+/// Currency (EPIC-7). System reference data (ISO-4217). `code` is the PK; money
+/// elsewhere pairs an integer minor amount with one of these codes.
+model Currency {
+  code          String   @id
+  name          String
+  symbol        String
+  decimalDigits Int      @default(2) @map("decimal_digits")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  countryConfigs CountryConfig[]
+
+  @@map("currencies")
+}
+
+/// Country configuration (EPIC-7). System reference data (ISO-3166 alpha-2).
+/// `code` is the PK; `defaultCurrencyCode` points at the country's currency.
+model CountryConfig {
+  code                String   @id
+  name                String
+  defaultCurrencyCode String   @map("default_currency_code")
+  phoneCode           String   @map("phone_code")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  defaultCurrency Currency      @relation(fields: [defaultCurrencyCode], references: [code], onDelete: Restrict)
+  governorates    Governorate[]
+
+  @@map("country_configs")
+}
+
+/// Governorate / administrative region (EPIC-7). System reference data, one set
+/// per country. Referenced later by shipping zones and addresses.
+model Governorate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  countryCode String   @map("country_code")
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  country CountryConfig @relation(fields: [countryCode], references: [code], onDelete: Cascade)
+
+  @@unique([countryCode, name], map: "governorates_country_name_key")
+  @@index([countryCode, name, id], map: "governorates_keyset_idx")
+  @@map("governorates")
+}
+
+/// Unit of measure (EPIC-7). Tenant-editable. Each company curates its own
+/// units (piece, kg, box, …). Unique per company by name.
+model Unit {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  code      String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name], map: "units_company_name_key")
+  @@index([companyId, name, id], map: "units_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "units_created_keyset_idx")
+  @@map("units")
+}
+
+/// Product category (EPIC-7). Tenant-editable, self-nesting via `parentId`.
+model ProductCategory {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  parentId  String?  @map("parent_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent  ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children ProductCategory[] @relation("ProductCategoryTree")
+
+  @@unique([companyId, name], map: "product_categories_company_name_key")
+  @@index([companyId, name, id], map: "product_categories_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "product_categories_created_keyset_idx")
+  @@index([parentId], map: "product_categories_parent_idx")
+  @@map("product_categories")
+}
+
+/// Order label / tag (EPIC-7). Tenant-editable; `color` is an optional hex swatch.
+model OrderLabel {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  color     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name], map: "order_labels_company_name_key")
+  @@index([companyId, name, id], map: "order_labels_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_labels_created_keyset_idx")
+  @@map("order_labels")
+}
+
+/// Order reason (EPIC-7). Tenant-editable. `kind` groups reasons by context
+/// (cancellation / return / general). Unique per company by (kind, name).
+model OrderReason {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  kind      String   @default("general")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, kind, name], map: "order_reasons_company_kind_name_key")
+  @@index([companyId, name, id], map: "order_reasons_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_reasons_created_keyset_idx")
+  @@map("order_reasons")
+}
+
+/// Shipping zone (EPIC-7). Tenant-editable grouping used for shipping-fee logic.
+/// `countryCode` optionally anchors the zone to a country config.
+model ShippingZone {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  countryCode String?  @map("country_code")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name], map: "shipping_zones_company_name_key")
+  @@index([companyId, name, id], map: "shipping_zones_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_zones_created_keyset_idx")
+  @@map("shipping_zones")
 }

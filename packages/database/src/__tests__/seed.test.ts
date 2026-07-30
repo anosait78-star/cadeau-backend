@@ -80,7 +80,7 @@ describe("runSeeders", () => {
 });
 
 describe("runSystemSeed", () => {
-  it("applies the registered access catalog seeders (EPIC-5)", async () => {
+  it("applies the registered access (EPIC-5) + master-data (EPIC-7) seeders", async () => {
     // The fake executor reports 0 affected rows, so a catalog already in place
     // yields totalChanged 0 while still running every registered seeder.
     const report = await runSystemSeed(fakeRunner());
@@ -91,6 +91,9 @@ describe("runSystemSeed", () => {
       "access:feature_permissions",
       "access:plans",
       "access:permission_templates",
+      "master-data:currencies",
+      "master-data:country_configs",
+      "master-data:governorates",
     ]);
     expect(report.totalChanged).toBe(0);
   });
