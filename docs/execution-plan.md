@@ -28,8 +28,14 @@ backend-only). **EPIC-5 §2.5 quality gate: all eleven review dimensions PASS**
 `feat/epic-6-core`: the in-process typed [event bus](../apps/api/src/shared/events/)
 ([events.md](events.md)), the EPIC-5 access stubs now emit through it (additive to
 audit), the `no-ai-imports` architecture guard (ADR-0004), and
-[extensibility.md](extensibility.md). Next: EPIC-6 §2.5 quality gate, then EPIC-7
-(Master Data).
+[extensibility.md](extensibility.md). **EPIC-7 delivered** on
+`feat/epic-7-master-data`: the generic [master-data engine](../apps/api/src/modules/master-data/)
+(one registry-driven controller/service/repository) over eight reference
+collections — three system-seeded (currencies, country configs, governorates)
+and five tenant-editable (units, product categories, order labels, order reasons,
+shipping zones) — three-layer gated, keyset-paginated, soft-deleting, with a 60s
+reference cache and the live `master_data.changed` event; plus the Master Data
+frontend screen. Next: EPIC-6 + EPIC-7 §2.5 quality gates, then EPIC-8 (Products).
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -43,8 +49,8 @@ audit), the `no-ai-imports` architecture guard (ADR-0004), and
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 382 unit/integration after EPIC-5 (config 37 · web 74 ·
-crypto 25 · database 67 · api 179). Keep it growing; never let a gate regress.
+**Test count baseline:** 476 unit/integration after EPIC-7 (config 37 · web 80 ·
+crypto 25 · database 71 · api 269). Keep it growing; never let a gate regress.
 
 ---
 
@@ -263,13 +269,42 @@ _Acceptance met:_ events emit/subscribe with subscriber isolation; the EPIC-5
 access events flow through the bus; the AI-import guard blocks a planted import;
 extension points documented; `AI` flag OFF. Then the §2.5 quality gate.
 
-### EPIC-7 — Master Data
+### EPIC-7 — Master Data ✅ — `feat/epic-7-master-data`
 
-Contract: [api/master-data.md](api/master-data.md). Tables: `currencies`,
-`country_configs`, governorates/shipping zones, `order_labels`, `order_reasons`,
-product categories, units. CRUD gated by the three-layer access; a **cached
-reference source** for later modules. _Acceptance:_ CRUD + cache; some tables
-system-seeded (idempotent) vs tenant-editable.
+Contract: [api/master-data.md](api/master-data.md). Delivered M7.1–M7.5:
+
+- **M7.1 Data + migration + seeds** ✅ — 8 models + migration `20260802000000`.
+  System reference (public-read + null-context seed writes): `currencies`,
+  `country_configs`, `governorates`. Tenant-editable (base columns + `FORCE` RLS
+  - `touch_updated_at`): `units`, `product_categories`, `order_labels`,
+    `order_reasons`, `shipping_zones`. Deletes are soft (`is_active`). Idempotent
+    system seeders (currencies, EG/SA/AE country configs, Egypt's 27 governorates)
+    registered in `SYSTEM_SEEDERS`.
+- **M7.2 Backend engine** ✅ — a generic, registry-driven master-data engine
+  under `/v1/master-data` (`modules/master-data`): one controller/service/generic
+  Prisma repository reads a `ResourceDescriptor` per collection. Three-layer gated
+  (`master-data.read`/`master-data.manage` under the `master-data` feature),
+  keyset pagination, whitelisted filters/sort, manual validation to the
+  api-conventions §4 field-error shape, same-tenant reference checks, soft-delete,
+  and a 60s reference cache. Every write records a durable `audit_log` row,
+  invalidates the cache, and emits the new `master_data.changed` domain event
+  (added to the EPIC-6 catalog). System resources reject writes (`403`).
+- **M7.3 Tests + gates** ✅ — unit tests across registry/validation/list-query/
+  cache/service/repository/controller + seeder tests; all local gates green
+  (api 179→269, database 67→71).
+- **M7.4 Frontend** ✅ — a capability-gated Master Data screen in the Dual Shell
+  (`pages/master-data`, `features/master-data`): resource switcher, responsive
+  card list (card alternative for both shells), create/edit/deactivate for the
+  tenant resources, read-only system resources, standard states, ar/en, nav +
+  route. Vitest + Testing Library specs against a mocked BFF.
+- **M7.5 Docs + gates** ✅ — [api/master-data.md](api/master-data.md) marked
+  delivered (resource-by-resource, endpoints, filters/sort, events, caching),
+  [events.md](events.md) lists `master_data.changed` live, this plan updated.
+
+_Acceptance met:_ CRUD + cache; system tables system-seeded (idempotent, read-only
+via API) vs tenant-editable; a cached reference source for later modules; every
+write emits `master_data.changed`. DB migration + RLS validated in CI. Then the
+§2.5 quality gate.
 
 ### EPIC-8 — Products
 

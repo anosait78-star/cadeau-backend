@@ -71,6 +71,7 @@ logged and, later, queued for delivery.
 | `access.permissions_changed` | `AccessService` (member assign) | `memberId`, `memberUserId`, `templateKey?` | **Live** (EPIC-5/6) |
 | `access.feature_toggled`     | `AdminService` (Super-Admin)    | `featureKey`, `enabled`                    | **Live**            |
 | `subscription.changed`       | `AdminService` (Super-Admin)    | `planCode`                                 | **Live**            |
+| `master_data.changed`        | `MasterDataService` (EPIC-7)    | `resource`, `id`, `change`                 | **Live** (EPIC-7)   |
 | `order.created`              | Orders (EPIC-11)                | `orderId`                                  | Forward-declared    |
 | `order.status_changed`       | Orders (EPIC-11)                | `orderId`, `fromStatus`, `toStatus`        | Forward-declared    |
 | `stock.changed`              | Inventory (EPIC-9)              | `inventoryId`, `variantId`, `onHandDelta`  | Forward-declared    |
