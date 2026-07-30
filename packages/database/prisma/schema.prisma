@@ -13,7 +13,7 @@
 // so all models stay in the default `public` schema.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native"]
 }
 
@@ -60,10 +60,10 @@ model Profile {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  memberships       CompanyMember[]
-  sessions          Session[]
-  acceptedInvites   Invitation[]    @relation("InvitationAcceptedBy")
-  platformAdmin     PlatformAdmin?
+  memberships     CompanyMember[]
+  sessions        Session[]
+  acceptedInvites Invitation[]    @relation("InvitationAcceptedBy")
+  platformAdmin   PlatformAdmin?
 
   @@map("profiles")
 }
@@ -80,9 +80,9 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  members     CompanyMember[]
-  sessions    Session[]
-  invitations Invitation[]
+  members           CompanyMember[]
+  sessions          Session[]
+  invitations       Invitation[]
   subscription      Subscription?
   featureFlags      CompanyFeatureFlag[]
   addOns            AddOn[]
@@ -94,6 +94,11 @@ model Company {
   shippingZones     ShippingZone[]
   products          Product[]
   productVariants   ProductVariant[]
+  warehouses        Warehouse[]
+  inventoryStock    InventoryStock[]
+  stockReservations StockReservation[]
+  stockTransfers    StockTransfer[]
+  stockAdjustments  StockAdjustment[]
 
   @@map("companies")
 }
@@ -111,8 +116,8 @@ model CompanyMember {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user    Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user        Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
   permissions MemberPermission[]
 
   @@unique([companyId, userId], map: "company_members_company_user_key")
@@ -194,10 +199,10 @@ model Feature {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  planFeatures       PlanFeature[]
-  featurePermissions FeaturePermission[]
+  planFeatures        PlanFeature[]
+  featurePermissions  FeaturePermission[]
   companyFeatureFlags CompanyFeatureFlag[]
-  addOns             AddOn[]
+  addOns              AddOn[]
 
   @@map("features")
 }
@@ -472,7 +477,7 @@ model Unit {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   products Product[]
 
   @@unique([companyId, name], map: "units_company_name_key")
@@ -493,8 +498,8 @@ model ProductCategory {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  parent  ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children ProductCategory[] @relation("ProductCategoryTree")
   products Product[]
 
@@ -579,17 +584,19 @@ model ShippingZone {
 /// tenant). A product groups one or more sellable {@link ProductVariant}s.
 /// Unique per company by name; archived via `isActive`.
 model Product {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  name        String
-  description String?
-  categoryId  String?  @map("category_id") @db.Uuid
-  unitId      String?  @map("unit_id") @db.Uuid
-  isActive    Boolean  @default(true) @map("is_active")
-  createdBy   String?  @map("created_by") @db.Uuid
-  updatedBy   String?  @map("updated_by") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  name          String
+  description   String?
+  categoryId    String?  @map("category_id") @db.Uuid
+  unitId        String?  @map("unit_id") @db.Uuid
+  /// Oversell policy (EPIC-9): when true, reservations may exceed available stock.
+  allowOversell Boolean  @default(false) @map("allow_oversell")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdBy     String?  @map("created_by") @db.Uuid
+  updatedBy     String?  @map("updated_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -627,8 +634,158 @@ model ProductVariant {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  stock        InventoryStock[]
+  reservations StockReservation[]
+  transfers    StockTransfer[]
+  adjustments  StockAdjustment[]
+
   @@unique([productId, name], map: "product_variants_product_name_key")
   @@index([productId, name, id], map: "product_variants_product_idx")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "product_variants_company_keyset_idx")
   @@map("product_variants")
+}
+
+// ---------------------------------------------------------------------------
+// Inventory & Warehouses (EPIC-9)
+// ---------------------------------------------------------------------------
+
+/// A stock location (EPIC-9). Tenant-editable; archived via `isActive`. Exactly
+/// one warehouse per company may carry `isDefault` (partial unique index).
+model Warehouse {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  code      String?
+  address   String?
+  isDefault Boolean  @default(false) @map("is_default")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stock        InventoryStock[]
+  reservations StockReservation[]
+  adjustments  StockAdjustment[]
+  transfersOut StockTransfer[]    @relation("StockTransferFrom")
+  transfersIn  StockTransfer[]    @relation("StockTransferTo")
+
+  @@unique([companyId, name], map: "warehouses_company_name_key")
+  @@index([companyId, name, id], map: "warehouses_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "warehouses_created_keyset_idx")
+  @@map("warehouses")
+}
+
+/// Per-(warehouse, variant) stock level (EPIC-9). `onHand` is physical stock,
+/// `committed` is reserved-but-not-yet-shipped, and `available` is the derived
+/// `onHand - committed` maintained by the `app.sync_stock_available()` trigger
+/// (kept as a real column so it can be filtered, sorted, and indexed).
+/// `reorderPoint` drives the `stock.low` alert.
+model InventoryStock {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  warehouseId  String   @map("warehouse_id") @db.Uuid
+  variantId    String   @map("variant_id") @db.Uuid
+  onHand       BigInt   @default(0) @map("on_hand")
+  committed    BigInt   @default(0)
+  /// Derived (`on_hand - committed`); trigger-maintained, never client-written.
+  available    BigInt   @default(0)
+  reorderPoint BigInt   @default(0) @map("reorder_point")
+  createdBy    String?  @map("created_by") @db.Uuid
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, variantId], map: "inventory_stock_warehouse_variant_key")
+  @@index([companyId, available, id], map: "inventory_stock_available_keyset_idx")
+  @@index([companyId, updatedAt(sort: Desc), id(sort: Desc)], map: "inventory_stock_updated_keyset_idx")
+  @@index([variantId], map: "inventory_stock_variant_idx")
+  @@map("inventory_stock")
+}
+
+/// An outstanding stock commitment (EPIC-9). Created when an order reserves
+/// stock and released when the order ships or is cancelled — both atomic against
+/// {@link InventoryStock.committed}. `status` is `active` or `released`;
+/// `idempotencyKey` makes a retried reserve a replay, not a double-commit.
+model StockReservation {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  warehouseId    String    @map("warehouse_id") @db.Uuid
+  variantId      String    @map("variant_id") @db.Uuid
+  quantity       BigInt
+  /// The order this reservation backs (EPIC-11); no FK until orders exist.
+  orderId        String?   @map("order_id") @db.Uuid
+  reference      String?
+  status         String    @default("active")
+  releasedAt     DateTime? @map("released_at") @db.Timestamptz(6)
+  idempotencyKey String?   @map("idempotency_key")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_reservations_keyset_idx")
+  @@index([companyId, status], map: "stock_reservations_status_idx")
+  @@index([variantId], map: "stock_reservations_variant_idx")
+  @@map("stock_reservations")
+}
+
+/// An atomic move of stock between two warehouses (EPIC-9), logged forever.
+model StockTransfer {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  fromWarehouseId String   @map("from_warehouse_id") @db.Uuid
+  toWarehouseId   String   @map("to_warehouse_id") @db.Uuid
+  variantId       String   @map("variant_id") @db.Uuid
+  quantity        BigInt
+  note            String?
+  idempotencyKey  String?  @map("idempotency_key")
+  createdBy       String?  @map("created_by") @db.Uuid
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse      @relation("StockTransferFrom", fields: [fromWarehouseId], references: [id], onDelete: Cascade)
+  toWarehouse   Warehouse      @relation("StockTransferTo", fields: [toWarehouseId], references: [id], onDelete: Cascade)
+  variant       ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_transfers_keyset_idx")
+  @@index([variantId], map: "stock_transfers_variant_idx")
+  @@map("stock_transfers")
+}
+
+/// A counted correction to on-hand stock (EPIC-9), reason-coded and logged.
+/// `quantityDelta` is signed: positive raises on-hand, negative lowers it.
+model StockAdjustment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  warehouseId    String   @map("warehouse_id") @db.Uuid
+  variantId      String   @map("variant_id") @db.Uuid
+  quantityDelta  BigInt   @map("quantity_delta")
+  /// Reason code (`count`, `damage`, `loss`, `return`, `other`).
+  reason         String
+  note           String?
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_adjustments_keyset_idx")
+  @@index([variantId], map: "stock_adjustments_variant_idx")
+  @@map("stock_adjustments")
 }

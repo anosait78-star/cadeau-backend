@@ -79,9 +79,13 @@ Emitted through the EPIC-6 event bus alongside the durable `audit_log` write
 - **Archive is soft** (`is_active = false`): archived products keep their
   variants for historical order / COGS integrity. Reads default to active-only;
   pass `active=all` (or `false`) to include archived rows.
-- **`hasStock` filter — deferred.** The original draft listed a `hasStock`
-  filter; it depends on the inventory tables (EPIC-9) and is intentionally not
-  implemented yet. It will be added when EPIC-9 lands.
+- **`hasStock` filter — delivered in EPIC-9.** `?hasStock=true` narrows the list
+  to products with at least one variant holding an `inventory_stock` level whose
+  `available > 0`. Absent or `false` means no filter; anything else is a `400`.
+- **`allowOversell` — delivered in EPIC-9.** A per-product boolean (default
+  `false`) settable on create/update and returned on every product read. When
+  `true`, `POST /v1/inventory/reservations` may reserve beyond `available`; see
+  [inventory.md](inventory.md).
 - **Idempotency-Key — deferred.** No idempotency store exists yet (no module
   implements it); `POST` follows the same behavior as the other modules. The
   header will be honored once the shared idempotency infrastructure is built.

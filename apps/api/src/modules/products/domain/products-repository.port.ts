@@ -14,6 +14,8 @@ export interface CreateProductInput {
   readonly description?: string | null;
   readonly categoryId?: string | null;
   readonly unitId?: string | null;
+  /** Oversell policy (EPIC-9); defaults to `false`. */
+  readonly allowOversell?: boolean;
 }
 
 /** Partial update for a product; omitted keys are left unchanged. */
@@ -22,6 +24,7 @@ export interface UpdateProductInput {
   readonly description?: string | null;
   readonly categoryId?: string | null;
   readonly unitId?: string | null;
+  readonly allowOversell?: boolean;
 }
 
 /** Fields accepted when creating a variant. `averageCost` is never client-set. */

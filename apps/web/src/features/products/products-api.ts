@@ -7,6 +7,8 @@ export interface Product {
   readonly description: string | null;
   readonly categoryId: string | null;
   readonly unitId: string | null;
+  /** Oversell policy (EPIC-9): allow reservations beyond available stock. */
+  readonly allowOversell: boolean;
   readonly active: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -47,6 +49,8 @@ export interface ListOptions {
   readonly active?: boolean | "all";
   readonly q?: string;
   readonly categoryId?: string;
+  /** Only products with a variant that has available stock (EPIC-9). */
+  readonly hasStock?: boolean;
 }
 
 function buildQuery(options: ListOptions): string {
@@ -55,6 +59,7 @@ function buildQuery(options: ListOptions): string {
   if (options.active !== undefined) params.set("active", String(options.active));
   if (options.q !== undefined && options.q.length > 0) params.set("q", options.q);
   if (options.categoryId !== undefined) params.set("categoryId", options.categoryId);
+  if (options.hasStock === true) params.set("hasStock", "true");
   const qs = params.toString();
   return qs.length > 0 ? `?${qs}` : "";
 }
@@ -65,6 +70,7 @@ export interface ProductInput {
   readonly description?: string | null;
   readonly categoryId?: string | null;
   readonly unitId?: string | null;
+  readonly allowOversell?: boolean;
 }
 
 /** Create/update variant body. */

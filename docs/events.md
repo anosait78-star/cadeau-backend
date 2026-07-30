@@ -66,19 +66,26 @@ interface DomainEvent<T> {
 Payloads MUST be **secret-free** (same rule as the audit log) — they may be
 logged and, later, queued for delivery.
 
-| Event                        | Emitted by (today)              | Payload                                    | Status              |
-| ---------------------------- | ------------------------------- | ------------------------------------------ | ------------------- |
-| `access.permissions_changed` | `AccessService` (member assign) | `memberId`, `memberUserId`, `templateKey?` | **Live** (EPIC-5/6) |
-| `access.feature_toggled`     | `AdminService` (Super-Admin)    | `featureKey`, `enabled`                    | **Live**            |
-| `subscription.changed`       | `AdminService` (Super-Admin)    | `planCode`                                 | **Live**            |
-| `master_data.changed`        | `MasterDataService` (EPIC-7)    | `resource`, `id`, `change`                 | **Live** (EPIC-7)   |
-| `product.created`            | `ProductsService` (EPIC-8)      | `productId`                                | **Live** (EPIC-8)   |
-| `product.updated`            | `ProductsService` (EPIC-8)      | `productId`                                | **Live** (EPIC-8)   |
-| `product.archived`           | `ProductsService` (EPIC-8)      | `productId`                                | **Live** (EPIC-8)   |
-| `order.created`              | Orders (EPIC-11)                | `orderId`                                  | Forward-declared    |
-| `order.status_changed`       | Orders (EPIC-11)                | `orderId`, `fromStatus`, `toStatus`        | Forward-declared    |
-| `stock.changed`              | Inventory (EPIC-9)              | `inventoryId`, `variantId`, `onHandDelta`  | Forward-declared    |
-| `payment.collected`          | Finance (EPIC-13)               | `orderId`, `amountMinor`                   | Forward-declared    |
+| Event                        | Emitted by (today)              | Payload                                                                                                   | Status              |
+| ---------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------- |
+| `access.permissions_changed` | `AccessService` (member assign) | `memberId`, `memberUserId`, `templateKey?`                                                                | **Live** (EPIC-5/6) |
+| `access.feature_toggled`     | `AdminService` (Super-Admin)    | `featureKey`, `enabled`                                                                                   | **Live**            |
+| `subscription.changed`       | `AdminService` (Super-Admin)    | `planCode`                                                                                                | **Live**            |
+| `master_data.changed`        | `MasterDataService` (EPIC-7)    | `resource`, `id`, `change`                                                                                | **Live** (EPIC-7)   |
+| `product.created`            | `ProductsService` (EPIC-8)      | `productId`                                                                                               | **Live** (EPIC-8)   |
+| `product.updated`            | `ProductsService` (EPIC-8)      | `productId`                                                                                               | **Live** (EPIC-8)   |
+| `product.archived`           | `ProductsService` (EPIC-8)      | `productId`                                                                                               | **Live** (EPIC-8)   |
+| `stock.changed`              | `InventoryService` (EPIC-9)     | `warehouseId`, `variantId`, `onHandDelta`, `committedDelta`, `onHand`, `committed`, `available`, `reason` | **Live** (EPIC-9)   |
+| `stock.low`                  | `InventoryService` (EPIC-9)     | `warehouseId`, `variantId`, `available`, `reorderPoint`                                                   | **Live** (EPIC-9)   |
+| `order.created`              | Orders (EPIC-11)                | `orderId`                                                                                                 | Forward-declared    |
+| `order.status_changed`       | Orders (EPIC-11)                | `orderId`, `fromStatus`, `toStatus`                                                                       | Forward-declared    |
+| `payment.collected`          | Finance (EPIC-13)               | `orderId`, `amountMinor`                                                                                  | Forward-declared    |
+
+`stock.changed` is emitted **once per affected level** — a transfer emits two,
+one per side — and only when stock actually moved: an idempotent replay
+(`Idempotency-Key`) emits nothing. `stock.low` is **edge-triggered**: it fires on
+the write that crossed a non-zero reorder point, not repeatedly while the level
+stays low. See [api/inventory.md](api/inventory.md).
 
 **Forward-declared** events are listed so the vocabulary lives in one place and
 notification subscribers can be typed against it now. Their payloads are minimal

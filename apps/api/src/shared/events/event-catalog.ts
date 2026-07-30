@@ -13,9 +13,13 @@
  *     `access`/`admin` services alongside their durable audit write (EPIC-6 M6.2).
  *   - **Live now (EPIC-7 master data):** `master_data.changed`, emitted by the
  *     master-data service on every reference-row create/update/deactivate.
+ *   - **Live now (EPIC-8 products):** `product.created`/`product.updated`/
+ *     `product.archived`, emitted by the products service.
+ *   - **Live now (EPIC-9 inventory):** `stock.changed` and `stock.low`, emitted
+ *     by each atomic inventory write (reserve/release/transfer/adjust).
  *   - **Forward-declared** for the domain epics that will emit them
- *     (`order.*` → EPIC-11, `stock.changed` → EPIC-9, `payment.collected` →
- *     EPIC-13). Their payloads are intentionally minimal; the owning epic
+ *     (`order.*` → EPIC-11, `payment.collected` → EPIC-13). Their payloads are
+ *     intentionally minimal; the owning epic
  *     finalizes each shape when it wires the emission. They are listed now so the
  *     catalog is the one place the vocabulary is declared and so notification
  *     subscribers (EPIC-15) can be typed against it.
@@ -77,6 +81,38 @@ export interface EventPayloads {
     readonly productId: string;
   };
 
+  /**
+   * On-hand and/or committed stock for one (warehouse, variant) level changed
+   * (EPIC-9). Emitted once per affected level by each atomic inventory write —
+   * a transfer therefore emits two, one per side. Deltas are signed; the
+   * absolute fields are the level **after** the write. An idempotent replay
+   * moves no stock and emits nothing.
+   */
+  "stock.changed": {
+    readonly warehouseId: string;
+    readonly variantId: string;
+    /** Signed change in on-hand units. */
+    readonly onHandDelta: number;
+    /** Signed change in committed units. */
+    readonly committedDelta: number;
+    readonly onHand: number;
+    readonly committed: number;
+    readonly available: number;
+    /** Which write path moved the stock. */
+    readonly reason: "reserved" | "released" | "transferred" | "adjusted";
+  };
+  /**
+   * A level's `available` crossed down to or below its reorder point (EPIC-9).
+   * Edge-triggered: emitted only on the write that crossed the threshold, not
+   * repeatedly while the level stays low.
+   */
+  "stock.low": {
+    readonly warehouseId: string;
+    readonly variantId: string;
+    readonly available: number;
+    readonly reorderPoint: number;
+  };
+
   // ---- Forward-declared (owning epic finalizes the payload) --------------
   /** An order was created. Shape finalized in EPIC-11. */
   "order.created": {
@@ -87,13 +123,6 @@ export interface EventPayloads {
     readonly orderId: string;
     readonly fromStatus: string;
     readonly toStatus: string;
-  };
-  /** On-hand/committed stock for a variant changed. Shape finalized in EPIC-9. */
-  "stock.changed": {
-    readonly inventoryId: string;
-    readonly variantId: string;
-    /** Signed change in on-hand units. */
-    readonly onHandDelta: number;
   };
   /** Money was collected against an order. Shape finalized in EPIC-13. */
   "payment.collected": {

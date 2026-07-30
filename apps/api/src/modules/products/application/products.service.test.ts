@@ -28,6 +28,7 @@ function product(id: string, extra: Partial<ProductView> = {}): ProductView {
     description: null,
     categoryId: null,
     unitId: null,
+    allowOversell: false,
     active: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

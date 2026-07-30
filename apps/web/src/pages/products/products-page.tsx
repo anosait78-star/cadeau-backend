@@ -457,6 +457,7 @@ function ProductForm({
   const [description, setDescription] = useState(product?.description ?? "");
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
   const [unitId, setUnitId] = useState(product?.unitId ?? "");
+  const [allowOversell, setAllowOversell] = useState(product?.allowOversell ?? false);
   const [submitting, setSubmitting] = useState(false);
   const editing = product !== undefined;
 
@@ -471,6 +472,7 @@ function ProductForm({
           : {}),
       ...(categoryId.length > 0 ? { categoryId } : editing ? { categoryId: null } : {}),
       ...(unitId.length > 0 ? { unitId } : editing ? { unitId: null } : {}),
+      allowOversell,
     };
     setSubmitting(true);
     await onSubmit(body);
@@ -522,6 +524,14 @@ function ProductForm({
             />
           </div>
         </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={allowOversell}
+            onChange={(e) => setAllowOversell(e.target.checked)}
+          />
+          {t("products.field.allowOversell")}
+        </label>
         <div className="flex gap-2">
           <Button size="sm" disabled={submitting || nameInvalid} onClick={() => void submit()}>
             {t("products.actions.save")}

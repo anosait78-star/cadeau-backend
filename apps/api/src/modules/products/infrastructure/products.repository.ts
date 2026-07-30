@@ -48,6 +48,7 @@ const PRODUCT_SELECT = {
   description: true,
   categoryId: true,
   unitId: true,
+  allowOversell: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -254,6 +255,8 @@ export class ProductsRepository implements ProductsRepositoryPort {
       out["description"] = data.description;
     if ("categoryId" in data && data.categoryId !== undefined) out["categoryId"] = data.categoryId;
     if ("unitId" in data && data.unitId !== undefined) out["unitId"] = data.unitId;
+    if ("allowOversell" in data && data.allowOversell !== undefined)
+      out["allowOversell"] = data.allowOversell;
     return out;
   }
 
@@ -263,6 +266,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
     description: string | null;
     categoryId: string | null;
     unitId: string | null;
+    allowOversell: boolean;
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -273,6 +277,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
       description: row.description,
       categoryId: row.categoryId,
       unitId: row.unitId,
+      allowOversell: row.allowOversell,
       active: row.isActive,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
@@ -311,6 +316,10 @@ export class ProductsRepository implements ProductsRepositoryPort {
     const where: Prisma.ProductWhereInput = { companyId };
     if (query.active !== "all") where.isActive = query.active;
     if (query.categoryId !== undefined) where.categoryId = query.categoryId;
+    // EPIC-9: "in stock" means some variant has a level with units left to sell.
+    if (query.hasStock) {
+      where.variants = { some: { stock: { some: { available: { gt: 0 } } } } };
+    }
     if (query.q !== undefined) {
       where.OR = [
         { name: { contains: query.q, mode: "insensitive" } },

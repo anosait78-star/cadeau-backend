@@ -4,6 +4,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import { RequireSuperAdmin } from "@/features/access/require-super-admin";
 import { AdminPage } from "@/pages/admin/admin-page";
 import { HomePage } from "@/pages/home-page";
+import { InventoryPage } from "@/pages/inventory/inventory-page";
 import { MasterDataPage } from "@/pages/master-data/master-data-page";
 import { ProductsPage } from "@/pages/products/products-page";
 import { LoginPage } from "@/pages/auth/login-page";
@@ -30,7 +31,7 @@ export const router = createBrowserRouter([
           { path: "orders", element: <PlaceholderPage titleKey="nav.orders" /> },
           { path: "customers", element: <PlaceholderPage titleKey="nav.customers" /> },
           { path: "products", element: <ProductsPage /> },
-          { path: "inventory", element: <PlaceholderPage titleKey="nav.inventory" /> },
+          { path: "inventory", element: <InventoryPage /> },
           { path: "master-data", element: <MasterDataPage /> },
           { path: "settings/roles", element: <RolesPage /> },
           { path: "settings", element: <PlaceholderPage titleKey="nav.settings" /> },

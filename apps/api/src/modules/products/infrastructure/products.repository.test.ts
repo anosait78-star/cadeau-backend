@@ -19,6 +19,7 @@ function productRow(extra: Record<string, unknown> = {}) {
     description: null,
     categoryId: null,
     unitId: null,
+    allowOversell: false,
     isActive: true,
     createdAt: CREATED,
     updatedAt: UPDATED,
@@ -77,6 +78,7 @@ describe("ProductsRepository — reads", () => {
       name: "Mug",
       description: "d",
       active: true,
+      allowOversell: false,
       createdAt: CREATED.toISOString(),
       variants: [],
     });
@@ -99,9 +101,24 @@ describe("ProductsRepository — reads", () => {
     expect(typeof view?.variants[0]?.averageCost).toBe("number");
   });
 
+  it("narrows to products with sellable stock when hasStock is set (EPIC-9)", async () => {
+    const { repo, models } = makeRepo();
+    await repo.list(COMPANY, {
+      sort: { field: "name", dir: "asc" },
+      active: true,
+      hasStock: true,
+    });
+    const args = models.product.findMany.mock.calls[0]?.[0];
+    expect(args.where.variants).toEqual({ some: { stock: { some: { available: { gt: 0 } } } } });
+  });
+
   it("list fetches one extra row for the keyset and scopes by company", async () => {
     const { repo, models } = makeRepo();
-    await repo.list(COMPANY, { sort: { field: "createdAt", dir: "desc" }, active: true });
+    await repo.list(COMPANY, {
+      sort: { field: "createdAt", dir: "desc" },
+      active: true,
+      hasStock: false,
+    });
     const args = models.product.findMany.mock.calls[0]?.[0];
     expect(args.take).toBe(26);
     expect(args.where).toMatchObject({ companyId: COMPANY, isActive: true });
@@ -109,7 +126,12 @@ describe("ProductsRepository — reads", () => {
 
   it("list builds an OR search across name and variant sku/barcode", async () => {
     const { repo, models } = makeRepo();
-    await repo.list(COMPANY, { sort: { field: "name", dir: "asc" }, active: "all", q: "mug" });
+    await repo.list(COMPANY, {
+      sort: { field: "name", dir: "asc" },
+      active: "all",
+      hasStock: false,
+      q: "mug",
+    });
     const where = models.product.findMany.mock.calls[0]?.[0].where;
     expect(where.OR).toHaveLength(3);
     expect(where.isActive).toBeUndefined();
@@ -284,6 +306,7 @@ describe("ProductsRepository — keyset pagination", () => {
     const pageResult = await repo.list(COMPANY, {
       sort: { field: "createdAt", dir: "desc" },
       active: true,
+      hasStock: false,
       limit: 25,
     });
     expect(pageResult.data).toHaveLength(25);
@@ -297,6 +320,7 @@ describe("ProductsRepository — keyset pagination", () => {
     await repo.list(COMPANY, {
       sort: { field: "name", dir: "asc" },
       active: true,
+      hasStock: false,
       cursor,
     });
     const where = models.product.findMany.mock.calls[0]?.[0].where;
@@ -309,6 +333,7 @@ describe("ProductsRepository — keyset pagination", () => {
       repo.list(COMPANY, {
         sort: { field: "createdAt", dir: "desc" },
         active: true,
+        hasStock: false,
         cursor: "%%%",
       }),
     ).rejects.toBeInstanceOf(InvalidListCursorError);

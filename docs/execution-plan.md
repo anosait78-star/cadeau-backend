@@ -42,8 +42,16 @@ per variant (derived, read-only), SKU/barcode uniqueness per company, keyset
 list with `q`/`categoryId`/`active`, three-layer gating (`products.read`/
 `products.manage` under the `products` feature — already in the EPIC-5 catalog),
 the live `product.created`/`product.updated`/`product.archived` events, and the
-Products frontend screen (dual view, inline variant management). Next: EPIC-6 +
-EPIC-7 + EPIC-8 §2.5 quality gates, then EPIC-9 (Inventory & Warehouses).
+Products frontend screen (dual view, inline variant management). **EPIC-9
+delivered** on `feat/epic-9-inventory`: the
+[inventory module](../apps/api/src/modules/inventory/) (`/v1/warehouses` +
+`/v1/inventory`) with migration `20260804000000_inventory` — warehouses,
+per-(warehouse, variant) levels with a trigger-derived `available`, and the three
+durable logs (reservations, transfers, adjustments); every stock write is atomic
+under `SELECT … FOR UPDATE` and honours `Idempotency-Key`; per-product oversell
+policy (`products.allow_oversell`); the live `stock.changed` / `stock.low` events;
+and the Inventory frontend screen. Next: EPIC-6 + EPIC-7 + EPIC-8 + EPIC-9 §2.5
+quality gates, then EPIC-10 (Customers).
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -57,8 +65,8 @@ EPIC-7 + EPIC-8 §2.5 quality gates, then EPIC-9 (Inventory & Warehouses).
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 552 unit/integration after EPIC-8 (config 37 · web 90 ·
-crypto 25 · database 71 · api 329). Keep it growing; never let a gate regress.
+**Test count baseline:** 668 unit/integration after EPIC-9 (config 37 · web 100 ·
+crypto 25 · database 71 · api 435). Keep it growing; never let a gate regress.
 
 ---
 
@@ -354,11 +362,59 @@ permissions use the `read`/`manage` convention (not the draft's `.write`);
 `hasStock` and `Idempotency-Key` are deferred (see the contract). Then the §2.5
 quality gate.
 
-### EPIC-9 — Inventory & Warehouses
+### EPIC-9 — Inventory & Warehouses ✅ — `feat/epic-9-inventory`
 
-Contract: [api/inventory.md](api/inventory.md). `inventories` + `inventory_stock`
-(`on_hand`/`committed`/`available`), **atomic** reserve/release tied to order state,
-**atomic** transfers + log, numbered low-stock alerts, oversell policy. _Depends on:_ 8.
+Contract: [api/inventory.md](api/inventory.md). Delivered M9.1–M9.5:
+
+- **M9.1 Data + migration** ✅ — 5 models + migration `20260804000000_inventory`:
+  `warehouses` (one default per company via a partial unique index),
+  `inventory_stock` ((warehouse, variant) → `on_hand`/`committed`/`available`/
+  `reorder_point`), and the three durable logs `stock_reservations`,
+  `stock_transfers`, `stock_adjustments`. All tenant-editable (base columns +
+  `FORCE` RLS by `company_id` + `touch_updated_at`). `available` is **derived**
+  (`on_hand - committed`) and kept as a real, indexable column by the new
+  `app.sync_stock_available()` trigger. Quantities are `bigint` whole units with
+  `CHECK`s (`on_hand >= 0`, `committed >= 0`, transfer `from <> to`, adjustment
+  `delta <> 0`, closed reason set). Each log carries an optional
+  `idempotency_key`, unique per company. Also adds `products.allow_oversell` —
+  the per-product oversell policy. No access-catalog change: the `inventory`
+  feature + `inventory.read`/`inventory.manage` were already seeded in EPIC-5.
+- **M9.2 Backend module** ✅ — `modules/inventory` (domain/application/
+  infrastructure/presentation), two controllers: `/v1/warehouses` (CRUD, keyset,
+  `q`/`active`, soft archive) and `/v1/inventory` (`GET stock` with
+  `warehouseId`/`variantId`/`belowReorder` + `available`/`updatedAt` sort,
+  `PUT reorder-points`, `POST reservations`, `DELETE reservations/{id}`,
+  `POST transfers`, `POST adjustments`). Every stock write is **atomic**: one
+  transaction that locks the affected levels (`SELECT … FOR UPDATE`) before
+  reading a balance, so concurrent reservations serialize instead of overselling;
+  transfers lock both sides in a deterministic order (no deadlock).
+  `Idempotency-Key` is stored on the log row, so a retry replays the original
+  result and moves no stock. Three-layer gated; every write records a durable
+  `audit_log` row and emits `stock.changed` per affected level plus edge-triggered
+  `stock.low` (both finalized in the EPIC-6 catalog).
+- **M9.3 Tests + gates** ✅ — unit tests across list-query / service / repository
+  (incl. locking, oversell, every replay-race branch) / controllers / audit
+  adapter (api 402→435, incl. the products hasStock/allowOversell additions); all local gates green.
+- **M9.4 Frontend** ✅ — a capability-gated Inventory screen in the Dual Shell
+  (`pages/inventory`, `features/inventory`): a Stock tab (warehouse filter,
+  low-stock filter + badge, inline reorder-point editor, adjust and transfer
+  forms) and a Warehouses tab (create/edit/archive, default flag), responsive
+  card lists for both shells, variant labels sourced from the EPIC-8 catalog,
+  standard states, ar/en, route replacing the placeholder (web 90→100).
+- **M9.5 Docs + gates** ✅ — also closes the two EPIC-8 deferrals that depended on
+  inventory: `GET /v1/products?hasStock=true` (variants with `available > 0`) and
+  the `allowOversell` product field (read + create/update + a form toggle).
+  [api/inventory.md](api/inventory.md) marked delivered
+  (endpoints, params, atomicity/oversell/idempotency, errors, events, audit,
+  deviations), [events.md](events.md) lists `stock.changed`/`stock.low` live,
+  this plan updated.
+
+_Acceptance met:_ warehouses + per-variant stock; atomic reserve/release,
+transfers, and adjustments; numbered low-stock alerts; per-product oversell
+policy. DB migration + RLS validated in CI. _Deviations:_ permissions use the
+`read`/`manage` convention (not the draft's `.write`); `PUT /v1/inventory/
+reorder-points` was added (the thresholds alerting needs); reservations have no
+list endpoint yet — EPIC-11 surfaces them on the order. Then the §2.5 quality gate.
 
 ### EPIC-10 — Customers
 

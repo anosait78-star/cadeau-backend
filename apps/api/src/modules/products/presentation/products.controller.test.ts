@@ -23,6 +23,7 @@ function product(id: string): ProductView {
     description: null,
     categoryId: null,
     unitId: null,
+    allowOversell: false,
     active: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -47,8 +48,11 @@ function page(rows: ProductView[]): KeysetPage<ProductView> {
   return { data: rows, page: { limit: 25, nextCursor: null, hasMore: false } };
 }
 
+/** A fully-mocked service: every public method replaced by a vitest mock fn. */
+type ServiceMock = { [K in keyof ProductsService]: ReturnType<typeof vi.fn> };
+
 describe("ProductsController", () => {
-  let service: Record<string, ReturnType<typeof vi.fn>>;
+  let service: ServiceMock;
   let controller: ProductsController;
 
   beforeEach(() => {

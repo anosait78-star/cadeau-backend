@@ -11,6 +11,8 @@ export interface ProductView {
   readonly description: string | null;
   readonly categoryId: string | null;
   readonly unitId: string | null;
+  /** Oversell policy (EPIC-9): when true, reservations may exceed available stock. */
+  readonly allowOversell: boolean;
   /** Soft-delete flag; `false` means archived. */
   readonly active: boolean;
   readonly createdAt: string;

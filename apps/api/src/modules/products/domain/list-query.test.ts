@@ -3,6 +3,20 @@ import { parseProductListQuery } from "./list-query";
 
 const UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
+describe("parseProductListQuery — hasStock (EPIC-9)", () => {
+  it("defaults to off and accepts an explicit boolean", () => {
+    expect(parseProductListQuery({}).query?.hasStock).toBe(false);
+    expect(parseProductListQuery({ hasStock: "true" }).query?.hasStock).toBe(true);
+    expect(parseProductListQuery({ hasStock: "false" }).query?.hasStock).toBe(false);
+  });
+
+  it("rejects anything else", () => {
+    const { query, errors } = parseProductListQuery({ hasStock: "1" });
+    expect(query).toBeUndefined();
+    expect(errors[0]?.field).toBe("hasStock");
+  });
+});
+
 describe("parseProductListQuery", () => {
   it("defaults to active-only, -createdAt sort", () => {
     const { query, errors } = parseProductListQuery({});

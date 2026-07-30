@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
+import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
 import type { KeysetPage } from "@cadeau/database";
 import type {
   ProductVariantView,
@@ -32,6 +32,13 @@ export class CreateProductDto {
   @IsOptional()
   @IsUUID()
   unitId?: string | null;
+
+  @ApiPropertyOptional({
+    description: "Oversell policy (EPIC-9): allow reservations beyond available stock.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  allowOversell?: boolean;
 }
 
 /** Update-product payload (partial). Omit a field to leave it unchanged; send `null` to clear. */
@@ -58,6 +65,11 @@ export class UpdateProductDto {
   @IsOptional()
   @IsUUID()
   unitId?: string | null;
+
+  @ApiPropertyOptional({ description: "Oversell policy (EPIC-9)." })
+  @IsOptional()
+  @IsBoolean()
+  allowOversell?: boolean;
 }
 
 /** Create-variant payload. `averageCost` is derived (EPIC-13), never set here. */
@@ -122,6 +134,9 @@ export class ProductDto {
   @ApiProperty({ format: "uuid", nullable: true })
   unitId!: string | null;
 
+  @ApiProperty({ description: "Oversell policy (EPIC-9); false means stock-bound." })
+  allowOversell!: boolean;
+
   @ApiProperty({ description: "Soft-delete flag; false means archived." })
   active!: boolean;
 
@@ -138,6 +153,7 @@ export class ProductDto {
     dto.description = view.description;
     dto.categoryId = view.categoryId;
     dto.unitId = view.unitId;
+    dto.allowOversell = view.allowOversell;
     dto.active = view.active;
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;
@@ -201,6 +217,7 @@ export class ProductDetailDto extends ProductDto {
     dto.description = view.description;
     dto.categoryId = view.categoryId;
     dto.unitId = view.unitId;
+    dto.allowOversell = view.allowOversell;
     dto.active = view.active;
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;
