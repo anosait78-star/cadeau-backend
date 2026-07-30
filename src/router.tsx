@@ -1,21 +1,35 @@
 import { createBrowserRouter } from "react-router";
+import { RequireAuth } from "@/auth/require-auth";
 import { AppShell } from "@/components/shell/app-shell";
 import { HomePage } from "@/pages/home-page";
+import { LoginPage } from "@/pages/auth/login-page";
+import { RegisterPage } from "@/pages/auth/register-page";
 import { NotFoundPage } from "@/pages/not-found-page";
 import { PlaceholderPage } from "@/pages/placeholder-page";
 
-/** Application routes. Everything renders inside the responsive {@link AppShell}. */
+/**
+ * Application routes. Public auth screens (`/login`, `/register`) render on their
+ * own centered layout; everything else lives behind {@link RequireAuth} inside
+ * the responsive {@link AppShell} — unauthenticated access redirects to /login.
+ */
 export const router = createBrowserRouter([
+  { path: "/login", element: <LoginPage /> },
+  { path: "/register", element: <RegisterPage /> },
   {
-    element: <AppShell />,
+    element: <RequireAuth />,
     children: [
-      { index: true, element: <HomePage /> },
-      { path: "orders", element: <PlaceholderPage titleKey="nav.orders" /> },
-      { path: "customers", element: <PlaceholderPage titleKey="nav.customers" /> },
-      { path: "products", element: <PlaceholderPage titleKey="nav.products" /> },
-      { path: "inventory", element: <PlaceholderPage titleKey="nav.inventory" /> },
-      { path: "settings", element: <PlaceholderPage titleKey="nav.settings" /> },
-      { path: "*", element: <NotFoundPage /> },
+      {
+        element: <AppShell />,
+        children: [
+          { index: true, element: <HomePage /> },
+          { path: "orders", element: <PlaceholderPage titleKey="nav.orders" /> },
+          { path: "customers", element: <PlaceholderPage titleKey="nav.customers" /> },
+          { path: "products", element: <PlaceholderPage titleKey="nav.products" /> },
+          { path: "inventory", element: <PlaceholderPage titleKey="nav.inventory" /> },
+          { path: "settings", element: <PlaceholderPage titleKey="nav.settings" /> },
+          { path: "*", element: <NotFoundPage /> },
+        ],
+      },
     ],
   },
 ]);

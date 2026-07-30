@@ -1,16 +1,54 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeTokens } from "@/auth/auth-storage";
 import { App } from "./app";
 
+/** A signed-in profile with no companies yet (the switcher stays a placeholder). */
+const ME = {
+  id: "u1",
+  email: "founder@acme.test",
+  fullName: null,
+  phone: null,
+  twoFactorEnabled: false,
+  activeCompanyId: null,
+  companies: [],
+};
+
 /**
- * Acceptance-level smoke: the SPA boots, renders the home page, and the theme
- * and direction (language) toggles work — the M1.6 acceptance criteria.
+ * Acceptance-level smoke: with a valid session the SPA boots into the home page
+ * and the theme + direction (language) toggles work. Auth (M4.5) now guards the
+ * shell, so we seed tokens and stub `GET /v1/me` before mounting.
  */
 describe("App", () => {
-  it("boots and renders the home page in Arabic/RTL by default", () => {
+  beforeEach(() => {
+    writeTokens({ accessToken: "access", refreshToken: "refresh", expiresIn: 300 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/me")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(ME), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("boots and renders the home page in Arabic/RTL by default", async () => {
     render(<App />);
-    expect(screen.getByRole("heading", { name: "أساس الواجهة الأمامية" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "أساس الواجهة الأمامية" }),
+    ).toBeInTheDocument();
     expect(document.documentElement.getAttribute("dir")).toBe("rtl");
   });
 
@@ -18,7 +56,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />); // jsdom viewport → Mobile shell (actions live in the More sheet)
 
-    await user.click(screen.getByRole("button", { name: "المزيد" }));
+    await user.click(await screen.findByRole("button", { name: "المزيد" }));
 
     // Language toggle flips to English + LTR.
     await user.click(await screen.findByRole("button", { name: "English" }));
@@ -29,9 +67,9 @@ describe("App", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
-  it("renders the standard states on the home page", () => {
+  it("renders the standard states on the home page", async () => {
     render(<App />);
-    expect(screen.getByText("لا توجد طلبات بعد")).toBeInTheDocument(); // empty
+    expect(await screen.findByText("لا توجد طلبات بعد")).toBeInTheDocument(); // empty
     expect(screen.getByRole("alert")).toBeInTheDocument(); // error
     expect(screen.getByRole("status")).toBeInTheDocument(); // loading
   });
