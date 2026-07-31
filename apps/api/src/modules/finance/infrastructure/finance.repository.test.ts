@@ -143,6 +143,46 @@ function refundRow(extra: Record<string, unknown> = {}) {
   };
 }
 
+const RECONCILIATION = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+const SHIPMENT = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+
+function reconciliationDetailRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: RECONCILIATION,
+    carrier: "manual",
+    statementRef: "STMT-2026-01",
+    periodKey: "2026-01",
+    totalStatementMinor: 5000n,
+    totalFeeMinor: 4800n,
+    totalVarianceMinor: 200n,
+    createdAt: NOW,
+    updatedAt: NOW,
+    lines: [
+      {
+        id: "rl1",
+        shipmentId: SHIPMENT,
+        statementAmountMinor: 5000n,
+        shipmentFeeMinor: 4800n,
+        varianceMinor: 200n,
+      },
+    ],
+    ...extra,
+  };
+}
+
+function periodRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: "period1",
+    periodKey: "2026-01",
+    status: "open",
+    closedAt: null,
+    closedBy: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...extra,
+  };
+}
+
 function delegate() {
   return {
     findMany: vi.fn().mockResolvedValue([]),
@@ -151,6 +191,7 @@ function delegate() {
     create: vi.fn(),
     upsert: vi.fn().mockResolvedValue({ id: "stock1" }),
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    aggregate: vi.fn().mockResolvedValue({ _sum: {} }),
   };
 }
 
@@ -172,7 +213,12 @@ function makeRepo() {
     invoiceLine: delegate(),
     refund: delegate(),
     order: delegate(),
+    orderItem: delegate(),
     company: delegate(),
+    shipment: delegate(),
+    shippingReconciliation: delegate(),
+    shippingReconciliationLine: delegate(),
+    accountingPeriod: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -797,5 +843,312 @@ describe("FinanceRepository — refunds", () => {
     models.refund.findMany.mockResolvedValue([refundRow()]);
     const page = await repo.listRefunds(COMPANY, { sort: { field: "createdAt", dir: "desc" } });
     expect(page.data).toHaveLength(1);
+  });
+});
+
+describe("FinanceRepository — shipping reconciliation (M13.5, D5)", () => {
+  it("matches every line to a shipment and computes the variance atomically", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen (no row -> touched open)
+    models.shipment.findFirst.mockResolvedValue({ id: SHIPMENT, fee: 4800n });
+    models.shippingReconciliation.create.mockResolvedValue({ id: RECONCILIATION });
+    models.shippingReconciliation.findFirstOrThrow.mockResolvedValue(reconciliationDetailRow());
+
+    const result = await repo.createReconciliation(ACTOR_CTX, {
+      carrier: "manual",
+      statementRef: "STMT-2026-01",
+      periodKey: "2026-01",
+      lines: [{ trackingNumber: "TRK1", statementAmountMinor: 5000 }],
+    });
+
+    expect(result.replayed).toBe(false);
+    expect(result.reconciliation.totalVarianceMinor).toBe(200);
+    expect(result.reconciliation.lines).toHaveLength(1);
+    expect(models.shippingReconciliationLine.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          shipmentId: SHIPMENT,
+          statementAmountMinor: 5000n,
+          shipmentFeeMinor: 4800n,
+          varianceMinor: 200n,
+        }),
+      }),
+    );
+    const headerArgs = models.shippingReconciliation.create.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(headerArgs.data).toMatchObject({
+      totalStatementMinor: 5000n,
+      totalFeeMinor: 4800n,
+      totalVarianceMinor: 200n,
+    });
+  });
+
+  it("rejects the whole batch when one tracking number has no matching shipment", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.shipment.findFirst
+      .mockResolvedValueOnce({ id: SHIPMENT, fee: 4800n })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      repo.createReconciliation(ACTOR_CTX, {
+        carrier: "manual",
+        statementRef: "STMT-2026-01",
+        periodKey: "2026-01",
+        lines: [
+          { trackingNumber: "TRK1", statementAmountMinor: 5000 },
+          { trackingNumber: "TRK-nope", statementAmountMinor: 1000 },
+        ],
+      }),
+    ).rejects.toMatchObject({ name: "ShipmentNotFoundForReconciliationError" });
+    expect(models.shippingReconciliation.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty line list before opening a transaction", async () => {
+    const { repo } = makeRepo();
+    await expect(
+      repo.createReconciliation(ACTOR_CTX, {
+        carrier: "manual",
+        statementRef: "STMT-2026-01",
+        periodKey: "2026-01",
+        lines: [],
+      }),
+    ).rejects.toMatchObject({ name: "EmptyReconciliationError" });
+  });
+
+  it("rejects a reconciliation dated inside a closed accounting period", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([{ status: "closed" }]); // assertPeriodOpen
+    await expect(
+      repo.createReconciliation(ACTOR_CTX, {
+        carrier: "manual",
+        statementRef: "STMT-2026-01",
+        periodKey: "2026-01",
+        lines: [{ trackingNumber: "TRK1", statementAmountMinor: 5000 }],
+      }),
+    ).rejects.toMatchObject({ name: "PeriodClosedError" });
+  });
+
+  it("replays a stored reconciliation for a repeated key", async () => {
+    const { repo, models } = makeRepo();
+    models.shippingReconciliation.findFirst.mockResolvedValue(reconciliationDetailRow());
+    const result = await repo.createReconciliation(ACTOR_CTX, {
+      carrier: "manual",
+      statementRef: "STMT-2026-01",
+      periodKey: "2026-01",
+      lines: [{ trackingNumber: "TRK1", statementAmountMinor: 5000 }],
+      idempotencyKey: "key-1",
+    });
+    expect(result.replayed).toBe(true);
+    expect(models.shippingReconciliation.create).not.toHaveBeenCalled();
+  });
+
+  it("finds a reconciliation with its lines", async () => {
+    const { repo, models } = makeRepo();
+    models.shippingReconciliation.findFirst.mockResolvedValue(reconciliationDetailRow());
+    const row = await repo.findReconciliation(COMPANY, RECONCILIATION);
+    expect(row?.lines).toHaveLength(1);
+  });
+
+  it("lists reconciliations", async () => {
+    const { repo, models } = makeRepo();
+    models.shippingReconciliation.findMany.mockResolvedValue([reconciliationDetailRow()]);
+    const page = await repo.listReconciliations(COMPANY, {
+      sort: { field: "createdAt", dir: "desc" },
+    });
+    expect(page.data).toHaveLength(1);
+  });
+});
+
+describe("FinanceRepository — accounting periods (M13.5, D4)", () => {
+  it("touches a period into existence as open on the first dated write of the month", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen SELECT: no row
+    models.expense.create.mockResolvedValue(expenseRow());
+
+    await repo.createExpense(ACTOR_CTX, {
+      category: "office_supplies",
+      amountMinor: 12500,
+      incurredAt: "2026-01-02T00:00:00.000Z",
+    });
+
+    expect(models.accountingPeriod.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { companyId_periodKey: { companyId: COMPANY, periodKey: "2026-01" } },
+        create: { companyId: COMPANY, periodKey: "2026-01", status: "open" },
+      }),
+    );
+  });
+
+  it("does not touch the period again once it already has a row", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([{ status: "open" }]); // assertPeriodOpen SELECT: row exists
+    models.expense.create.mockResolvedValue(expenseRow());
+
+    await repo.createExpense(ACTOR_CTX, {
+      category: "office_supplies",
+      amountMinor: 12500,
+      incurredAt: "2026-01-02T00:00:00.000Z",
+    });
+
+    expect(models.accountingPeriod.upsert).not.toHaveBeenCalled();
+  });
+
+  it("lists periods ascending by periodKey", async () => {
+    const { repo, models } = makeRepo();
+    models.accountingPeriod.findMany.mockResolvedValue([periodRow()]);
+    const rows = await repo.listPeriods(COMPANY);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.periodKey).toBe("2026-01");
+  });
+
+  it("closes an open period", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // lock: no existing row
+    queryRaw.mockResolvedValueOnce([]); // sequential gap check: none
+    models.accountingPeriod.upsert.mockResolvedValue(
+      periodRow({ status: "closed", closedAt: NOW, closedBy: ACTOR }),
+    );
+
+    const result = await repo.closePeriod(ACTOR_CTX, "2026-01");
+    expect(result.replayed).toBe(false);
+    expect(result.period.status).toBe("closed");
+    expect(models.accountingPeriod.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { companyId_periodKey: { companyId: COMPANY, periodKey: "2026-01" } },
+      }),
+    );
+  });
+
+  it("rejects closing period N while an earlier period is still open (D4)", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // lock: no existing row for 2026-02
+    queryRaw.mockResolvedValueOnce([{ period_key: "2026-01" }]); // sequential gap: Jan still open
+
+    await expect(repo.closePeriod(ACTOR_CTX, "2026-02")).rejects.toMatchObject({
+      name: "PeriodSequenceGapError",
+    });
+  });
+
+  it("replays an already-closed period without re-running the sequential check", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([
+      {
+        id: "period1",
+        status: "closed",
+        closed_at: NOW,
+        closed_by: ACTOR,
+        created_at: NOW,
+        updated_at: NOW,
+      },
+    ]); // lock: already closed
+
+    const result = await repo.closePeriod(ACTOR_CTX, "2026-01");
+    expect(result.replayed).toBe(true);
+    expect(result.period.status).toBe("closed");
+    expect(models.accountingPeriod.upsert).not.toHaveBeenCalled();
+    // Only setTenantContext + the lock ran; the gap check never fired.
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("FinanceRepository — cash center + P&L (M13.5, D6)", () => {
+  it("computes the cash-center summary from known fixtures", async () => {
+    const { repo, models } = makeRepo();
+    models.order.aggregate.mockResolvedValue({ _sum: { collectedAmount: 500000n } });
+    models.expense.aggregate.mockResolvedValue({ _sum: { amountMinor: 80000n } });
+    models.purchaseOrderPayment.aggregate.mockResolvedValue({ _sum: { amountMinor: 120000n } });
+    models.refund.aggregate.mockResolvedValue({ _sum: { amountMinor: 10000n } });
+    models.shipment.aggregate.mockResolvedValue({ _sum: { fee: 30000n } });
+
+    const report = await repo.getCashCenterReport(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+    );
+
+    expect(report).toEqual({
+      collectedMinor: 500000,
+      expensesMinor: 80000,
+      purchaseOrderPaymentsMinor: 120000,
+      refundsMinor: 10000,
+      shippingFeesMinor: 30000,
+      netCashMinor: 500000 - 80000 - 120000 - 10000 - 30000,
+    });
+  });
+
+  it("treats missing sums as zero", async () => {
+    const { repo, models } = makeRepo();
+    models.order.aggregate.mockResolvedValue({ _sum: { collectedAmount: null } });
+    models.expense.aggregate.mockResolvedValue({ _sum: { amountMinor: null } });
+    models.purchaseOrderPayment.aggregate.mockResolvedValue({ _sum: { amountMinor: null } });
+    models.refund.aggregate.mockResolvedValue({ _sum: { amountMinor: null } });
+    models.shipment.aggregate.mockResolvedValue({ _sum: { fee: null } });
+
+    const report = await repo.getCashCenterReport(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+    );
+    expect(report.netCashMinor).toBe(0);
+  });
+
+  it("computes P&L for the current period only", async () => {
+    const { repo, models } = makeRepo();
+    models.invoice.aggregate.mockResolvedValue({ _sum: { subtotalMinor: 100000n } });
+    models.orderItem.findMany.mockResolvedValue([
+      { costSnapshot: 2000n, quantity: 5n },
+      { costSnapshot: 1000n, quantity: 10n },
+    ]);
+    models.expense.aggregate.mockResolvedValue({ _sum: { amountMinor: 10000n } });
+
+    const report = await repo.getPnlReport(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+    );
+
+    // cogs = 2000*5 + 1000*10 = 20000
+    expect(report.current).toEqual({
+      revenueMinor: 100000,
+      cogsMinor: 20000,
+      expensesMinor: 10000,
+      netIncomeMinor: 100000 - 20000 - 10000,
+    });
+    expect(report.previous).toBeUndefined();
+  });
+
+  it("computes P&L with a comparison period", async () => {
+    const { repo, models } = makeRepo();
+    models.invoice.aggregate
+      .mockResolvedValueOnce({ _sum: { subtotalMinor: 100000n } })
+      .mockResolvedValueOnce({ _sum: { subtotalMinor: 80000n } });
+    models.orderItem.findMany
+      .mockResolvedValueOnce([{ costSnapshot: 2000n, quantity: 5n }])
+      .mockResolvedValueOnce([{ costSnapshot: 1000n, quantity: 5n }]);
+    models.expense.aggregate
+      .mockResolvedValueOnce({ _sum: { amountMinor: 10000n } })
+      .mockResolvedValueOnce({ _sum: { amountMinor: 8000n } });
+
+    const report = await repo.getPnlReport(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+      "2025-12-01T00:00:00.000Z",
+      "2025-12-31T23:59:59.000Z",
+    );
+
+    expect(report.current.revenueMinor).toBe(100000);
+    expect(report.previous?.revenueMinor).toBe(80000);
+    expect(report.previous?.cogsMinor).toBe(5000);
   });
 });

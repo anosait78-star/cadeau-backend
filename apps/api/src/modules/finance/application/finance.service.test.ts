@@ -7,23 +7,28 @@ import type { Clock } from "../../../shared/time/clock";
 import type { FinanceAuditPort } from "../domain/finance-audit.port";
 import type { FinanceRepositoryPort } from "../domain/finance-repository.port";
 import type {
+  AccountingPeriodView,
   ExpenseView,
   InvoiceView,
   PurchaseOrderPaymentView,
   PurchaseOrderReceiptView,
   PurchaseOrderView,
+  ReconciliationView,
   RefundView,
   SupplierView,
   TaxSettingsView,
 } from "../domain/finance.entity";
 import {
   EmptyPurchaseOrderError,
+  EmptyReconciliationError,
   IllegalPurchaseOrderStateError,
   InvalidVatRateError,
   MissingIdempotencyKeyError,
   OverReceiptError,
   PeriodClosedError,
+  PeriodSequenceGapError,
   ReferenceNotFoundError,
+  ShipmentNotFoundForReconciliationError,
 } from "../domain/finance.errors";
 import { FinanceService } from "./finance.service";
 
@@ -154,6 +159,43 @@ function refund(extra: Partial<RefundView> = {}): RefundView {
   };
 }
 
+function reconciliation(extra: Partial<ReconciliationView> = {}): ReconciliationView {
+  return {
+    id: "rec1",
+    carrier: "manual",
+    statementRef: "STMT-2026-01",
+    periodKey: "2026-01",
+    totalStatementMinor: 5000,
+    totalFeeMinor: 4800,
+    totalVarianceMinor: 200,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    lines: [
+      {
+        id: "rl1",
+        shipmentId: "ship1",
+        statementAmountMinor: 5000,
+        shipmentFeeMinor: 4800,
+        varianceMinor: 200,
+      },
+    ],
+    ...extra,
+  };
+}
+
+function period(extra: Partial<AccountingPeriodView> = {}): AccountingPeriodView {
+  return {
+    id: "period1",
+    periodKey: "2026-01",
+    status: "open",
+    closedAt: null,
+    closedBy: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...extra,
+  };
+}
+
 function makeService() {
   const repo: FinanceRepositoryPort = {
     listSuppliers: vi.fn().mockResolvedValue(emptyPage()),
@@ -178,6 +220,13 @@ function makeService() {
     getInvoicePdfData: vi.fn().mockResolvedValue(null),
     listRefunds: vi.fn().mockResolvedValue(emptyPage()),
     createRefund: vi.fn(),
+    listReconciliations: vi.fn().mockResolvedValue(emptyPage()),
+    findReconciliation: vi.fn().mockResolvedValue(null),
+    createReconciliation: vi.fn(),
+    listPeriods: vi.fn().mockResolvedValue([]),
+    closePeriod: vi.fn(),
+    getCashCenterReport: vi.fn(),
+    getPnlReport: vi.fn(),
   };
   const audit: FinanceAuditPort = { record: vi.fn().mockResolvedValue(undefined) };
   const events: EventBusPort = {
@@ -602,5 +651,235 @@ describe("FinanceService — refunds", () => {
         idempotencyKey: "key-1",
       }),
     ).rejects.toBeInstanceOf(AppException);
+  });
+});
+
+describe("FinanceService — shipping reconciliation (M13.5, D5)", () => {
+  it("creates a reconciliation and audits, but not on replay", async () => {
+    const { service, repo, audit, events } = makeService();
+    vi.mocked(repo.createReconciliation).mockResolvedValue({
+      reconciliation: reconciliation(),
+      replayed: false,
+    });
+    const row = await service.createReconciliation(principal(), {
+      carrier: "manual",
+      statementRef: "STMT-2026-01",
+      periodKey: "2026-01",
+      lines: [{ trackingNumber: "TRK1", statementAmountMinor: 5000 }],
+    });
+    expect(row.id).toBe("rec1");
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "shipping_reconciliation.created", entityId: "rec1" }),
+    );
+    // No event is defined for reconciliation in the closed catalog.
+    expect(events.publish).not.toHaveBeenCalled();
+
+    vi.mocked(audit.record).mockClear();
+    vi.mocked(repo.createReconciliation).mockResolvedValue({
+      reconciliation: reconciliation(),
+      replayed: true,
+    });
+    await service.createReconciliation(principal(), {
+      carrier: "manual",
+      statementRef: "STMT-2026-01",
+      periodKey: "2026-01",
+      lines: [{ trackingNumber: "TRK1", statementAmountMinor: 5000 }],
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("maps ShipmentNotFoundForReconciliationError to 422", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.createReconciliation).mockRejectedValue(
+      new ShipmentNotFoundForReconciliationError("TRK-nope"),
+    );
+    try {
+      await service.createReconciliation(principal(), {
+        carrier: "manual",
+        statementRef: "STMT-2026-01",
+        periodKey: "2026-01",
+        lines: [{ trackingNumber: "TRK-nope", statementAmountMinor: 5000 }],
+      });
+      throw new Error("expected to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppException);
+      if (error instanceof AppException) expect(error.getStatus()).toBe(422);
+    }
+  });
+
+  it("maps EmptyReconciliationError to 400", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.createReconciliation).mockRejectedValue(new EmptyReconciliationError());
+    try {
+      await service.createReconciliation(principal(), {
+        carrier: "manual",
+        statementRef: "STMT-2026-01",
+        periodKey: "2026-01",
+        lines: [],
+      });
+      throw new Error("expected to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppException);
+      if (error instanceof AppException) expect(error.getStatus()).toBe(400);
+    }
+  });
+
+  it("maps a period-closed error to 409 on reconciliation create", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.createReconciliation).mockRejectedValue(new PeriodClosedError("2026-01"));
+    await expect(
+      service.createReconciliation(principal(), {
+        carrier: "manual",
+        statementRef: "STMT-2026-01",
+        periodKey: "2026-01",
+        lines: [{ trackingNumber: "TRK1", statementAmountMinor: 5000 }],
+      }),
+    ).rejects.toBeInstanceOf(AppException);
+  });
+
+  it("404s when the reconciliation to read is not found", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.findReconciliation).mockResolvedValue(null);
+    await expect(service.getReconciliation(principal(), "nope")).rejects.toBeInstanceOf(
+      AppException,
+    );
+  });
+
+  it("lists reconciliations", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.listReconciliations).mockResolvedValue({
+      data: [reconciliation()],
+      page: { limit: 25, nextCursor: null, hasMore: false },
+    });
+    const page = await service.listReconciliations(principal(), {});
+    expect(page.data).toHaveLength(1);
+  });
+});
+
+describe("FinanceService — accounting periods (M13.5, D4)", () => {
+  it("lists periods", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.listPeriods).mockResolvedValue([period()]);
+    const rows = await service.listPeriods(principal());
+    expect(rows).toHaveLength(1);
+  });
+
+  it("closes a period and audits + emits, but not on replay", async () => {
+    const { service, repo, audit, events } = makeService();
+    vi.mocked(repo.closePeriod).mockResolvedValue({
+      period: period({ status: "closed", closedAt: "2026-02-01T00:00:00.000Z", closedBy: USER }),
+      replayed: false,
+    });
+    const row = await service.closePeriod(principal(), "2026-01");
+    expect(row.status).toBe("closed");
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "period.closed", entityId: "period1" }),
+    );
+    expect(events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "period.closed", payload: { periodKey: "2026-01" } }),
+    );
+
+    vi.mocked(audit.record).mockClear();
+    vi.mocked(events.publish).mockClear();
+    vi.mocked(repo.closePeriod).mockResolvedValue({
+      period: period({ status: "closed" }),
+      replayed: true,
+    });
+    await service.closePeriod(principal(), "2026-01");
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(events.publish).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed period key before calling the repository", async () => {
+    const { service, repo } = makeService();
+    await expect(service.closePeriod(principal(), "2026-1")).rejects.toBeInstanceOf(AppException);
+    expect(repo.closePeriod).not.toHaveBeenCalled();
+  });
+
+  it("maps PeriodSequenceGapError to 409", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.closePeriod).mockRejectedValue(new PeriodSequenceGapError("2026-02", "2026-01"));
+    try {
+      await service.closePeriod(principal(), "2026-02");
+      throw new Error("expected to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppException);
+      if (error instanceof AppException) expect(error.getStatus()).toBe(409);
+    }
+  });
+});
+
+describe("FinanceService — cash center + P&L (M13.5, D6)", () => {
+  it("returns the computed cash-center report", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.getCashCenterReport).mockResolvedValue({
+      collectedMinor: 500000,
+      expensesMinor: 80000,
+      purchaseOrderPaymentsMinor: 120000,
+      refundsMinor: 10000,
+      shippingFeesMinor: 30000,
+      netCashMinor: 260000,
+    });
+    const report = await service.getCashCenterReport(principal(), {
+      dateFrom: "2026-01-01T00:00:00.000Z",
+      dateTo: "2026-01-31T23:59:59.000Z",
+    });
+    expect(report.netCashMinor).toBe(260000);
+    expect(repo.getCashCenterReport).toHaveBeenCalledWith(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+    );
+  });
+
+  it("rejects a cash-center report missing dateFrom/dateTo", async () => {
+    const { service, repo } = makeService();
+    await expect(service.getCashCenterReport(principal(), {})).rejects.toBeInstanceOf(AppException);
+    expect(repo.getCashCenterReport).not.toHaveBeenCalled();
+  });
+
+  it("returns the computed P&L report with a comparison period", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.getPnlReport).mockResolvedValue({
+      current: {
+        revenueMinor: 100000,
+        cogsMinor: 40000,
+        expensesMinor: 10000,
+        netIncomeMinor: 50000,
+      },
+      previous: {
+        revenueMinor: 80000,
+        cogsMinor: 30000,
+        expensesMinor: 8000,
+        netIncomeMinor: 42000,
+      },
+    });
+    const report = await service.getPnlReport(principal(), {
+      dateFrom: "2026-01-01T00:00:00.000Z",
+      dateTo: "2026-01-31T23:59:59.000Z",
+      compareFrom: "2025-12-01T00:00:00.000Z",
+      compareTo: "2025-12-31T23:59:59.000Z",
+    });
+    expect(report.current.netIncomeMinor).toBe(50000);
+    expect(report.previous?.netIncomeMinor).toBe(42000);
+    expect(repo.getPnlReport).toHaveBeenCalledWith(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+      "2025-12-01T00:00:00.000Z",
+      "2025-12-31T23:59:59.000Z",
+    );
+  });
+
+  it("rejects a P&L request with compareFrom but no compareTo", async () => {
+    const { service, repo } = makeService();
+    await expect(
+      service.getPnlReport(principal(), {
+        dateFrom: "2026-01-01T00:00:00.000Z",
+        dateTo: "2026-01-31T23:59:59.000Z",
+        compareFrom: "2025-12-01T00:00:00.000Z",
+      }),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(repo.getPnlReport).not.toHaveBeenCalled();
   });
 });

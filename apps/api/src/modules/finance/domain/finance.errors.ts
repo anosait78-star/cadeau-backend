@@ -124,3 +124,50 @@ export class EmptyInvoiceError extends Error {
     this.name = "EmptyInvoiceError";
   }
 }
+
+/** A `{period}` path param did not match `^\d{4}-\d{2}$`. */
+export class InvalidPeriodKeyError extends Error {
+  constructor() {
+    super("period must be formatted YYYY-MM.");
+    this.name = "InvalidPeriodKeyError";
+  }
+}
+
+/**
+ * Closing period _N_ was rejected because an earlier period for this company
+ * is still open (D4 — sequential, gap-free close). Simplification: any
+ * `accounting_periods` row with `periodKey < N` and `status = 'open'` blocks
+ * the close, full stop — a row only exists for a month once something dated
+ * inside it was written (`assertPeriodOpen`'s upsert-into-existence), so "has
+ * an open earlier period" and "has unclosed earlier activity" collapse to the
+ * same check.
+ */
+export class PeriodSequenceGapError extends Error {
+  constructor(
+    readonly periodKey: string,
+    readonly blockingPeriodKey: string,
+  ) {
+    super(`Cannot close ${periodKey}: an earlier period (${blockingPeriodKey}) is still open.`);
+    this.name = "PeriodSequenceGapError";
+  }
+}
+
+/** A reconciliation would be created with zero lines. */
+export class EmptyReconciliationError extends Error {
+  constructor(message = "A reconciliation must have at least one line.") {
+    super(message);
+    this.name = "EmptyReconciliationError";
+  }
+}
+
+/**
+ * A reconciliation line's `trackingNumber` did not match any shipment for
+ * this tenant + carrier. The whole batch is rejected (D5 rationale: same
+ * all-or-nothing discipline as other bulk finance/shipping writes).
+ */
+export class ShipmentNotFoundForReconciliationError extends Error {
+  constructor(readonly trackingNumber: string) {
+    super(`No shipment found for tracking number '${trackingNumber}'.`);
+    this.name = "ShipmentNotFoundForReconciliationError";
+  }
+}

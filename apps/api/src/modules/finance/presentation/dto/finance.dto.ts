@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -17,17 +18,26 @@ import {
 import { Type } from "class-transformer";
 import type { KeysetPage } from "@cadeau/database";
 import {
+  ACCOUNTING_PERIOD_STATUSES,
   PURCHASE_ORDER_STATUSES,
+  type AccountingPeriodStatus,
+  type AccountingPeriodView,
+  type CashCenterReportView,
   type ExpenseView,
   type InvoiceLineView,
   type InvoiceListView,
   type InvoiceView,
+  type PnlPeriodView,
+  type PnlReportView,
   type PurchaseOrderLineView,
   type PurchaseOrderListView,
   type PurchaseOrderPaymentView,
   type PurchaseOrderReceiptView,
   type PurchaseOrderStatus,
   type PurchaseOrderView,
+  type ReconciliationLineView,
+  type ReconciliationListView,
+  type ReconciliationView,
   type RefundView,
   type SupplierView,
   type TaxSettingsView,
@@ -322,6 +332,43 @@ export class CreateRefundDto {
   @IsString()
   @MinLength(1)
   reason!: string;
+}
+
+/** One statement line to match against a shipment by tracking number. */
+export class CreateReconciliationLineDto {
+  @ApiProperty({ example: "TRK123456789" })
+  @IsString()
+  @MinLength(1)
+  trackingNumber!: string;
+
+  @ApiProperty({ example: 5000, minimum: 0, description: "Integer minor units." })
+  @IsInt()
+  @Min(0)
+  statementAmountMinor!: number;
+}
+
+/** Create-reconciliation payload (atomic: matches every line to a shipment). */
+export class CreateReconciliationDto {
+  @ApiProperty({ example: "manual" })
+  @IsString()
+  @MinLength(1)
+  carrier!: string;
+
+  @ApiProperty({ example: "STMT-2026-01" })
+  @IsString()
+  @MinLength(1)
+  statementRef!: string;
+
+  @ApiProperty({ example: "2026-01", description: "YYYY-MM." })
+  @Matches(/^\d{4}-\d{2}$/, { message: "periodKey must be formatted YYYY-MM" })
+  periodKey!: string;
+
+  @ApiProperty({ type: [CreateReconciliationLineDto] })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateReconciliationLineDto)
+  lines!: CreateReconciliationLineDto[];
 }
 
 // ---- Response DTOs -----------------------------------------------------------
@@ -816,6 +863,219 @@ export class RefundListDtoPage {
       nextCursor: page.page.nextCursor,
       hasMore: page.page.hasMore,
     };
+    return dto;
+  }
+}
+
+/** One matched reconciliation line: a shipment's statement amount vs. its recorded fee. */
+export class ReconciliationLineDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ format: "uuid" })
+  shipmentId!: string;
+
+  @ApiProperty({ example: 5000, description: "Integer minor units." })
+  statementAmountMinor!: number;
+
+  @ApiProperty({ example: 4800, description: "Integer minor units." })
+  shipmentFeeMinor!: number;
+
+  @ApiProperty({ example: 200, description: "Integer minor units; statement minus fee." })
+  varianceMinor!: number;
+
+  static from(view: ReconciliationLineView): ReconciliationLineDto {
+    const dto = new ReconciliationLineDto();
+    dto.id = view.id;
+    dto.shipmentId = view.shipmentId;
+    dto.statementAmountMinor = view.statementAmountMinor;
+    dto.shipmentFeeMinor = view.shipmentFeeMinor;
+    dto.varianceMinor = view.varianceMinor;
+    return dto;
+  }
+}
+
+/** A reconciled carrier statement batch without its lines (list rendering). */
+export class ReconciliationListDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ example: "manual" })
+  carrier!: string;
+
+  @ApiProperty({ example: "STMT-2026-01" })
+  statementRef!: string;
+
+  @ApiProperty({ example: "2026-01" })
+  periodKey!: string;
+
+  @ApiProperty({ example: 50000, description: "Integer minor units." })
+  totalStatementMinor!: number;
+
+  @ApiProperty({ example: 48000, description: "Integer minor units." })
+  totalFeeMinor!: number;
+
+  @ApiProperty({ example: 2000, description: "Integer minor units." })
+  totalVarianceMinor!: number;
+
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  @ApiProperty({ format: "date-time" })
+  updatedAt!: string;
+
+  static from(view: ReconciliationListView): ReconciliationListDto {
+    const dto = new ReconciliationListDto();
+    dto.id = view.id;
+    dto.carrier = view.carrier;
+    dto.statementRef = view.statementRef;
+    dto.periodKey = view.periodKey;
+    dto.totalStatementMinor = view.totalStatementMinor;
+    dto.totalFeeMinor = view.totalFeeMinor;
+    dto.totalVarianceMinor = view.totalVarianceMinor;
+    dto.createdAt = view.createdAt;
+    dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+/** A reconciliation with its matched lines (detail rendering). */
+export class ReconciliationDto extends ReconciliationListDto {
+  @ApiProperty({ type: [ReconciliationLineDto] })
+  lines!: ReconciliationLineDto[];
+
+  static override from(view: ReconciliationView): ReconciliationDto {
+    const dto = new ReconciliationDto();
+    Object.assign(dto, ReconciliationListDto.from(view));
+    dto.lines = view.lines.map((l) => ReconciliationLineDto.from(l));
+    return dto;
+  }
+}
+
+/** Keyset-paginated reconciliations envelope. */
+export class ReconciliationListDtoPage {
+  @ApiProperty({ type: [ReconciliationListDto] })
+  data!: ReconciliationListDto[];
+
+  @ApiProperty({ type: FinancePageDto })
+  page!: FinancePageDto;
+
+  static from(page: KeysetPage<ReconciliationListView>): ReconciliationListDtoPage {
+    const dto = new ReconciliationListDtoPage();
+    dto.data = page.data.map((r) => ReconciliationListDto.from(r));
+    dto.page = {
+      limit: page.page.limit,
+      nextCursor: page.page.nextCursor,
+      hasMore: page.page.hasMore,
+    };
+    return dto;
+  }
+}
+
+/** A monthly accounting period (D4), open or closed. */
+export class AccountingPeriodDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ example: "2026-01" })
+  periodKey!: string;
+
+  @ApiProperty({ enum: ACCOUNTING_PERIOD_STATUSES })
+  status!: AccountingPeriodStatus;
+
+  @ApiProperty({ format: "date-time", nullable: true })
+  closedAt!: string | null;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  closedBy!: string | null;
+
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  @ApiProperty({ format: "date-time" })
+  updatedAt!: string;
+
+  static from(view: AccountingPeriodView): AccountingPeriodDto {
+    const dto = new AccountingPeriodDto();
+    dto.id = view.id;
+    dto.periodKey = view.periodKey;
+    dto.status = view.status;
+    dto.closedAt = view.closedAt;
+    dto.closedBy = view.closedBy;
+    dto.createdAt = view.createdAt;
+    dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+/** A computed, read-only cash-center summary over a date range (D6). */
+export class CashCenterReportDto {
+  @ApiProperty({ example: 500000, description: "Integer minor units." })
+  collectedMinor!: number;
+
+  @ApiProperty({ example: 80000, description: "Integer minor units." })
+  expensesMinor!: number;
+
+  @ApiProperty({ example: 120000, description: "Integer minor units." })
+  purchaseOrderPaymentsMinor!: number;
+
+  @ApiProperty({ example: 10000, description: "Integer minor units." })
+  refundsMinor!: number;
+
+  @ApiProperty({ example: 30000, description: "Integer minor units." })
+  shippingFeesMinor!: number;
+
+  @ApiProperty({ example: 260000, description: "Integer minor units." })
+  netCashMinor!: number;
+
+  static from(view: CashCenterReportView): CashCenterReportDto {
+    const dto = new CashCenterReportDto();
+    dto.collectedMinor = view.collectedMinor;
+    dto.expensesMinor = view.expensesMinor;
+    dto.purchaseOrderPaymentsMinor = view.purchaseOrderPaymentsMinor;
+    dto.refundsMinor = view.refundsMinor;
+    dto.shippingFeesMinor = view.shippingFeesMinor;
+    dto.netCashMinor = view.netCashMinor;
+    return dto;
+  }
+}
+
+/** A computed P&L summary over one date range (D6). */
+export class PnlPeriodDto {
+  @ApiProperty({ example: 500000, description: "Integer minor units." })
+  revenueMinor!: number;
+
+  @ApiProperty({ example: 200000, description: "Integer minor units." })
+  cogsMinor!: number;
+
+  @ApiProperty({ example: 80000, description: "Integer minor units." })
+  expensesMinor!: number;
+
+  @ApiProperty({ example: 220000, description: "Integer minor units." })
+  netIncomeMinor!: number;
+
+  static from(view: PnlPeriodView): PnlPeriodDto {
+    const dto = new PnlPeriodDto();
+    dto.revenueMinor = view.revenueMinor;
+    dto.cogsMinor = view.cogsMinor;
+    dto.expensesMinor = view.expensesMinor;
+    dto.netIncomeMinor = view.netIncomeMinor;
+    return dto;
+  }
+}
+
+/** A computed P&L report, optionally with a comparison period (D6). */
+export class PnlReportDto {
+  @ApiProperty({ type: PnlPeriodDto })
+  current!: PnlPeriodDto;
+
+  @ApiPropertyOptional({ type: PnlPeriodDto })
+  previous?: PnlPeriodDto;
+
+  static from(view: PnlReportView): PnlReportDto {
+    const dto = new PnlReportDto();
+    dto.current = PnlPeriodDto.from(view.current);
+    if (view.previous !== undefined) dto.previous = PnlPeriodDto.from(view.previous);
     return dto;
   }
 }

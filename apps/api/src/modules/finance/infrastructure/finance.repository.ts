@@ -17,6 +17,7 @@ import type {
   CreatePaymentInput,
   CreatePurchaseOrderInput,
   CreateReceiptInput,
+  CreateReconciliationInput,
   CreateRefundInput,
   CreateSupplierInput,
   FinanceRepositoryPort,
@@ -26,6 +27,9 @@ import type {
   WriteActor,
 } from "../domain/finance-repository.port";
 import type {
+  AccountingPeriodStatus,
+  AccountingPeriodView,
+  CashCenterReportView,
   ExpenseView,
   ExpenseWriteResult,
   InvoiceLineView,
@@ -33,6 +37,9 @@ import type {
   InvoicePdfData,
   InvoiceView,
   InvoiceWriteResult,
+  PeriodCloseResult,
+  PnlPeriodView,
+  PnlReportView,
   PurchaseOrderListView,
   PurchaseOrderLineView,
   PurchaseOrderPaymentResult,
@@ -42,6 +49,10 @@ import type {
   PurchaseOrderStatus,
   PurchaseOrderView,
   PurchaseOrderWriteResult,
+  ReconciliationLineView,
+  ReconciliationListView,
+  ReconciliationView,
+  ReconciliationWriteResult,
   RefundView,
   RefundWriteResult,
   SupplierView,
@@ -50,18 +61,22 @@ import type {
 import {
   EmptyInvoiceError,
   EmptyPurchaseOrderError,
+  EmptyReconciliationError,
   IllegalPurchaseOrderStateError,
   InvalidAmountError,
   InvalidListCursorError,
   InvalidVatRateError,
   OverReceiptError,
   PeriodClosedError,
+  PeriodSequenceGapError,
   ReferenceNotFoundError,
+  ShipmentNotFoundForReconciliationError,
 } from "../domain/finance.errors";
 import type {
   ParsedExpenseListQuery,
   ParsedInvoiceListQuery,
   ParsedPurchaseOrderListQuery,
+  ParsedReconciliationListQuery,
   ParsedRefundListQuery,
   ParsedSupplierListQuery,
 } from "../domain/list-query";
@@ -185,6 +200,41 @@ const REFUND_SELECT = {
   updatedAt: true,
 } as const;
 
+const RECONCILIATION_LINE_SELECT = {
+  id: true,
+  shipmentId: true,
+  statementAmountMinor: true,
+  shipmentFeeMinor: true,
+  varianceMinor: true,
+} as const;
+
+const RECONCILIATION_LIST_SELECT = {
+  id: true,
+  carrier: true,
+  statementRef: true,
+  periodKey: true,
+  totalStatementMinor: true,
+  totalFeeMinor: true,
+  totalVarianceMinor: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const RECONCILIATION_DETAIL_SELECT = {
+  ...RECONCILIATION_LIST_SELECT,
+  lines: { select: RECONCILIATION_LINE_SELECT, orderBy: { createdAt: "asc" as const } },
+} as const;
+
+const PERIOD_SELECT = {
+  id: true,
+  periodKey: true,
+  status: true,
+  closedAt: true,
+  closedBy: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 type PoListRow = Prisma.PurchaseOrderGetPayload<{ select: typeof PO_LIST_SELECT }>;
 type PoDetailRow = Prisma.PurchaseOrderGetPayload<{ select: typeof PO_DETAIL_SELECT }>;
 type ReceiptRow = Prisma.PurchaseOrderReceiptGetPayload<{ select: typeof RECEIPT_SELECT }>;
@@ -193,6 +243,12 @@ type TaxSettingsRow = Prisma.TaxSettingsGetPayload<{ select: typeof TAX_SETTINGS
 type InvoiceListRow = Prisma.InvoiceGetPayload<{ select: typeof INVOICE_LIST_SELECT }>;
 type InvoiceDetailRow = Prisma.InvoiceGetPayload<{ select: typeof INVOICE_DETAIL_SELECT }>;
 type RefundRow = Prisma.RefundGetPayload<{ select: typeof REFUND_SELECT }>;
+type ReconciliationListRow = Prisma.ShippingReconciliationGetPayload<{
+  select: typeof RECONCILIATION_LIST_SELECT;
+}>;
+type ReconciliationDetailRow = Prisma.ShippingReconciliationGetPayload<{
+  select: typeof RECONCILIATION_DETAIL_SELECT;
+}>;
 
 /** A stock level row locked `FOR UPDATE` inside the current transaction. */
 interface LockedStockLevel {
@@ -1072,13 +1128,365 @@ export class FinanceRepository implements FinanceRepositoryPort {
     });
   }
 
+  // ---- Shipping reconciliation (M13.5, D5) --------------------------------------
+
+  async listReconciliations(
+    companyId: string,
+    query: ParsedReconciliationListQuery,
+  ): Promise<KeysetPage<ReconciliationListView>> {
+    const limit = clampLimit(query.limit);
+    const cursor = this.decodeGeneric("createdAt", query.cursor);
+    const where: Prisma.ShippingReconciliationWhereInput = { companyId };
+    if (query.carrier !== undefined) where.carrier = query.carrier;
+    if (query.periodKey !== undefined) where.periodKey = query.periodKey;
+    if (cursor !== null) {
+      where.AND = [
+        this.stringKeysetPredicate(query.sort, cursor) as Prisma.ShippingReconciliationWhereInput,
+      ];
+    }
+    const rows = await this.tenantTx(companyId, (tx) =>
+      tx.shippingReconciliation.findMany({
+        where,
+        orderBy: [{ [query.sort.field]: query.sort.dir }, { id: query.sort.dir }],
+        take: limit + 1,
+        select: RECONCILIATION_LIST_SELECT,
+      }),
+    );
+    const views = rows.map((r) => this.toReconciliationListView(r));
+    return buildKeysetPage(views, limit, (view) => ({ p: view.createdAt, t: view.id }));
+  }
+
+  async findReconciliation(companyId: string, id: string): Promise<ReconciliationView | null> {
+    const row = await this.tenantTx(companyId, (tx) =>
+      tx.shippingReconciliation.findFirst({
+        where: { id, companyId },
+        select: RECONCILIATION_DETAIL_SELECT,
+      }),
+    );
+    return row === null ? null : this.toReconciliationDetailView(row);
+  }
+
+  async createReconciliation(
+    actor: WriteActor,
+    data: CreateReconciliationInput,
+  ): Promise<ReconciliationWriteResult> {
+    if (data.lines.length === 0) throw new EmptyReconciliationError();
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const replay = await this.findReconciliationByIdempotencyKey(
+        tx,
+        actor.companyId,
+        data.idempotencyKey,
+      );
+      if (replay !== null) {
+        return { reconciliation: this.toReconciliationDetailView(replay), replayed: true };
+      }
+
+      // No natural per-batch date exists (a statement covers many shipments
+      // across dates); the period guard is checked against write time, same
+      // as invoices/refunds.
+      await this.assertPeriodOpen(tx, actor.companyId, new Date());
+
+      // Resolve every line's shipment before writing anything: one bad
+      // tracking number rejects the whole batch (D5, same all-or-nothing
+      // discipline as other bulk finance writes).
+      const resolved: {
+        shipmentId: string;
+        statementAmountMinor: bigint;
+        shipmentFeeMinor: bigint;
+        varianceMinor: bigint;
+      }[] = [];
+      for (const line of data.lines) {
+        const shipment = await tx.shipment.findFirst({
+          where: {
+            companyId: actor.companyId,
+            carrier: data.carrier,
+            trackingNumber: line.trackingNumber,
+          },
+          select: { id: true, fee: true },
+        });
+        if (shipment === null) {
+          throw new ShipmentNotFoundForReconciliationError(line.trackingNumber);
+        }
+        const statementAmountMinor = BigInt(line.statementAmountMinor);
+        const shipmentFeeMinor = shipment.fee;
+        resolved.push({
+          shipmentId: shipment.id,
+          statementAmountMinor,
+          shipmentFeeMinor,
+          varianceMinor: statementAmountMinor - shipmentFeeMinor,
+        });
+      }
+
+      const totalStatementMinor = resolved.reduce((sum, l) => sum + l.statementAmountMinor, 0n);
+      const totalFeeMinor = resolved.reduce((sum, l) => sum + l.shipmentFeeMinor, 0n);
+      const totalVarianceMinor = totalStatementMinor - totalFeeMinor;
+
+      let reconciliationId: string;
+      try {
+        const header = await tx.shippingReconciliation.create({
+          data: stampForCreate(actor, {
+            carrier: data.carrier,
+            statementRef: data.statementRef,
+            periodKey: data.periodKey,
+            totalStatementMinor,
+            totalFeeMinor,
+            totalVarianceMinor,
+            idempotencyKey: data.idempotencyKey ?? null,
+          }) as Prisma.ShippingReconciliationUncheckedCreateInput,
+          select: { id: true },
+        });
+        reconciliationId = header.id;
+        for (const line of resolved) {
+          await tx.shippingReconciliationLine.create({
+            data: {
+              companyId: actor.companyId,
+              reconciliationId,
+              shipmentId: line.shipmentId,
+              statementAmountMinor: line.statementAmountMinor,
+              shipmentFeeMinor: line.shipmentFeeMinor,
+              varianceMinor: line.varianceMinor,
+            } as Prisma.ShippingReconciliationLineUncheckedCreateInput,
+          });
+        }
+      } catch (error) {
+        const raced = await this.replayOnKeyConflict(
+          tx,
+          actor.companyId,
+          data.idempotencyKey,
+          error,
+          (key) => this.findReconciliationByIdempotencyKey(tx, actor.companyId, key),
+        );
+        if (raced !== null) {
+          return { reconciliation: this.toReconciliationDetailView(raced), replayed: true };
+        }
+        throw error;
+      }
+
+      const full = await tx.shippingReconciliation.findFirstOrThrow({
+        where: { id: reconciliationId },
+        select: RECONCILIATION_DETAIL_SELECT,
+      });
+      return { reconciliation: this.toReconciliationDetailView(full), replayed: false };
+    });
+  }
+
+  // ---- Accounting periods (M13.5, D4) ---------------------------------------
+
+  async listPeriods(companyId: string): Promise<readonly AccountingPeriodView[]> {
+    return this.tenantTx(companyId, async (tx) => {
+      const rows = await tx.accountingPeriod.findMany({
+        where: { companyId },
+        orderBy: { periodKey: "asc" },
+        select: PERIOD_SELECT,
+      });
+      return rows.map((r) => this.toPeriodView(r));
+    });
+  }
+
+  /**
+   * Close a period atomically (D4). Locks any existing row `FOR UPDATE`
+   * first; if it is already closed this is a **replay** (the operation is
+   * naturally idempotent — closing an already-closed period reaches the same
+   * terminal state — so no stored `Idempotency-Key` column is needed on
+   * `accounting_periods` the way money-moving writes need one). Otherwise
+   * runs the D4 sequential-gap check (see {@link PeriodSequenceGapError} for
+   * the documented simplification) and upserts the row to `closed`.
+   */
+  async closePeriod(actor: WriteActor, periodKey: string): Promise<PeriodCloseResult> {
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const locked = await tx.$queryRaw<
+        {
+          id: string;
+          status: string;
+          closed_at: Date | null;
+          closed_by: string | null;
+          created_at: Date;
+          updated_at: Date;
+        }[]
+      >`
+        SELECT id, status, closed_at, closed_by, created_at, updated_at
+          FROM public.accounting_periods
+         WHERE company_id = ${actor.companyId}::uuid AND period_key = ${periodKey}
+         FOR UPDATE`;
+      const existing = locked[0];
+      if (existing !== undefined && existing.status === "closed") {
+        return {
+          period: this.toPeriodView({
+            id: existing.id,
+            periodKey,
+            status: existing.status,
+            closedAt: existing.closed_at,
+            closedBy: existing.closed_by,
+            createdAt: existing.created_at,
+            updatedAt: existing.updated_at,
+          }),
+          replayed: true,
+        };
+      }
+
+      // D4 sequential check (simplified, documented on PeriodSequenceGapError):
+      // any earlier period for this company still open blocks this close.
+      const gapRows = await tx.$queryRaw<{ period_key: string }[]>`
+        SELECT period_key FROM public.accounting_periods
+         WHERE company_id = ${actor.companyId}::uuid AND period_key < ${periodKey} AND status = 'open'
+         ORDER BY period_key ASC
+         LIMIT 1`;
+      const gap = gapRows[0];
+      if (gap !== undefined) throw new PeriodSequenceGapError(periodKey, gap.period_key);
+
+      const now = new Date();
+      const row = await tx.accountingPeriod.upsert({
+        where: { companyId_periodKey: { companyId: actor.companyId, periodKey } },
+        create: {
+          companyId: actor.companyId,
+          periodKey,
+          status: "closed",
+          closedAt: now,
+          closedBy: actor.actorId,
+        },
+        update: { status: "closed", closedAt: now, closedBy: actor.actorId },
+        select: PERIOD_SELECT,
+      });
+      return { period: this.toPeriodView(row), replayed: false };
+    });
+  }
+
+  // ---- Cash center + P&L (M13.5, D6 — computed reads) ----------------------------
+
+  /**
+   * Computed cash-center summary (D6): a straightforward `SUM(...)` per
+   * source table over the date range, no new ledger. `collectedMinor` sums
+   * `orders.collectedAmount` by `orders.updatedAt` — a documented
+   * approximation, not a precise per-collection-event figure: `collectedAmount`
+   * is a running total on the order row, not individually timestamped per
+   * collection. `OrderActivity` rows of `kind = 'payment'` exist but only
+   * carry the post-write running total (`toValue`), not a signed delta or a
+   * `fromValue`, so reconstructing a period-scoped collected delta from them
+   * would require walking each order's activity history — real ledger work
+   * D6 explicitly avoids. `updatedAt` is the best available proxy until a
+   * payment-event ledger exists (EPIC-14 territory).
+   */
+  async getCashCenterReport(
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<CashCenterReportView> {
+    return this.tenantTx(companyId, async (tx) => {
+      const range = { gte: new Date(dateFrom), lte: new Date(dateTo) };
+
+      const [collected, expenses, poPayments, refunds, shipping] = await Promise.all([
+        tx.order.aggregate({
+          where: { companyId, updatedAt: range },
+          _sum: { collectedAmount: true },
+        }),
+        tx.expense.aggregate({
+          where: { companyId, incurredAt: range },
+          _sum: { amountMinor: true },
+        }),
+        tx.purchaseOrderPayment.aggregate({
+          where: { companyId, paidAt: range },
+          _sum: { amountMinor: true },
+        }),
+        tx.refund.aggregate({
+          where: { companyId, createdAt: range },
+          _sum: { amountMinor: true },
+        }),
+        tx.shipment.aggregate({ where: { companyId, deliveredAt: range }, _sum: { fee: true } }),
+      ]);
+
+      const collectedMinor = Number(collected._sum.collectedAmount ?? 0n);
+      const expensesMinor = Number(expenses._sum.amountMinor ?? 0n);
+      const purchaseOrderPaymentsMinor = Number(poPayments._sum.amountMinor ?? 0n);
+      const refundsMinor = Number(refunds._sum.amountMinor ?? 0n);
+      const shippingFeesMinor = Number(shipping._sum.fee ?? 0n);
+      const netCashMinor =
+        collectedMinor -
+        expensesMinor -
+        purchaseOrderPaymentsMinor -
+        refundsMinor -
+        shippingFeesMinor;
+
+      return {
+        collectedMinor,
+        expensesMinor,
+        purchaseOrderPaymentsMinor,
+        refundsMinor,
+        shippingFeesMinor,
+        netCashMinor,
+      };
+    });
+  }
+
+  /**
+   * Computed P&L summary (D6). `revenueMinor` sums `invoices.subtotalMinor`
+   * over `invoices.createdAt` — invoices are the actual billed-revenue
+   * record this epic owns (order `collectedAmount`-based "net income on
+   * collected" phrasing belongs to EPIC-14 analytics, not this contract).
+   * `cogsMinor` sums `order_items.costSnapshot * quantity` for items on
+   * orders whose `createdAt` falls in range — an approximation (perfect COGS
+   * timing, e.g. at fulfillment, is EPIC-14's job); consistent with D6's
+   * "computed reads" philosophy.
+   */
+  async getPnlReport(
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+    compareFrom?: string,
+    compareTo?: string,
+  ): Promise<PnlReportView> {
+    return this.tenantTx(companyId, async (tx) => {
+      const current = await this.computePnlPeriod(tx, companyId, dateFrom, dateTo);
+      if (compareFrom === undefined || compareTo === undefined) return { current };
+      const previous = await this.computePnlPeriod(tx, companyId, compareFrom, compareTo);
+      return { current, previous };
+    });
+  }
+
+  private async computePnlPeriod(
+    tx: Tx,
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<PnlPeriodView> {
+    const range = { gte: new Date(dateFrom), lte: new Date(dateTo) };
+
+    const [revenue, cogsItems, expenses] = await Promise.all([
+      tx.invoice.aggregate({
+        where: { companyId, createdAt: range },
+        _sum: { subtotalMinor: true },
+      }),
+      tx.orderItem.findMany({
+        where: { companyId, order: { createdAt: range } },
+        select: { costSnapshot: true, quantity: true },
+      }),
+      tx.expense.aggregate({
+        where: { companyId, incurredAt: range },
+        _sum: { amountMinor: true },
+      }),
+    ]);
+
+    const revenueMinor = Number(revenue._sum.subtotalMinor ?? 0n);
+    const cogsMinor = Number(
+      cogsItems.reduce((sum, item) => sum + item.costSnapshot * item.quantity, 0n),
+    );
+    const expensesMinor = Number(expenses._sum.amountMinor ?? 0n);
+    const netIncomeMinor = revenueMinor - cogsMinor - expensesMinor;
+
+    return { revenueMinor, cogsMinor, expensesMinor, netIncomeMinor };
+  }
+
   // ---- internals: period-close guard (D4) -------------------------------------
 
   /**
    * Reject a money-moving write dated inside an already-closed accounting
-   * period. No row for the period means it is open by default (no milestone
-   * has built close/M13.5 yet, but this guard is written forward-compatibly
-   * so every later money-moving service can reuse it as-is).
+   * period. Beyond the closed-check (unchanged since M13.3), this now also
+   * **touches the period into existence as `open`** (M13.5) when no row
+   * exists yet: every dated money-moving write creates its
+   * `accounting_periods` row if absent, so the D4 sequential-gap check at
+   * close time (`closePeriod`) always has a row to inspect for every month
+   * that ever had activity. This does not change or weaken the close-check
+   * itself — a `status = 'closed'` row still throws {@link PeriodClosedError}
+   * exactly as before M13.5.
    */
   private async assertPeriodOpen(tx: Tx, companyId: string, date: Date): Promise<void> {
     const periodKey = date.toISOString().slice(0, 7);
@@ -1089,6 +1497,13 @@ export class FinanceRepository implements FinanceRepositoryPort {
     const row = rows[0];
     if (row !== undefined && row.status === "closed") {
       throw new PeriodClosedError(periodKey);
+    }
+    if (row === undefined) {
+      await tx.accountingPeriod.upsert({
+        where: { companyId_periodKey: { companyId, periodKey } },
+        create: { companyId, periodKey, status: "open" },
+        update: {},
+      });
     }
   }
 
@@ -1337,6 +1752,18 @@ export class FinanceRepository implements FinanceRepositoryPort {
     });
   }
 
+  private async findReconciliationByIdempotencyKey(
+    tx: Tx,
+    companyId: string,
+    key: string | undefined,
+  ): Promise<ReconciliationDetailRow | null> {
+    if (key === undefined) return null;
+    return tx.shippingReconciliation.findFirst({
+      where: { companyId, idempotencyKey: key },
+      select: RECONCILIATION_DETAIL_SELECT,
+    });
+  }
+
   /** Turn a racing idempotency-key unique violation into the stored result. */
   private async replayOnKeyConflict<T>(
     _tx: Tx,
@@ -1546,6 +1973,63 @@ export class FinanceRepository implements FinanceRepositoryPort {
       orderId: row.orderId,
       amountMinor: Number(row.amountMinor),
       reason: row.reason,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toReconciliationListView(row: ReconciliationListRow): ReconciliationListView {
+    return {
+      id: row.id,
+      carrier: row.carrier,
+      statementRef: row.statementRef,
+      periodKey: row.periodKey,
+      totalStatementMinor: Number(row.totalStatementMinor),
+      totalFeeMinor: Number(row.totalFeeMinor),
+      totalVarianceMinor: Number(row.totalVarianceMinor),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toReconciliationDetailView(row: ReconciliationDetailRow): ReconciliationView {
+    return {
+      ...this.toReconciliationListView(row),
+      lines: row.lines.map((l) => this.toReconciliationLineView(l)),
+    };
+  }
+
+  private toReconciliationLineView(row: {
+    id: string;
+    shipmentId: string;
+    statementAmountMinor: bigint;
+    shipmentFeeMinor: bigint;
+    varianceMinor: bigint;
+  }): ReconciliationLineView {
+    return {
+      id: row.id,
+      shipmentId: row.shipmentId,
+      statementAmountMinor: Number(row.statementAmountMinor),
+      shipmentFeeMinor: Number(row.shipmentFeeMinor),
+      varianceMinor: Number(row.varianceMinor),
+    };
+  }
+
+  private toPeriodView(row: {
+    id: string;
+    periodKey: string;
+    status: string;
+    closedAt: Date | null;
+    closedBy: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): AccountingPeriodView {
+    return {
+      id: row.id,
+      periodKey: row.periodKey,
+      status: row.status as AccountingPeriodStatus,
+      closedAt: row.closedAt === null ? null : row.closedAt.toISOString(),
+      closedBy: row.closedBy,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

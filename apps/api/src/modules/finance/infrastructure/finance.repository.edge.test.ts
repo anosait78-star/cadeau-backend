@@ -107,6 +107,7 @@ function makeRepo() {
     refund: delegate(),
     order: delegate(),
     company: delegate(),
+    accountingPeriod: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };

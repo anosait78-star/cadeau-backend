@@ -13,7 +13,9 @@ export interface FinanceAuditRecord {
     | "expense.updated"
     | "tax_settings.updated"
     | "invoice.issued"
-    | "refund.issued";
+    | "refund.issued"
+    | "shipping_reconciliation.created"
+    | "period.closed";
   /** The kind of row the change landed on. */
   readonly entityType:
     | "supplier"
@@ -23,7 +25,9 @@ export interface FinanceAuditRecord {
     | "expense"
     | "tax_settings"
     | "invoice"
-    | "refund";
+    | "refund"
+    | "shipping_reconciliation"
+    | "accounting_period";
   /** The affected row's id. */
   readonly entityId: string;
   /** A secret-free snapshot of what changed. */

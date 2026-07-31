@@ -199,3 +199,89 @@ export interface RefundWriteResult {
   readonly refund: RefundView;
   readonly replayed: boolean;
 }
+
+// ---- Shipping reconciliation (M13.5, D5) --------------------------------------
+
+/** One matched line of a reconciliation: a shipment's statement amount vs. its recorded fee. */
+export interface ReconciliationLineView {
+  readonly id: string;
+  readonly shipmentId: string;
+  readonly statementAmountMinor: number;
+  readonly shipmentFeeMinor: number;
+  readonly varianceMinor: number;
+}
+
+/** A reconciled carrier statement batch without its lines (list rendering). */
+export interface ReconciliationListView {
+  readonly id: string;
+  readonly carrier: string;
+  readonly statementRef: string;
+  readonly periodKey: string;
+  readonly totalStatementMinor: number;
+  readonly totalFeeMinor: number;
+  readonly totalVarianceMinor: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** A reconciliation with its matched lines (detail rendering). */
+export interface ReconciliationView extends ReconciliationListView {
+  readonly lines: readonly ReconciliationLineView[];
+}
+
+/** The outcome of creating a reconciliation: the row plus replay status. */
+export interface ReconciliationWriteResult {
+  readonly reconciliation: ReconciliationView;
+  readonly replayed: boolean;
+}
+
+// ---- Accounting periods (M13.5, D4) --------------------------------------------
+
+/** The closed set of accounting-period statuses (mirrors the DB CHECK). */
+export const ACCOUNTING_PERIOD_STATUSES = ["open", "closed"] as const;
+
+/** An accounting-period status. */
+export type AccountingPeriodStatus = (typeof ACCOUNTING_PERIOD_STATUSES)[number];
+
+/** A monthly accounting period (`YYYY-MM`), open or closed. */
+export interface AccountingPeriodView {
+  readonly id: string;
+  readonly periodKey: string;
+  readonly status: AccountingPeriodStatus;
+  readonly closedAt: string | null;
+  readonly closedBy: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** The outcome of closing a period: the row plus replay status (already-closed replay). */
+export interface PeriodCloseResult {
+  readonly period: AccountingPeriodView;
+  readonly replayed: boolean;
+}
+
+// ---- Cash center + P&L (M13.5, D6 — computed reads) ----------------------------
+
+/** A computed, read-only cash-center summary over a date range. */
+export interface CashCenterReportView {
+  readonly collectedMinor: number;
+  readonly expensesMinor: number;
+  readonly purchaseOrderPaymentsMinor: number;
+  readonly refundsMinor: number;
+  readonly shippingFeesMinor: number;
+  readonly netCashMinor: number;
+}
+
+/** A computed P&L summary over one date range. */
+export interface PnlPeriodView {
+  readonly revenueMinor: number;
+  readonly cogsMinor: number;
+  readonly expensesMinor: number;
+  readonly netIncomeMinor: number;
+}
+
+/** A computed P&L report, optionally with a comparison period. */
+export interface PnlReportView {
+  readonly current: PnlPeriodView;
+  readonly previous?: PnlPeriodView;
+}

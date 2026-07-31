@@ -1,16 +1,23 @@
 import type { KeysetPage } from "@cadeau/database";
 import type {
+  AccountingPeriodView,
+  CashCenterReportView,
   ExpenseView,
   ExpenseWriteResult,
   InvoiceListView,
   InvoicePdfData,
   InvoiceView,
   InvoiceWriteResult,
+  PeriodCloseResult,
+  PnlReportView,
   PurchaseOrderListView,
   PurchaseOrderPaymentResult,
   PurchaseOrderReceiptResult,
   PurchaseOrderView,
   PurchaseOrderWriteResult,
+  ReconciliationListView,
+  ReconciliationView,
+  ReconciliationWriteResult,
   RefundView,
   RefundWriteResult,
   SupplierView,
@@ -20,6 +27,7 @@ import type {
   ParsedExpenseListQuery,
   ParsedInvoiceListQuery,
   ParsedPurchaseOrderListQuery,
+  ParsedReconciliationListQuery,
   ParsedRefundListQuery,
   ParsedSupplierListQuery,
 } from "./list-query";
@@ -145,6 +153,27 @@ export interface CreateRefundInput {
   readonly amountMinor: number;
   readonly reason: string;
   readonly idempotencyKey: string;
+}
+
+// ---- Shipping reconciliation (M13.5, D5) --------------------------------------
+
+/** One statement line to match against a shipment by tracking number. */
+export interface CreateReconciliationLineInput {
+  readonly trackingNumber: string;
+  readonly statementAmountMinor: number;
+}
+
+/**
+ * Fields accepted when creating a reconciliation. Every line's `trackingNumber`
+ * must match a `(companyId, carrier, trackingNumber)` shipment or the whole
+ * batch is rejected ({@link ShipmentNotFoundForReconciliationError}, D5).
+ */
+export interface CreateReconciliationInput {
+  readonly carrier: string;
+  readonly statementRef: string;
+  readonly periodKey: string;
+  readonly lines: readonly CreateReconciliationLineInput[];
+  readonly idempotencyKey?: string | undefined;
 }
 
 /**
@@ -283,6 +312,61 @@ export interface FinanceRepositoryPort {
    * ({@link PeriodClosedError}, D4, checked against the write time).
    */
   createRefund(actor: WriteActor, data: CreateRefundInput): Promise<RefundWriteResult>;
+
+  // ---- Shipping reconciliation (M13.5, D5) ------------------------------------
+
+  listReconciliations(
+    companyId: string,
+    query: ParsedReconciliationListQuery,
+  ): Promise<KeysetPage<ReconciliationListView>>;
+
+  findReconciliation(companyId: string, id: string): Promise<ReconciliationView | null>;
+
+  /**
+   * Atomically match every statement line to its shipment, compute the
+   * per-line and total variance, and write the header + append-only lines.
+   * Rejects the whole batch on the first unmatched tracking number
+   * ({@link ShipmentNotFoundForReconciliationError}) and a write dated inside
+   * a closed accounting period ({@link PeriodClosedError}, D4, checked
+   * against the write time).
+   */
+  createReconciliation(
+    actor: WriteActor,
+    data: CreateReconciliationInput,
+  ): Promise<ReconciliationWriteResult>;
+
+  // ---- Accounting periods (M13.5, D4) -----------------------------------------
+
+  /** List every accounting period for the company, ascending by `periodKey`. */
+  listPeriods(companyId: string): Promise<readonly AccountingPeriodView[]>;
+
+  /**
+   * Atomically close a period: locks any existing row, replays (no-op) when
+   * already closed, rejects a sequential gap
+   * ({@link PeriodSequenceGapError}, D4), then upserts the row to `closed`.
+   */
+  closePeriod(actor: WriteActor, periodKey: string): Promise<PeriodCloseResult>;
+
+  // ---- Cash center + P&L (M13.5, D6 — computed reads) --------------------------
+
+  /** Compute the cash-center summary over `[dateFrom, dateTo]`, tenant-scoped. */
+  getCashCenterReport(
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<CashCenterReportView>;
+
+  /**
+   * Compute the P&L summary over `[dateFrom, dateTo]`, and — when both are
+   * given — a second summary over `[compareFrom, compareTo]`.
+   */
+  getPnlReport(
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+    compareFrom?: string,
+    compareTo?: string,
+  ): Promise<PnlReportView>;
 }
 
 /** DI token for {@link FinanceRepositoryPort}. */

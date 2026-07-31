@@ -13,6 +13,7 @@ import {
   type CreatePaymentInput,
   type CreatePurchaseOrderInput,
   type CreateReceiptInput,
+  type CreateReconciliationInput,
   type CreateRefundInput,
   type CreateSupplierInput,
   type FinanceRepositoryPort,
@@ -21,14 +22,19 @@ import {
   type UpdateTaxSettingsInput,
 } from "../domain/finance-repository.port";
 import type {
+  AccountingPeriodView,
+  CashCenterReportView,
   ExpenseView,
   InvoiceListView,
   InvoicePdfData,
   InvoiceView,
+  PnlReportView,
   PurchaseOrderListView,
   PurchaseOrderPaymentView,
   PurchaseOrderReceiptView,
   PurchaseOrderView,
+  ReconciliationListView,
+  ReconciliationView,
   RefundView,
   SupplierView,
   TaxSettingsView,
@@ -36,27 +42,35 @@ import type {
 import {
   EmptyInvoiceError,
   EmptyPurchaseOrderError,
+  EmptyReconciliationError,
   IllegalPurchaseOrderStateError,
   InvalidAmountError,
   InvalidInvoiceSourceError,
   InvalidListCursorError,
+  InvalidPeriodKeyError,
   InvalidVatRateError,
   MissingIdempotencyKeyError,
   OverReceiptError,
   PeriodClosedError,
+  PeriodSequenceGapError,
   RefundTargetRequiredError,
   ReferenceNotFoundError,
+  ShipmentNotFoundForReconciliationError,
 } from "../domain/finance.errors";
 import {
   parseExpenseListQuery,
   parseInvoiceListQuery,
   parsePurchaseOrderListQuery,
+  parseReconciliationListQuery,
   parseRefundListQuery,
+  parseReportRangeQuery,
   parseSupplierListQuery,
   type RawExpenseListQuery,
   type RawInvoiceListQuery,
   type RawPurchaseOrderListQuery,
+  type RawReconciliationListQuery,
   type RawRefundListQuery,
+  type RawReportRangeQuery,
   type RawSupplierListQuery,
 } from "../domain/list-query";
 
@@ -467,6 +481,117 @@ export class FinanceService {
     return result.refund;
   }
 
+  // ---- Shipping reconciliation (M13.5, D5) --------------------------------------
+
+  async listReconciliations(
+    principal: RequestPrincipal,
+    rawQuery: RawReconciliationListQuery,
+  ): Promise<KeysetPage<ReconciliationListView>> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseReconciliationListQuery(rawQuery);
+    if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
+    try {
+      return await this.repo.listReconciliations(companyId, query);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+  }
+
+  async getReconciliation(principal: RequestPrincipal, id: string): Promise<ReconciliationView> {
+    const companyId = this.requireTenant(principal);
+    const row = await this.repo.findReconciliation(companyId, id);
+    if (row === null) throw AppErrors.notFound("Reconciliation not found.");
+    return row;
+  }
+
+  async createReconciliation(
+    principal: RequestPrincipal,
+    data: CreateReconciliationInput,
+  ): Promise<ReconciliationView> {
+    const companyId = this.requireTenant(principal);
+    let result;
+    try {
+      result = await this.repo.createReconciliation({ companyId, actorId: principal.userId }, data);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    if (!result.replayed) {
+      await this.record(companyId, principal.userId, {
+        action: "shipping_reconciliation.created",
+        entityType: "shipping_reconciliation",
+        entityId: result.reconciliation.id,
+        changes: result.reconciliation,
+      });
+      // No event is defined for reconciliation in the closed catalog
+      // (event-catalog.ts) — audit only, same treatment as expenses/tax
+      // settings (M13.3).
+    }
+    return result.reconciliation;
+  }
+
+  // ---- Accounting periods (M13.5, D4) -------------------------------------------
+
+  async listPeriods(principal: RequestPrincipal): Promise<readonly AccountingPeriodView[]> {
+    const companyId = this.requireTenant(principal);
+    return this.repo.listPeriods(companyId);
+  }
+
+  async closePeriod(principal: RequestPrincipal, periodKey: string): Promise<AccountingPeriodView> {
+    const companyId = this.requireTenant(principal);
+    if (!/^\d{4}-\d{2}$/.test(periodKey)) throw this.mapError(new InvalidPeriodKeyError());
+
+    let result;
+    try {
+      result = await this.repo.closePeriod({ companyId, actorId: principal.userId }, periodKey);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    if (!result.replayed) {
+      await this.record(companyId, principal.userId, {
+        action: "period.closed",
+        entityType: "accounting_period",
+        entityId: result.period.id,
+        changes: result.period,
+      });
+      await this.events.publish({
+        type: "period.closed",
+        companyId,
+        actorId: principal.userId,
+        occurredAt: this.clock.now(),
+        payload: { periodKey: result.period.periodKey },
+      });
+    }
+    return result.period;
+  }
+
+  // ---- Cash center + P&L (M13.5, D6 — computed reads) ----------------------------
+
+  async getCashCenterReport(
+    principal: RequestPrincipal,
+    rawQuery: RawReportRangeQuery,
+  ): Promise<CashCenterReportView> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseReportRangeQuery(rawQuery);
+    if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
+    return this.repo.getCashCenterReport(companyId, query.dateFrom, query.dateTo);
+  }
+
+  async getPnlReport(
+    principal: RequestPrincipal,
+    rawQuery: RawReportRangeQuery,
+  ): Promise<PnlReportView> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseReportRangeQuery(rawQuery);
+    if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
+    return this.repo.getPnlReport(
+      companyId,
+      query.dateFrom,
+      query.dateTo,
+      query.compareFrom,
+      query.compareTo,
+    );
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private async record(
@@ -543,6 +668,23 @@ export class FinanceService {
     }
     if (error instanceof MissingIdempotencyKeyError) {
       return AppErrors.badRequest(error.message);
+    }
+    if (error instanceof EmptyReconciliationError) {
+      return AppErrors.validation(error.message, [{ field: "lines", messages: [error.message] }]);
+    }
+    if (error instanceof ShipmentNotFoundForReconciliationError) {
+      return new AppException(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        "UNPROCESSABLE_ENTITY",
+        error.message,
+        [{ field: "trackingNumber", messages: [error.message] }],
+      );
+    }
+    if (error instanceof InvalidPeriodKeyError) {
+      return AppErrors.validation(error.message, [{ field: "period", messages: [error.message] }]);
+    }
+    if (error instanceof PeriodSequenceGapError) {
+      return AppErrors.conflict(error.message, [{ field: "period", messages: [error.message] }]);
     }
     return error;
   }
