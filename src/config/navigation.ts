@@ -8,6 +8,7 @@ import {
   ShoppingCart,
   Users,
   Warehouse,
+  Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { TranslationKey } from "@/i18n/dictionaries";
@@ -40,6 +41,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/customers", labelKey: "nav.customers", icon: Users, feature: "customers" },
   { to: "/products", labelKey: "nav.products", icon: Package, feature: "products" },
   { to: "/inventory", labelKey: "nav.inventory", icon: Warehouse, feature: "inventory" },
+  { to: "/finance", labelKey: "nav.finance", icon: Wallet, feature: "finance" },
   {
     to: "/master-data",
     labelKey: "nav.masterData",
