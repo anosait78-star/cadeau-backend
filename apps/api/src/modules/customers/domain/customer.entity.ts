@@ -68,6 +68,27 @@ export interface CustomerWithAddresses extends CustomerView {
 }
 
 /**
+ * A row of a customer's order history (EPIC-11, `GET /v1/customers/{id}/orders`).
+ * A summary of the order the customers module is allowed to surface without
+ * reaching into the orders module's own view types (`no-cross-feature-imports`);
+ * the full order lives behind `/v1/orders/{orderId}`.
+ */
+export interface CustomerOrderSummaryView {
+  readonly id: string;
+  readonly orderNumber: number;
+  readonly status: string;
+  readonly total: number;
+  readonly collectedAmount: number;
+  readonly createdAt: string;
+}
+
+/** The outcome of a merge: the ids that were folded together. */
+export interface CustomerMergeResult {
+  readonly survivingCustomerId: string;
+  readonly mergedCustomerId: string;
+}
+
+/**
  * The outcome of a create that may have been an idempotent **replay** of an
  * earlier request (same `Idempotency-Key`). A replay wrote nothing, so the
  * service records no audit row and emits no event — the same contract the

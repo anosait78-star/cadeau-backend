@@ -2,6 +2,8 @@ import type { KeysetPage } from "@cadeau/database";
 import type {
   CustomerAddressView,
   CustomerListView,
+  CustomerMergeResult,
+  CustomerOrderSummaryView,
   CustomerView,
   CustomerWithAddresses,
   CustomerWriteResult,
@@ -119,6 +121,30 @@ export interface CustomersRepositoryPort {
     addressId: string,
     data: UpdateAddressInput,
   ): Promise<CustomerAddressView | null>;
+
+  /**
+   * A keyset page of a customer's order history (EPIC-11). Returns `null` if the
+   * customer is absent in this tenant. The rows are a lightweight summary; the
+   * full order lives behind `/v1/orders/{orderId}`.
+   */
+  listCustomerOrders(
+    companyId: string,
+    customerId: string,
+    limit: number | undefined,
+    cursor: string | undefined,
+  ): Promise<KeysetPage<CustomerOrderSummaryView> | null>;
+
+  /**
+   * Merge the `merged` customer into the `surviving` one (EPIC-11, decision D5):
+   * re-parent EVERY customer-owned table, archive the merged customer (never
+   * delete), and recompute the survivor's KPIs — all in one transaction. Returns
+   * `null` if either customer is absent in this tenant.
+   */
+  merge(
+    actor: WriteActor,
+    survivingCustomerId: string,
+    mergedCustomerId: string,
+  ): Promise<CustomerMergeResult | null>;
 }
 
 /** DI token for {@link CustomersRepositoryPort}. */

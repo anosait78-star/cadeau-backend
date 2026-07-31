@@ -7,6 +7,8 @@ import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type {
   CustomerAddressView,
   CustomerListView,
+  CustomerMergeResult,
+  CustomerOrderSummaryView,
   CustomerView,
   CustomerWithAddresses,
 } from "../domain/customer.entity";
@@ -21,6 +23,7 @@ import {
 import {
   DuplicateCustomerError,
   InvalidListCursorError,
+  InvalidMergeError,
   InvalidPhoneError,
   ReferenceNotFoundError,
 } from "../domain/customers.errors";
@@ -229,6 +232,66 @@ export class CustomersService {
     });
   }
 
+  /** A keyset page of a customer's order history (EPIC-11). */
+  async listOrders(
+    principal: RequestPrincipal,
+    customerId: string,
+    limit: string | undefined,
+    cursor: string | undefined,
+  ): Promise<KeysetPage<CustomerOrderSummaryView>> {
+    const companyId = this.requireTenant(principal);
+    const page = await this.repo.listCustomerOrders(
+      companyId,
+      customerId,
+      limit !== undefined ? Number(limit) : undefined,
+      cursor,
+    );
+    if (page === null) throw AppErrors.notFound("Customer not found.");
+    return page;
+  }
+
+  /**
+   * Merge one customer into another (EPIC-11, decision D5). The repository
+   * re-parents every customer-owned table atomically; here we write the durable
+   * audit row and emit `customer.merged` — ids only, never PII.
+   */
+  async merge(
+    principal: RequestPrincipal,
+    survivingCustomerId: string,
+    mergedCustomerId: string,
+  ): Promise<CustomerMergeResult> {
+    const companyId = this.requireTenant(principal);
+    let result: CustomerMergeResult | null;
+    try {
+      result = await this.repo.merge(
+        { companyId, actorId: principal.userId },
+        survivingCustomerId,
+        mergedCustomerId,
+      );
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    if (result === null) throw AppErrors.notFound("Customer not found.");
+
+    await this.record(companyId, principal.userId, {
+      action: "customer.merged",
+      entityType: "customer",
+      entityId: result.survivingCustomerId,
+      changes: { mergedCustomerId: result.mergedCustomerId },
+    });
+    await this.events.publish({
+      type: "customer.merged",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: {
+        survivingCustomerId: result.survivingCustomerId,
+        mergedCustomerId: result.mergedCustomerId,
+      },
+    });
+    return result;
+  }
+
   async listAddresses(
     principal: RequestPrincipal,
     customerId: string,
@@ -320,6 +383,7 @@ export class CustomersService {
         | "customer.updated"
         | "customer.archived"
         | "customer.exported"
+        | "customer.merged"
         | "customer.address_created"
         | "customer.address_updated";
       entityType: "customer" | "customer_address";
@@ -364,7 +428,11 @@ export class CustomersService {
     if (error instanceof DuplicateCustomerError) {
       return AppErrors.conflict(error.message, [{ field: error.field, messages: [error.message] }]);
     }
-    if (error instanceof ReferenceNotFoundError || error instanceof InvalidPhoneError) {
+    if (
+      error instanceof ReferenceNotFoundError ||
+      error instanceof InvalidPhoneError ||
+      error instanceof InvalidMergeError
+    ) {
       return new AppException(
         HttpStatus.UNPROCESSABLE_ENTITY,
         "UNPROCESSABLE_ENTITY",

@@ -92,6 +92,10 @@ describe("CustomersController", () => {
       listAddresses: vi.fn().mockResolvedValue([address()]),
       createAddress: vi.fn().mockResolvedValue(address()),
       updateAddress: vi.fn().mockResolvedValue(address()),
+      listOrders: vi
+        .fn()
+        .mockResolvedValue({ data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
+      merge: vi.fn().mockResolvedValue({ survivingCustomerId: CUSTOMER, mergedCustomerId: "m1" }),
     };
     controller = new CustomersController(service as unknown as CustomersService);
   });
@@ -201,5 +205,20 @@ describe("CustomersController", () => {
     expect(service.updateAddress).toHaveBeenCalledWith(principal, CUSTOMER, "a1", {
       isDefault: true,
     });
+  });
+
+  it("merge forwards the surviving and merged ids", async () => {
+    const res = await controller.merge(principal, {
+      survivingCustomerId: CUSTOMER,
+      mergedCustomerId: "m1",
+    });
+    expect(service.merge).toHaveBeenCalledWith(principal, CUSTOMER, "m1");
+    expect(res.survivingCustomerId).toBe(CUSTOMER);
+  });
+
+  it("listOrders forwards the id and pagination", async () => {
+    const res = await controller.listOrders(principal, CUSTOMER, "25", undefined);
+    expect(service.listOrders).toHaveBeenCalledWith(principal, CUSTOMER, "25", undefined);
+    expect(res.data).toHaveLength(0);
   });
 });

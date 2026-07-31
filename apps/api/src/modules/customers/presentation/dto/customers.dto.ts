@@ -15,6 +15,8 @@ import type { KeysetPage } from "@cadeau/database";
 import type {
   CustomerAddressView,
   CustomerListView,
+  CustomerMergeResult,
+  CustomerOrderSummaryView,
   CustomerView,
   CustomerWithAddresses,
 } from "../../domain/customer.entity";
@@ -192,6 +194,20 @@ export class ExportCustomersDto {
   @IsInt()
   @Min(1)
   limit?: number;
+}
+
+/**
+ * Merge payload (EPIC-11, decision D5). The merged customer is folded into the
+ * surviving one (all orders + addresses re-parented) and then archived.
+ */
+export class MergeCustomersDto {
+  @ApiProperty({ format: "uuid", description: "The customer that survives the merge." })
+  @IsUUID()
+  survivingCustomerId!: string;
+
+  @ApiProperty({ format: "uuid", description: "The customer folded in and archived." })
+  @IsUUID()
+  mergedCustomerId!: string;
 }
 
 // ---- Response DTOs ---------------------------------------------------------
@@ -416,6 +432,67 @@ export class CustomerExportDto {
     const dto = new CustomerExportDto();
     dto.data = views.map((c) => CustomerDto.from(c));
     dto.count = views.length;
+    return dto;
+  }
+}
+
+/** A row of a customer's order history (EPIC-11). */
+export class CustomerOrderSummaryDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+  @ApiProperty({ example: 1042 })
+  orderNumber!: number;
+  @ApiProperty({ example: "processing" })
+  status!: string;
+  @ApiProperty({ example: 35000, description: "Order total, integer minor units." })
+  total!: number;
+  @ApiProperty({ example: 0, description: "COD collected, integer minor units." })
+  collectedAmount!: number;
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  static from(view: CustomerOrderSummaryView): CustomerOrderSummaryDto {
+    const dto = new CustomerOrderSummaryDto();
+    dto.id = view.id;
+    dto.orderNumber = view.orderNumber;
+    dto.status = view.status;
+    dto.total = view.total;
+    dto.collectedAmount = view.collectedAmount;
+    dto.createdAt = view.createdAt;
+    return dto;
+  }
+}
+
+/** Keyset-paginated order-history envelope. */
+export class CustomerOrderListDto {
+  @ApiProperty({ type: [CustomerOrderSummaryDto] })
+  data!: CustomerOrderSummaryDto[];
+  @ApiProperty({ type: CustomerPageDto })
+  page!: CustomerPageDto;
+
+  static from(page: KeysetPage<CustomerOrderSummaryView>): CustomerOrderListDto {
+    const dto = new CustomerOrderListDto();
+    dto.data = page.data.map((o) => CustomerOrderSummaryDto.from(o));
+    dto.page = {
+      limit: page.page.limit,
+      nextCursor: page.page.nextCursor,
+      hasMore: page.page.hasMore,
+    };
+    return dto;
+  }
+}
+
+/** The merge result: the two ids that were folded together. */
+export class CustomerMergeResultDto {
+  @ApiProperty({ format: "uuid" })
+  survivingCustomerId!: string;
+  @ApiProperty({ format: "uuid" })
+  mergedCustomerId!: string;
+
+  static from(result: CustomerMergeResult): CustomerMergeResultDto {
+    const dto = new CustomerMergeResultDto();
+    dto.survivingCustomerId = result.survivingCustomerId;
+    dto.mergedCustomerId = result.mergedCustomerId;
     return dto;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Prisma, type PrismaClient } from "@cadeau/database";
+import { encodeCursor, Prisma, type PrismaClient } from "@cadeau/database";
 import { blindIndex, decrypt, encrypt } from "@cadeau/crypto";
 import type { InjectedAppConfig } from "../../../shared/config/config.tokens";
 import {
@@ -71,6 +71,7 @@ function makeRepo() {
     customer: delegate(),
     customerAddress: delegate(),
     governorate: delegate(),
+    order: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -437,5 +438,90 @@ describe("CustomersRepository — writes scope to the tenant", () => {
   it("returns null when adding an address to an absent customer", async () => {
     const { repo } = makeRepo();
     await expect(repo.createAddress(actor, "nope", { line: "x" })).resolves.toBeNull();
+  });
+});
+
+describe("CustomersRepository — EPIC-11 list & order history", () => {
+  it("filters by hasOrders as a column predicate", async () => {
+    const { repo, models } = makeRepo();
+    await repo.list(COMPANY, {
+      sort: { field: "createdAt", dir: "desc" },
+      active: true,
+      hasOrders: true,
+    });
+    const where = models.customer.findMany.mock.calls[0]?.[0]?.where as Record<string, unknown>;
+    expect(where["ordersCount"]).toEqual({ gt: 0 });
+
+    const { repo: r2, models: m2 } = makeRepo();
+    await r2.list(COMPANY, {
+      sort: { field: "createdAt", dir: "desc" },
+      active: true,
+      hasOrders: false,
+    });
+    const where2 = m2.customer.findMany.mock.calls[0]?.[0]?.where as Record<string, unknown>;
+    expect(where2["ordersCount"]).toBe(0);
+  });
+
+  it("sorts by the ordersCount KPI with a numeric cursor", async () => {
+    const { repo, models } = makeRepo();
+    models.customer.findMany.mockResolvedValue([customerRow({ ordersCount: 4 })]);
+    const page = await repo.list(COMPANY, {
+      sort: { field: "ordersCount", dir: "desc" },
+      active: true,
+    });
+    expect(page.data).toHaveLength(1);
+    expect(models.customer.findMany.mock.calls[0]?.[0]?.orderBy).toEqual([
+      { ordersCount: "desc" },
+      { id: "desc" },
+    ]);
+  });
+
+  it("paginates a totalSpent sort with a numeric cursor", async () => {
+    const { repo, models } = makeRepo();
+    models.customer.findMany.mockResolvedValue([customerRow({ totalSpent: 12000n })]);
+    const cursor = encodeCursor({ p: "20000", t: "c0" });
+    const page = await repo.list(COMPANY, {
+      sort: { field: "totalSpent", dir: "desc" },
+      active: true,
+      cursor,
+    });
+    expect(page.data[0]?.totalSpent).toBe(12000);
+    // The keyset predicate compared numerically (Number(cursor.p)).
+    const where = models.customer.findMany.mock.calls[0]?.[0]?.where as {
+      AND?: { OR: { totalSpent?: { lt: number } }[] }[];
+    };
+    expect(where.AND?.[0]?.OR?.[0]?.totalSpent).toEqual({ lt: 20000 });
+  });
+
+  it("rejects a non-numeric cursor on a KPI sort", async () => {
+    const { repo } = makeRepo();
+    const bad = encodeCursor({ p: "not-a-number", t: "c0" });
+    await expect(
+      repo.list(COMPANY, {
+        sort: { field: "ordersCount", dir: "desc" },
+        active: true,
+        cursor: bad,
+      }),
+    ).rejects.toBeInstanceOf(InvalidListCursorError);
+  });
+
+  it("lists a customer's orders, or null when the customer is absent", async () => {
+    const { repo, models } = makeRepo();
+    models.customer.findFirst.mockResolvedValue({ id: "c1" });
+    models.order.findMany.mockResolvedValue([
+      {
+        id: "o1",
+        orderNumber: 1042n,
+        status: "processing",
+        total: 35000n,
+        collectedAmount: 0n,
+        createdAt: CREATED,
+      },
+    ]);
+    const page = await repo.listCustomerOrders(COMPANY, "c1", undefined, undefined);
+    expect(page?.data[0]).toMatchObject({ orderNumber: 1042, status: "processing", total: 35000 });
+
+    models.customer.findFirst.mockResolvedValue(null);
+    expect(await repo.listCustomerOrders(COMPANY, "missing", undefined, undefined)).toBeNull();
   });
 });

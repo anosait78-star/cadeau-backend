@@ -14,6 +14,7 @@ export interface CustomersAuditRecord {
     | "customer.updated"
     | "customer.archived"
     | "customer.exported"
+    | "customer.merged"
     | "customer.address_created"
     | "customer.address_updated";
   readonly entityType: "customer" | "customer_address";

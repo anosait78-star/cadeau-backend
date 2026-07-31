@@ -39,7 +39,10 @@ import {
   CustomerDto,
   CustomerExportDto,
   CustomerListDto,
+  CustomerMergeResultDto,
+  CustomerOrderListDto,
   ExportCustomersDto,
+  MergeCustomersDto,
   UpdateAddressDto,
   UpdateCustomerDto,
 } from "./dto/customers.dto";
@@ -124,6 +127,27 @@ export class CustomersController {
     return CustomerExportDto.from(await this.service.export(principal, toRawQuery(body)));
   }
 
+  @Post("merge")
+  @HttpCode(HttpStatus.OK)
+  @RequireCapability({ feature: CUSTOMERS_FEATURE, permission: "customers.manage" })
+  @ApiOperation({
+    summary: "Merge two customers (re-parents all owned tables)",
+    description:
+      "Folds the merged customer into the surviving one — every order and address " +
+      "is re-parented in one transaction, the merged customer is archived, and " +
+      "customer.merged is emitted. Audited (EPIC-11, decision D5).",
+    operationId: "mergeCustomers",
+  })
+  @ApiOkResponse({ type: CustomerMergeResultDto })
+  async merge(
+    @CurrentUser() principal: RequestPrincipal,
+    @Body() body: MergeCustomersDto,
+  ): Promise<CustomerMergeResultDto> {
+    return CustomerMergeResultDto.from(
+      await this.service.merge(principal, body.survivingCustomerId, body.mergedCustomerId),
+    );
+  }
+
   @Get(":customerId")
   @RequireCapability({ feature: CUSTOMERS_FEATURE, permission: "customers.read" })
   @ApiOperation({ summary: "Customer detail + KPIs + addresses", operationId: "getCustomer" })
@@ -156,6 +180,24 @@ export class CustomersController {
     @Param("customerId", ParseUUIDPipe) customerId: string,
   ): Promise<void> {
     await this.service.archive(principal, customerId);
+  }
+
+  @Get(":customerId/orders")
+  @RequireCapability({ feature: CUSTOMERS_FEATURE, permission: "customers.read" })
+  @ApiOperation({
+    summary: "A customer's order history (keyset)",
+    operationId: "listCustomerOrders",
+  })
+  @ApiOkResponse({ type: CustomerOrderListDto })
+  async listOrders(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("customerId", ParseUUIDPipe) customerId: string,
+    @Query("limit") limit: string | undefined,
+    @Query("cursor") cursor: string | undefined,
+  ): Promise<CustomerOrderListDto> {
+    return CustomerOrderListDto.from(
+      await this.service.listOrders(principal, customerId, limit, cursor),
+    );
   }
 
   @Get(":customerId/addresses")

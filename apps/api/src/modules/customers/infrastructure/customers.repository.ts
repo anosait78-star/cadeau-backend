@@ -17,6 +17,8 @@ import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/confi
 import type {
   CustomerAddressView,
   CustomerListView,
+  CustomerMergeResult,
+  CustomerOrderSummaryView,
   CustomerView,
   CustomerWithAddresses,
   CustomerWriteResult,
@@ -32,6 +34,7 @@ import type {
 import {
   DuplicateCustomerError,
   InvalidListCursorError,
+  InvalidMergeError,
   ReferenceNotFoundError,
 } from "../domain/customers.errors";
 import type { ParsedCustomerListQuery } from "../domain/list-query";
@@ -52,6 +55,15 @@ interface DecodedCursor {
  * is also *bounded*: no single request can walk the whole customer base.
  */
 export const EXPORT_MAX_ROWS = 5_000;
+
+/**
+ * Every table a customer owns, that a merge must re-parent from the merged
+ * customer to the survivor (decision D5). This is the ONE authoritative list; the
+ * merge below re-parents exactly these, and `customers.repository.merge.test.ts`
+ * fails loudly if a new model gains a `customerId` foreign key without being
+ * added here — so a future customer-owned table can never silently escape merge.
+ */
+export const CUSTOMER_OWNED_TABLES = ["customer_addresses", "orders"] as const;
 
 const CUSTOMER_SELECT = {
   id: true,
@@ -340,7 +352,137 @@ export class CustomersRepository implements CustomersRepositoryPort {
     });
   }
 
+  async listCustomerOrders(
+    companyId: string,
+    customerId: string,
+    limit: number | undefined,
+    cursor: string | undefined,
+  ): Promise<KeysetPage<CustomerOrderSummaryView> | null> {
+    return this.tenantTx(companyId, async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId, companyId },
+        select: { id: true },
+      });
+      if (customer === null) return null;
+      const take = clampLimit(limit);
+      const decoded = this.decodeOrderCursor(cursor);
+      const where: Prisma.OrderWhereInput = { customerId, companyId };
+      if (decoded !== null) {
+        where.OR = [
+          { createdAt: { lt: new Date(decoded.p) } },
+          { AND: [{ createdAt: new Date(decoded.p) }, { id: { lt: decoded.t } }] },
+        ];
+      }
+      const rows = await tx.order.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: take + 1,
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          total: true,
+          collectedAmount: true,
+          createdAt: true,
+        },
+      });
+      const views: CustomerOrderSummaryView[] = rows.map((r) => ({
+        id: r.id,
+        orderNumber: Number(r.orderNumber),
+        status: r.status,
+        total: Number(r.total),
+        collectedAmount: Number(r.collectedAmount),
+        createdAt: r.createdAt.toISOString(),
+      }));
+      return buildKeysetPage(views, take, (v) => ({ p: v.createdAt, t: v.id }));
+    });
+  }
+
+  async merge(
+    actor: WriteActor,
+    survivingCustomerId: string,
+    mergedCustomerId: string,
+  ): Promise<CustomerMergeResult | null> {
+    if (survivingCustomerId === mergedCustomerId) throw new InvalidMergeError();
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const where = { companyId: actor.companyId };
+      const survivor = await tx.customer.findFirst({
+        where: { id: survivingCustomerId, ...where },
+        select: { id: true },
+      });
+      const merged = await tx.customer.findFirst({
+        where: { id: mergedCustomerId, ...where },
+        select: { id: true },
+      });
+      if (survivor === null || merged === null) return null;
+
+      // Re-parent EVERY customer-owned table (CUSTOMER_OWNED_TABLES). The merged
+      // customer's addresses lose their default flag so the survivor keeps at
+      // most one (the partial unique index).
+      await tx.customerAddress.updateMany({
+        where: { customerId: mergedCustomerId, ...where },
+        data: stampForUpdate(actor, {
+          customerId: survivingCustomerId,
+          isDefault: false,
+        }) as Prisma.CustomerAddressUncheckedUpdateManyInput,
+      });
+      await tx.order.updateMany({
+        where: { customerId: mergedCustomerId, ...where },
+        data: stampForUpdate(actor, {
+          customerId: survivingCustomerId,
+        }) as Prisma.OrderUncheckedUpdateManyInput,
+      });
+
+      // Archive the merged customer (never delete) and recompute the survivor's
+      // KPIs from its now-combined order set.
+      await tx.customer.updateMany({
+        where: { id: mergedCustomerId, ...where },
+        data: stampForUpdate(actor, { isActive: false }) as Prisma.CustomerUncheckedUpdateManyInput,
+      });
+      await this.recomputeKpis(tx, actor.companyId, survivingCustomerId);
+      return { survivingCustomerId, mergedCustomerId };
+    });
+  }
+
   // ---- internals -----------------------------------------------------------
+
+  /**
+   * Recompute a customer's KPIs from its own orders (EPIC-11, decision D3): the
+   * same aggregate the orders module runs on every order write, run here after a
+   * merge folds another customer's orders in.
+   */
+  private async recomputeKpis(tx: Tx, companyId: string, customerId: string): Promise<void> {
+    const stats = await tx.order.aggregate({
+      where: { companyId, customerId, status: { not: "cancelled" } },
+      _count: { _all: true },
+      _sum: { collectedAmount: true },
+      _max: { createdAt: true },
+    });
+    await tx.customer.updateMany({
+      where: { id: customerId, companyId },
+      data: {
+        ordersCount: stats._count._all,
+        totalSpent: stats._sum.collectedAmount ?? 0n,
+        lastOrderAt: stats._max.createdAt ?? null,
+      } as Prisma.CustomerUncheckedUpdateManyInput,
+    });
+  }
+
+  /** Decode the `createdAt`+id cursor used by the customer order-history list. */
+  private decodeOrderCursor(raw: string | undefined): DecodedCursor | null {
+    if (raw === undefined) return null;
+    try {
+      const decoded = decodeCursor(raw);
+      const p = decoded["p"];
+      const t = decoded["t"];
+      if (typeof p !== "string" || typeof t !== "string") throw new InvalidListCursorError();
+      if (Number.isNaN(Date.parse(p))) throw new InvalidListCursorError();
+      return { p, t };
+    } catch (error) {
+      if (error instanceof InvalidCursorError) throw new InvalidListCursorError();
+      throw error;
+    }
+  }
 
   /** Run a unit of work with the tenant RLS context bound for its duration. */
   private tenantTx<T>(companyId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
@@ -490,6 +632,10 @@ export class CustomersRepository implements CustomersRepositoryPort {
     if (query.governorateId !== undefined) {
       where.addresses = { some: { governorateId: query.governorateId } };
     }
+    if (query.hasOrders !== undefined) {
+      // KPI is now maintained by EPIC-11, so "has orders" is a column predicate.
+      where.ordersCount = query.hasOrders ? { gt: 0 } : 0;
+    }
     if (query.createdAtFrom !== undefined || query.createdAtTo !== undefined) {
       where.createdAt = {
         ...(query.createdAtFrom !== undefined ? { gte: new Date(query.createdAtFrom) } : {}),
@@ -520,7 +666,12 @@ export class CustomersRepository implements CustomersRepositoryPort {
   ): Prisma.CustomerWhereInput {
     const primary = query.sort.field;
     const op = query.sort.dir === "asc" ? "gt" : "lt";
-    const primaryValue: string | Date = primary === "createdAt" ? new Date(cursor.p) : cursor.p;
+    const primaryValue: string | Date | number =
+      primary === "createdAt"
+        ? new Date(cursor.p)
+        : primary === "ordersCount" || primary === "totalSpent"
+          ? Number(cursor.p)
+          : cursor.p;
     return {
       OR: [
         { [primary]: { [op]: primaryValue } },
@@ -535,7 +686,14 @@ export class CustomersRepository implements CustomersRepositoryPort {
    * (docs/privacy-model.md §6).
    */
   private toCursor(query: ParsedCustomerListQuery, view: CustomerListView): CursorValues {
-    const p = query.sort.field === "createdAt" ? view.createdAt : view.name;
+    const p =
+      query.sort.field === "createdAt"
+        ? view.createdAt
+        : query.sort.field === "name"
+          ? view.name
+          : query.sort.field === "ordersCount"
+            ? String(view.ordersCount)
+            : String(view.totalSpent);
     return { p, t: view.id };
   }
 
@@ -547,6 +705,12 @@ export class CustomersRepository implements CustomersRepositoryPort {
       const t = decoded["t"];
       if (typeof p !== "string" || typeof t !== "string") throw new InvalidListCursorError();
       if (query.sort.field === "createdAt" && Number.isNaN(Date.parse(p))) {
+        throw new InvalidListCursorError();
+      }
+      if (
+        (query.sort.field === "ordersCount" || query.sort.field === "totalSpent") &&
+        Number.isNaN(Number(p))
+      ) {
         throw new InvalidListCursorError();
       }
       return { p, t };

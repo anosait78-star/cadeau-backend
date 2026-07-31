@@ -49,3 +49,15 @@ export class InvalidListCursorError extends Error {
     this.name = "InvalidListCursorError";
   }
 }
+
+/**
+ * A merge request was invalid — the surviving and merged ids are the same
+ * (EPIC-11, `POST /v1/customers/merge`). "Not found" is reported separately by
+ * the service when either customer is absent.
+ */
+export class InvalidMergeError extends Error {
+  constructor(readonly field = "mergedCustomerId") {
+    super("A customer cannot be merged into itself.");
+    this.name = "InvalidMergeError";
+  }
+}

@@ -23,8 +23,19 @@ describe("parseCustomerListQuery — sort", () => {
     });
   });
 
+  it("accepts the EPIC-11 KPI sorts", () => {
+    expect(parseCustomerListQuery({ sort: "-ordersCount" }).query?.sort).toEqual({
+      field: "ordersCount",
+      dir: "desc",
+    });
+    expect(parseCustomerListQuery({ sort: "-totalSpent" }).query?.sort).toEqual({
+      field: "totalSpent",
+      dir: "desc",
+    });
+  });
+
   it("rejects a field outside the whitelist", () => {
-    const { query, errors } = parseCustomerListQuery({ sort: "totalSpent" });
+    const { query, errors } = parseCustomerListQuery({ sort: "phone" });
     expect(query).toBeUndefined();
     expect(errors[0]?.field).toBe("sort");
   });
@@ -39,6 +50,12 @@ describe("parseCustomerListQuery — active", () => {
 
   it("rejects anything else", () => {
     expect(parseCustomerListQuery({ active: "yes" }).errors[0]?.field).toBe("active");
+  });
+
+  it("parses the EPIC-11 hasOrders filter", () => {
+    expect(parseCustomerListQuery({ hasOrders: "true" }).query?.hasOrders).toBe(true);
+    expect(parseCustomerListQuery({ hasOrders: "false" }).query?.hasOrders).toBe(false);
+    expect(parseCustomerListQuery({ hasOrders: "maybe" }).errors[0]?.field).toBe("hasOrders");
   });
 });
 

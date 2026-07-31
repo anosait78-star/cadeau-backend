@@ -79,6 +79,10 @@ function makeHarness(): Harness {
     listAddresses: vi.fn(),
     createAddress: vi.fn().mockResolvedValue(address()),
     updateAddress: vi.fn().mockResolvedValue(address()),
+    listCustomerOrders: vi
+      .fn()
+      .mockResolvedValue({ data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
+    merge: vi.fn().mockResolvedValue({ survivingCustomerId: CUSTOMER, mergedCustomerId: "m1" }),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
@@ -344,6 +348,41 @@ describe("CustomersService — addresses", () => {
     h.repo.updateAddress.mockResolvedValue(null);
     await expect(
       h.service.updateAddress(principal(), CUSTOMER, "a1", { line: "x" }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("CustomersService — merge & order history (EPIC-11)", () => {
+  it("audits and emits customer.merged", async () => {
+    await h.service.merge(principal(), CUSTOMER, "m1");
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "customer.merged", entityId: CUSTOMER }),
+    );
+    expect(h.events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "customer.merged",
+        payload: { survivingCustomerId: CUSTOMER, mergedCustomerId: "m1" },
+      }),
+    );
+  });
+
+  it("maps a missing customer to 404 on merge", async () => {
+    h.repo.merge.mockResolvedValueOnce(null);
+    await expect(h.service.merge(principal(), CUSTOMER, "m1")).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("lists a customer's order history", async () => {
+    await expect(
+      h.service.listOrders(principal(), CUSTOMER, undefined, undefined),
+    ).resolves.toHaveProperty("data");
+  });
+
+  it("maps a missing customer to 404 when listing orders", async () => {
+    h.repo.listCustomerOrders.mockResolvedValueOnce(null);
+    await expect(
+      h.service.listOrders(principal(), CUSTOMER, undefined, undefined),
     ).rejects.toMatchObject({ status: 404 });
   });
 });

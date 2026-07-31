@@ -18,8 +18,12 @@ export interface FieldError {
   readonly messages: readonly string[];
 }
 
-/** Sortable fields (whitelist). `createdAt` is the default (descending). */
-export type CustomerSortField = "name" | "createdAt";
+/**
+ * Sortable fields (whitelist). `createdAt` is the default (descending). The two
+ * KPI sorts (`ordersCount`, `totalSpent`) arrive with EPIC-11, now that the
+ * columns they order by are actually maintained.
+ */
+export type CustomerSortField = "name" | "createdAt" | "ordersCount" | "totalSpent";
 
 /** Raw query params as they arrive (all strings). */
 export interface RawCustomerListQuery {
@@ -29,6 +33,7 @@ export interface RawCustomerListQuery {
   readonly q?: string;
   readonly active?: string;
   readonly governorateId?: string;
+  readonly hasOrders?: string;
   readonly createdAtFrom?: string;
   readonly createdAtTo?: string;
 }
@@ -52,11 +57,18 @@ export interface ParsedCustomerListQuery {
   readonly active: boolean | "all";
   /** Match customers having at least one address in this governorate. */
   readonly governorateId?: string;
+  /** `true` = only customers with orders, `false` = only those without. */
+  readonly hasOrders?: boolean;
   readonly createdAtFrom?: string;
   readonly createdAtTo?: string;
 }
 
-const SORT_WHITELIST: readonly CustomerSortField[] = ["name", "createdAt"];
+const SORT_WHITELIST: readonly CustomerSortField[] = [
+  "name",
+  "createdAt",
+  "ordersCount",
+  "totalSpent",
+];
 const DEFAULT_SORT = "-createdAt";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -131,6 +143,13 @@ export function parseCustomerListQuery(raw: RawCustomerListQuery): {
     errors.push({ field: "governorateId", messages: ["governorateId must be a uuid"] });
   }
 
+  let hasOrders: boolean | undefined;
+  if (raw.hasOrders !== undefined) {
+    if (raw.hasOrders === "true") hasOrders = true;
+    else if (raw.hasOrders === "false") hasOrders = false;
+    else errors.push({ field: "hasOrders", messages: ["hasOrders must be true or false"] });
+  }
+
   const from = parseDate(raw.createdAtFrom, "createdAtFrom");
   if (from.error !== undefined) errors.push(from.error);
   const to = parseDate(raw.createdAtTo, "createdAtTo");
@@ -148,6 +167,7 @@ export function parseCustomerListQuery(raw: RawCustomerListQuery): {
     ...(search !== undefined ? { search } : {}),
     active,
     ...(raw.governorateId !== undefined ? { governorateId: raw.governorateId } : {}),
+    ...(hasOrders !== undefined ? { hasOrders } : {}),
     ...(from.value !== undefined ? { createdAtFrom: from.value } : {}),
     ...(to.value !== undefined ? { createdAtTo: to.value } : {}),
   };
