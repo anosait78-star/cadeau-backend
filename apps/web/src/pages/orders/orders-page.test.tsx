@@ -110,6 +110,17 @@ describe("OrdersPage", () => {
       }
       if (url.match(/\/orders\/o1$/) && method === "GET")
         return Promise.resolve(json(200, ORDER_DETAIL));
+      if (url.match(/\/orders\/parse$/) && method === "POST") {
+        return Promise.resolve(
+          json(200, {
+            name: "Sara",
+            phone: "+201001234567",
+            address: null,
+            items: [{ name: "Shirt", quantity: 2 }],
+            notes: null,
+          }),
+        );
+      }
       if (url.includes("/orders") && method === "POST") {
         return Promise.resolve(json(201, { ...ORDER_DETAIL, id: "o2", orderNumber: 1043 }));
       }
@@ -238,6 +249,18 @@ describe("OrdersPage", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
+  });
+
+  it("runs deterministic smart-paste and shows the detected fields", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await user.type(await screen.findByLabelText("Smart paste (from a chat)"), "Sara 01001234567");
+    await user.click(screen.getByRole("button", { name: "Detect" }));
+    const detected = await screen.findByTestId("paste-detected");
+    expect(detected).toHaveTextContent("+201001234567");
+    expect(detected).toHaveTextContent("2× Shirt");
   });
 
   it("shows the forbidden fallback without the orders feature", () => {

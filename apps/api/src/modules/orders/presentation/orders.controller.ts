@@ -35,10 +35,14 @@ import {
   BulkResultDto,
   BulkStatusDto,
   CreateOrderDto,
+  ImportOrdersDto,
+  ImportResultDto,
   OrderActivityListDto,
   OrderDto,
   OrderListDto,
   OrderStatusCountsDto,
+  ParseOrderDto,
+  ParsedDraftDto,
   TransitionOrderDto,
   UpdateOrderDto,
 } from "./dto/orders.dto";
@@ -146,6 +150,38 @@ export class OrdersController {
     return BulkResultDto.from(
       await this.service.bulkAssign(principal, body.orderIds, body.assigneeId),
     );
+  }
+
+  @Post("parse")
+  @HttpCode(HttpStatus.OK)
+  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.manage" })
+  @ApiOperation({
+    summary: "Deterministic smart-paste → draft fields (no AI)",
+    description:
+      "Parses pasted text into name/phone/address/items using Regex + heuristics " +
+      "only. 100% deterministic (ADR-0004); never calls an AI service.",
+    operationId: "parseOrder",
+  })
+  @ApiOkResponse({ type: ParsedDraftDto })
+  parse(@CurrentUser() principal: RequestPrincipal, @Body() body: ParseOrderDto): ParsedDraftDto {
+    return ParsedDraftDto.from(this.service.parse(principal, body.text));
+  }
+
+  @Post("import")
+  @HttpCode(HttpStatus.OK)
+  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.manage" })
+  @ApiOperation({
+    summary: "Import orders from CSV with a column mapping",
+    description: "Each data row becomes one order; the response reports a per-row result.",
+    operationId: "importOrders",
+  })
+  @ApiOkResponse({ type: ImportResultDto })
+  async importOrders(
+    @CurrentUser() principal: RequestPrincipal,
+    @Body() body: ImportOrdersDto,
+  ): Promise<ImportResultDto> {
+    const { results } = await this.service.importOrders(principal, body.csv, body.mapping);
+    return ImportResultDto.from(results);
   }
 
   @Get(":orderId")

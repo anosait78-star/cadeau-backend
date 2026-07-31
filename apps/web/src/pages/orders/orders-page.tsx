@@ -18,6 +18,7 @@ import {
   listOrders,
   orderStatusCounts,
   ORDER_STATUSES,
+  parseOrder,
   transitionOrder,
   updateOrder,
   type CreateOrderInput,
@@ -26,6 +27,7 @@ import {
   type OrderItemInput,
   type OrderListItem,
   type OrderStatus,
+  type ParsedDraft,
 } from "@/features/orders/orders-api";
 import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
 import type { TranslationKey } from "@/i18n/dictionaries";
@@ -532,6 +534,8 @@ function OrderForm({
   const [price, setPrice] = useState("0");
   const [shipping, setShipping] = useState("0");
   const [discount, setDiscount] = useState("0");
+  const [paste, setPaste] = useState("");
+  const [draft, setDraft] = useState<ParsedDraft | null>(null);
 
   useEffect(() => {
     void listCustomers({ active: true })
@@ -581,6 +585,39 @@ function OrderForm({
         <CardTitle className="text-base">{t("orders.actions.create")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        {/* Deterministic smart-paste (no AI): paste a chat, get detected fields. */}
+        <div className="flex flex-col gap-1 rounded border border-dashed border-input p-3">
+          <Label htmlFor="order-paste">{t("orders.paste.label")}</Label>
+          <textarea
+            id="order-paste"
+            className="min-h-16 rounded border border-input bg-background px-2 py-1.5 text-sm"
+            value={paste}
+            onChange={(e) => setPaste(e.target.value)}
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              onClick={() => {
+                void parseOrder(paste)
+                  .then(setDraft)
+                  .catch(() => setDraft(null));
+              }}
+            >
+              {t("orders.paste.button")}
+            </Button>
+            {draft !== null ? (
+              <p className="text-xs text-muted-foreground" data-testid="paste-detected">
+                {t("orders.paste.detected")}: {draft.phone ?? DASH}
+                {draft.items.length > 0
+                  ? ` · ${draft.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}`
+                  : ""}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
         <div className="flex flex-col gap-1">
           <Label htmlFor="order-customer">{t("orders.form.customer")}</Label>
           <select

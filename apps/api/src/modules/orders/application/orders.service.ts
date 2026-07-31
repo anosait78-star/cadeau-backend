@@ -13,6 +13,8 @@ import type {
   StatusChangeResult,
 } from "../domain/order.entity";
 import type { OrderStatus } from "../domain/order-status";
+import { IMPORT_MAX_ROWS, mapImport, parseCsv, type ImportMapping } from "../domain/csv-import";
+import { parsePaste, type ParsedDraft } from "../domain/smart-paste";
 import {
   parseOrderListQuery,
   type ParsedOrderListQuery,
@@ -40,6 +42,14 @@ import {
 
 /** The feature that must be enabled for orders to auto-couple with stock (D2). */
 const INVENTORY_FEATURE = "inventory";
+
+/** One row's outcome in a CSV import (atomic per row). */
+export interface ImportResult {
+  readonly row: number;
+  readonly ok: boolean;
+  readonly orderId?: string;
+  readonly error?: { readonly code: string; readonly message: string };
+}
 
 /** A status transition request as it reaches the service (before feature-gating). */
 export interface TransitionCommand {
@@ -277,6 +287,54 @@ export class OrdersService {
     return results;
   }
 
+  /**
+   * Deterministic smart-paste (ADR-0004): turn pasted text into draft fields. No
+   * persistence, no AI — a pure transform behind an authenticated, gated route.
+   */
+  parse(principal: RequestPrincipal, text: string): ParsedDraft {
+    this.requireTenant(principal);
+    return parsePaste(text);
+  }
+
+  /**
+   * Import orders from CSV with an explicit column mapping. Each mapped row
+   * becomes one order (atomic per row); the response reports a per-row result, so
+   * one bad row never fails the others. Capped at {@link IMPORT_MAX_ROWS}.
+   */
+  async importOrders(
+    principal: RequestPrincipal,
+    csv: string,
+    mapping: ImportMapping,
+  ): Promise<{ results: ImportResult[] }> {
+    this.requireTenant(principal);
+    const { rows, errors } = mapImport(parseCsv(csv), mapping);
+    if (rows.length > IMPORT_MAX_ROWS) {
+      throw AppErrors.badRequest(`Import exceeds the ${IMPORT_MAX_ROWS}-row limit.`);
+    }
+
+    const results: ImportResult[] = errors.map((e) => ({
+      row: e.row,
+      ok: false,
+      error: { code: "UNPROCESSABLE_ENTITY", message: e.message },
+    }));
+
+    for (const row of rows) {
+      try {
+        const { order } = await this.create(principal, {
+          customerId: row.customerId,
+          items: [{ variantId: row.variantId, quantity: row.quantity, price: row.price }],
+          shippingFee: row.shippingFee,
+          discount: row.discount,
+        });
+        results.push({ row: row.row, ok: true, orderId: order.id });
+      } catch (error) {
+        results.push({ row: row.row, ok: false, error: this.toImportError(error) });
+      }
+    }
+    results.sort((a, b) => a.row - b.row);
+    return { results };
+  }
+
   async listActivity(
     principal: RequestPrincipal,
     orderId: string,
@@ -340,6 +398,19 @@ export class OrdersService {
     const { query, errors } = parseOrderListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
     return query;
+  }
+
+  /** Render an import row failure into a stable code/message pair (no throw). */
+  private toImportError(error: unknown): { code: string; message: string } {
+    const mapped = this.mapError(error);
+    if (mapped instanceof AppException) {
+      const payload = mapped.getResponse() as { code?: string; message?: string };
+      return {
+        code: payload.code ?? "UNPROCESSABLE_ENTITY",
+        message: payload.message ?? "The order could not be created.",
+      };
+    }
+    return { code: "INTERNAL", message: "The order could not be created." };
   }
 
   private requireTenant(principal: RequestPrincipal): string {

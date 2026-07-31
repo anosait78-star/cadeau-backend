@@ -261,6 +261,42 @@ describe("OrdersService", () => {
     });
   });
 
+  describe("smart-paste + import", () => {
+    it("parses pasted text deterministically without touching the repo", () => {
+      const draft = h.service.parse(principal(), "Name: Sara\n01001234567\n2 x Shirt");
+      expect(draft.name).toBe("Sara");
+      expect(draft.phone).toBe("+201001234567");
+      expect(draft.items).toEqual([{ name: "Shirt", quantity: 2 }]);
+      expect(h.repo.create).not.toHaveBeenCalled();
+    });
+
+    it("imports CSV rows, reporting a per-row result", async () => {
+      h.repo.create.mockResolvedValue({ order: order(), replayed: false });
+      const csv = "customer,variant,qty,price\n" + `${CUSTOMER},v1,2,15000\n,v2,1,1000`;
+      const { results } = await h.service.importOrders(principal(), csv, {
+        customerId: "customer",
+        variantId: "variant",
+        quantity: "qty",
+        price: "price",
+      });
+      expect(results).toHaveLength(2);
+      expect(results[0]).toMatchObject({ row: 1, ok: true });
+      expect(results[1]).toMatchObject({ row: 2, ok: false }); // missing customer
+    });
+
+    it("records a per-row failure when a create throws", async () => {
+      h.repo.create.mockRejectedValueOnce(new IllegalTransitionError("new", "x"));
+      const csv = "customer,variant,qty,price\n" + `${CUSTOMER},v1,2,15000`;
+      const { results } = await h.service.importOrders(principal(), csv, {
+        customerId: "customer",
+        variantId: "variant",
+        quantity: "qty",
+        price: "price",
+      });
+      expect(results[0]).toMatchObject({ row: 1, ok: false });
+    });
+  });
+
   describe("reads", () => {
     it("getOne throws 404 when absent", async () => {
       h.repo.findById.mockResolvedValueOnce(null);

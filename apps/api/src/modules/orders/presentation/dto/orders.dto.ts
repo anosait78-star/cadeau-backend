@@ -14,6 +14,8 @@ import {
   ValidateNested,
 } from "class-validator";
 import type { KeysetPage } from "@cadeau/database";
+import type { ImportResult } from "../../application/orders.service";
+import type { ParsedDraft, ParsedItem } from "../../domain/smart-paste";
 import type {
   BulkItemResult,
   OrderActivityView,
@@ -241,6 +243,51 @@ export class BulkAssignDto {
   @IsOptional()
   @IsUUID()
   assigneeId!: string | null;
+}
+
+/** Smart-paste payload — the raw pasted text to parse (deterministic, no AI). */
+export class ParseOrderDto {
+  @ApiProperty({ maxLength: 5000, description: "Pasted text (chat message, note)." })
+  @IsString()
+  @MaxLength(5000)
+  text!: string;
+}
+
+/** The column mapping for a CSV import (values are header column names). */
+export class ImportMappingDto {
+  @ApiProperty()
+  @IsString()
+  customerId!: string;
+  @ApiProperty()
+  @IsString()
+  variantId!: string;
+  @ApiProperty()
+  @IsString()
+  quantity!: string;
+  @ApiProperty()
+  @IsString()
+  price!: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  shippingFee?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  discount?: string;
+}
+
+/** CSV import payload: the raw CSV and how its columns map to order fields. */
+export class ImportOrdersDto {
+  @ApiProperty({ maxLength: 1_000_000, description: "Raw CSV text (Excel/Sheets export)." })
+  @IsString()
+  @MaxLength(1_000_000)
+  csv!: string;
+
+  @ApiProperty({ type: ImportMappingDto })
+  @ValidateNested()
+  @Type(() => ImportMappingDto)
+  mapping!: ImportMappingDto;
 }
 
 // ---- Response DTOs ---------------------------------------------------------
@@ -483,6 +530,78 @@ export class BulkResultDto {
   static from(results: readonly BulkItemResult[]): BulkResultDto {
     const dto = new BulkResultDto();
     dto.results = results.map((r) => BulkResultItemDto.from(r));
+    return dto;
+  }
+}
+
+/** A parsed order line (smart-paste). */
+export class ParsedItemDto {
+  @ApiProperty()
+  name!: string;
+  @ApiProperty({ example: 2 })
+  quantity!: number;
+
+  static from(item: ParsedItem): ParsedItemDto {
+    const dto = new ParsedItemDto();
+    dto.name = item.name;
+    dto.quantity = item.quantity;
+    return dto;
+  }
+}
+
+/** The structured draft a paste resolves to (all fields best-effort). */
+export class ParsedDraftDto {
+  @ApiProperty({ nullable: true })
+  name!: string | null;
+  @ApiProperty({ nullable: true, description: "Normalized E.164, or null." })
+  phone!: string | null;
+  @ApiProperty({ nullable: true })
+  address!: string | null;
+  @ApiProperty({ type: [ParsedItemDto] })
+  items!: ParsedItemDto[];
+  @ApiProperty({ nullable: true, description: "Unclassified lines, nothing dropped." })
+  notes!: string | null;
+
+  static from(draft: ParsedDraft): ParsedDraftDto {
+    const dto = new ParsedDraftDto();
+    dto.name = draft.name;
+    dto.phone = draft.phone;
+    dto.address = draft.address;
+    dto.items = draft.items.map((i) => ParsedItemDto.from(i));
+    dto.notes = draft.notes;
+    return dto;
+  }
+}
+
+/** One row's outcome in a CSV import. */
+export class ImportResultItemDto {
+  @ApiProperty({ example: 3, description: "1-based data-row number." })
+  row!: number;
+  @ApiProperty()
+  ok!: boolean;
+  @ApiPropertyOptional({ format: "uuid" })
+  orderId?: string;
+  @ApiPropertyOptional()
+  error?: { code: string; message: string };
+
+  static from(result: ImportResult): ImportResultItemDto {
+    const dto = new ImportResultItemDto();
+    dto.row = result.row;
+    dto.ok = result.ok;
+    if (result.orderId !== undefined) dto.orderId = result.orderId;
+    if (result.error !== undefined) dto.error = result.error;
+    return dto;
+  }
+}
+
+/** The import envelope: one result per data row (created or errored). */
+export class ImportResultDto {
+  @ApiProperty({ type: [ImportResultItemDto] })
+  results!: ImportResultItemDto[];
+
+  static from(results: readonly ImportResult[]): ImportResultDto {
+    const dto = new ImportResultDto();
+    dto.results = results.map((r) => ImportResultItemDto.from(r));
     return dto;
   }
 }

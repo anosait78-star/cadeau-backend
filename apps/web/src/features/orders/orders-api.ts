@@ -231,3 +231,52 @@ export function listOrderActivity(id: string, cursor?: string): Promise<OrderAct
   const qs = cursor !== undefined ? `?cursor=${encodeURIComponent(cursor)}` : "";
   return apiFetch<OrderActivityPage>(`/orders/${id}/activity${qs}`);
 }
+
+/** A parsed order line from smart-paste. */
+export interface ParsedItem {
+  readonly name: string;
+  readonly quantity: number;
+}
+
+/** The structured draft a paste resolves to (deterministic, no AI). */
+export interface ParsedDraft {
+  readonly name: string | null;
+  readonly phone: string | null;
+  readonly address: string | null;
+  readonly items: ParsedItem[];
+  readonly notes: string | null;
+}
+
+/** `POST /v1/orders/parse` — deterministic smart-paste → draft fields (no AI). */
+export function parseOrder(text: string): Promise<ParsedDraft> {
+  return apiFetch<ParsedDraft>("/orders/parse", { method: "POST", body: { text } });
+}
+
+/** The column mapping for a CSV import (values are header column names). */
+export interface ImportMapping {
+  readonly customerId: string;
+  readonly variantId: string;
+  readonly quantity: string;
+  readonly price: string;
+  readonly shippingFee?: string;
+  readonly discount?: string;
+}
+
+/** One row's outcome in a CSV import. */
+export interface ImportResultItem {
+  readonly row: number;
+  readonly ok: boolean;
+  readonly orderId?: string;
+  readonly error?: { readonly code: string; readonly message: string };
+}
+
+/** `POST /v1/orders/import` — import orders from CSV with a column mapping. */
+export function importOrders(
+  csv: string,
+  mapping: ImportMapping,
+): Promise<{ results: ImportResultItem[] }> {
+  return apiFetch<{ results: ImportResultItem[] }>("/orders/import", {
+    method: "POST",
+    body: { csv, mapping },
+  });
+}

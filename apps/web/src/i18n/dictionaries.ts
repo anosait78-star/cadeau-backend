@@ -295,6 +295,9 @@ export const en = {
   "orders.detail.items": "Items",
   "orders.detail.activity": "Activity",
   "orders.detail.collect": "Collect amount",
+  "orders.paste.label": "Smart paste (from a chat)",
+  "orders.paste.button": "Detect",
+  "orders.paste.detected": "Detected",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -589,6 +592,9 @@ export const ar: Record<TranslationKey, string> = {
   "orders.detail.items": "الأصناف",
   "orders.detail.activity": "النشاط",
   "orders.detail.collect": "مبلغ التحصيل",
+  "orders.paste.label": "لصق ذكي (من محادثة)",
+  "orders.paste.button": "استخراج",
+  "orders.paste.detected": "المُستخرَج",
 };
 
 export const dictionaries = { ar, en } as const;

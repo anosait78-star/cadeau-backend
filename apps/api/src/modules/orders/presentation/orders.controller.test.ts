@@ -71,6 +71,14 @@ function makeHarness(): Harness {
     bulkTransition: vi.fn().mockResolvedValue([{ orderId: ORDER, ok: true }]),
     bulkAssign: vi.fn().mockResolvedValue([{ orderId: ORDER, ok: true }]),
     listActivity: vi.fn().mockResolvedValue(activityPage()),
+    parse: vi.fn().mockReturnValue({
+      name: "Sara",
+      phone: "+201001234567",
+      address: null,
+      items: [],
+      notes: null,
+    }),
+    importOrders: vi.fn().mockResolvedValue({ results: [{ row: 1, ok: true, orderId: ORDER }] }),
   } as unknown as Harness["service"];
   const controller = new OrdersController(service as unknown as OrdersService);
   return { controller, service };
@@ -153,5 +161,19 @@ describe("OrdersController", () => {
   it("lists activity", async () => {
     const res = await h.controller.activity(principal, ORDER, undefined, undefined);
     expect(res.data).toHaveLength(0);
+  });
+
+  it("parses pasted text", () => {
+    const res = h.controller.parse(principal, { text: "Name: Sara\n01001234567" });
+    expect(res.name).toBe("Sara");
+    expect(h.service.parse).toHaveBeenCalledWith(principal, "Name: Sara\n01001234567");
+  });
+
+  it("imports CSV with a column mapping", async () => {
+    const res = await h.controller.importOrders(principal, {
+      csv: "customer,variant,qty,price\nc1,v1,2,15000",
+      mapping: { customerId: "customer", variantId: "variant", quantity: "qty", price: "price" },
+    });
+    expect(res.results[0]).toMatchObject({ row: 1, ok: true });
   });
 });
