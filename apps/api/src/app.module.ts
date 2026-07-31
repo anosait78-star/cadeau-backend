@@ -9,6 +9,7 @@ import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { ProductsModule } from "./modules/products/products.module";
+import { ShippingModule } from "./modules/shipping/shipping.module";
 import { AccessCoreModule } from "./shared/access/access.module";
 import { ConfigModule } from "./shared/config/config.module";
 import { AllExceptionsFilter } from "./shared/errors/all-exceptions.filter";
@@ -35,6 +36,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     InventoryModule,
     CustomersModule,
     OrdersModule,
+    ShippingModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

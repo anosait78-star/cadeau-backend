@@ -1,0 +1,56 @@
+import type {
+  BulkShipmentResult,
+  ShipmentStatusChangeResult,
+  ShipmentView,
+  ShipmentWriteResult,
+} from "./shipment.entity";
+import type { ShipmentStatus } from "./shipment-status";
+
+/** The tenant + acting member for a write. */
+export interface WriteActor {
+  readonly companyId: string;
+  readonly actorId: string;
+}
+
+/** Fields accepted when creating a shipment. */
+export interface CreateShipmentInput {
+  readonly orderId: string;
+  readonly idempotencyKey?: string | null;
+}
+
+/** A status transition request. */
+export interface TransitionInput {
+  readonly toStatus: ShipmentStatus;
+  readonly note?: string | null;
+}
+
+/**
+ * Port for reading/writing shipments (EPIC-12). The Prisma adapter binds the
+ * tenant under RLS for every unit of work, calls the {@link CarrierPort} to
+ * book the dispatch, locks the order row while validating it is shippable
+ * (docs/epic-12-design.md §1), and deducts the shipping fee from the order's
+ * `collectedAmount` on delivery (decision D4) — all inside the same
+ * transaction the status change commits in. Not-found reads/writes return
+ * `null`.
+ */
+export interface ShippingRepositoryPort {
+  findById(companyId: string, id: string): Promise<ShipmentView | null>;
+
+  create(actor: WriteActor, data: CreateShipmentInput): Promise<ShipmentWriteResult>;
+
+  /** Bulk-create; atomic per order, one result per requested order id. */
+  bulkCreate(
+    actor: WriteActor,
+    orders: readonly CreateShipmentInput[],
+  ): Promise<{ results: BulkShipmentResult[]; created: ShipmentWriteResult[] }>;
+
+  /** Transition status, deducting the shipping fee from the order on delivery (D4). */
+  transition(
+    actor: WriteActor,
+    id: string,
+    data: TransitionInput,
+  ): Promise<ShipmentStatusChangeResult | null>;
+}
+
+/** DI token for {@link ShippingRepositoryPort}. */
+export const SHIPPING_REPOSITORY = Symbol("SHIPPING_REPOSITORY");

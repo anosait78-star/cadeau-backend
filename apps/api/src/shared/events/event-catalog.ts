@@ -179,6 +179,30 @@ export interface EventPayloads {
     /** Amount in integer minor units (api-conventions §money). */
     readonly amountMinor: number;
   };
+
+  /** A shipment was created for an order (EPIC-12). Ids only. */
+  "shipment.created": {
+    readonly shipmentId: string;
+    readonly orderId: string;
+    readonly carrier: string;
+  };
+  /** A shipment moved between lifecycle states (EPIC-12). */
+  "shipment.status_changed": {
+    readonly shipmentId: string;
+    readonly orderId: string;
+    readonly fromStatus: string;
+    readonly toStatus: string;
+  };
+  /**
+   * A shipment was delivered (EPIC-12). `feeMinor` is the shipping fee deducted
+   * from the order's `collectedAmount` at delivery (decision D4 — a simple
+   * deduction; reconciliation against carrier remittance is EPIC-13).
+   */
+  "shipment.delivered": {
+    readonly shipmentId: string;
+    readonly orderId: string;
+    readonly feeMinor: number;
+  };
 }
 
 /** The set of valid event type strings, derived from the catalog. */
