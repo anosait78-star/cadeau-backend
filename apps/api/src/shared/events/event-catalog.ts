@@ -20,13 +20,17 @@
  *   - **Live now (EPIC-10 customers):** `customer.created`/`customer.updated`/
  *     `customer.exported`. Their payloads carry ids and field *names* only —
  *     never personal data (docs/privacy-model.md §6).
- *   - **Forward-declared** for the domain epics that will emit them
- *     (`customer.merged` → EPIC-11 per decision D3, `order.*` → EPIC-11,
- *     `payment.collected` → EPIC-13). Their payloads are
- *     intentionally minimal; the owning epic
- *     finalizes each shape when it wires the emission. They are listed now so the
- *     catalog is the one place the vocabulary is declared and so notification
- *     subscribers (EPIC-15) can be typed against it.
+ *   - **Live now (EPIC-11 orders):** `customer.merged` (decision D3),
+ *     `order.created`/`order.status_changed`/`order.assigned`,
+ *     `payment.collected` (read by finance, EPIC-13).
+ *   - **Live now (EPIC-12 shipping):** `shipment.created`/
+ *     `shipment.status_changed`/`shipment.delivered`.
+ *   - **Live now (EPIC-13 finance):** `purchase_order.received`,
+ *     `payment.recorded`, `invoice.issued`, `refund.issued`, `period.closed`.
+ *
+ * **Forward-declared** entries (none currently pending) are listed so the
+ * catalog is the one place the vocabulary is declared and so notification
+ * subscribers (EPIC-15) can be typed against it ahead of their owning epic.
  *
  * See {@link ../../../docs/events.md} for the emit/subscribe contract.
  */
@@ -202,6 +206,44 @@ export interface EventPayloads {
     readonly shipmentId: string;
     readonly orderId: string;
     readonly feeMinor: number;
+  };
+
+  /**
+   * A purchase order receipt raised stock and rolled `averageCost` (EPIC-13,
+   * D7). Emitted once per receipt, alongside the durable `stock_adjustments`
+   * row and audit write.
+   */
+  "purchase_order.received": {
+    readonly purchaseOrderId: string;
+    readonly receiptId: string;
+  };
+  /**
+   * A payment was recorded against a purchase order (EPIC-13). Partial or
+   * full; `amountMinor` is the positive delta paid.
+   */
+  "payment.recorded": {
+    readonly purchaseOrderId: string;
+    readonly amountMinor: number;
+  };
+  /** An official invoice was issued as a PDF (EPIC-13, D1). Ids only. */
+  "invoice.issued": {
+    readonly invoiceId: string;
+    readonly orderId: string | null;
+  };
+  /**
+   * A refund was issued (EPIC-13). `Idempotency-Key` is mandatory on this
+   * write; `amountMinor` is the positive amount refunded.
+   */
+  "refund.issued": {
+    readonly refundId: string;
+    readonly amountMinor: number;
+  };
+  /**
+   * An accounting period closed (EPIC-13, D4). Sequential — no earlier period
+   * with activity is still open when this fires.
+   */
+  "period.closed": {
+    readonly periodKey: string;
   };
 }
 

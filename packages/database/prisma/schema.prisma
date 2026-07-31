@@ -82,33 +82,49 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  members               CompanyMember[]
-  sessions              Session[]
-  invitations           Invitation[]
-  subscription          Subscription?
-  featureFlags          CompanyFeatureFlag[]
-  addOns                AddOn[]
-  memberPermissions     MemberPermission[]
-  units                 Unit[]
-  productCategories     ProductCategory[]
-  orderLabels           OrderLabel[]
-  orderReasons          OrderReason[]
-  shippingZones         ShippingZone[]
-  products              Product[]
-  productVariants       ProductVariant[]
-  warehouses            Warehouse[]
-  inventoryStock        InventoryStock[]
-  stockReservations     StockReservation[]
-  stockTransfers        StockTransfer[]
-  stockAdjustments      StockAdjustment[]
-  customers             Customer[]
-  customerAddresses     CustomerAddress[]
-  orders                Order[]
-  orderItems            OrderItem[]
-  orderActivities       OrderActivity[]
-  orderSequence         OrderSequence?
-  shipments             Shipment[]
-  shippingWebhookEvents ShippingWebhookEvent[]
+  members                     CompanyMember[]
+  sessions                    Session[]
+  invitations                 Invitation[]
+  subscription                Subscription?
+  featureFlags                CompanyFeatureFlag[]
+  addOns                      AddOn[]
+  memberPermissions           MemberPermission[]
+  units                       Unit[]
+  productCategories           ProductCategory[]
+  orderLabels                 OrderLabel[]
+  orderReasons                OrderReason[]
+  shippingZones               ShippingZone[]
+  products                    Product[]
+  productVariants             ProductVariant[]
+  warehouses                  Warehouse[]
+  inventoryStock              InventoryStock[]
+  stockReservations           StockReservation[]
+  stockTransfers              StockTransfer[]
+  stockAdjustments            StockAdjustment[]
+  customers                   Customer[]
+  customerAddresses           CustomerAddress[]
+  orders                      Order[]
+  orderItems                  OrderItem[]
+  orderActivities             OrderActivity[]
+  orderSequence               OrderSequence?
+  shipments                   Shipment[]
+  shippingWebhookEvents       ShippingWebhookEvent[]
+  suppliers                   Supplier[]
+  purchaseOrderSequence       PurchaseOrderSequence?
+  purchaseOrders              PurchaseOrder[]
+  purchaseOrderLines          PurchaseOrderLine[]
+  purchaseOrderReceipts       PurchaseOrderReceipt[]
+  purchaseOrderReceiptLines   PurchaseOrderReceiptLine[]
+  purchaseOrderPayments       PurchaseOrderPayment[]
+  expenses                    Expense[]
+  taxSettings                 TaxSettings?
+  invoiceSequence             InvoiceSequence?
+  invoices                    Invoice[]
+  invoiceLines                InvoiceLine[]
+  refunds                     Refund[]
+  shippingReconciliations     ShippingReconciliation[]
+  shippingReconciliationLines ShippingReconciliationLine[]
+  accountingPeriods           AccountingPeriod[]
 
   @@map("companies")
 }
@@ -649,11 +665,12 @@ model ProductVariant {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  stock        InventoryStock[]
-  reservations StockReservation[]
-  transfers    StockTransfer[]
-  adjustments  StockAdjustment[]
-  orderItems   OrderItem[]
+  stock              InventoryStock[]
+  reservations       StockReservation[]
+  transfers          StockTransfer[]
+  adjustments        StockAdjustment[]
+  orderItems         OrderItem[]
+  purchaseOrderLines PurchaseOrderLine[]
 
   @@unique([productId, name], map: "product_variants_product_name_key")
   @@index([productId, name, id], map: "product_variants_product_idx")
@@ -680,12 +697,13 @@ model Warehouse {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  stock        InventoryStock[]
-  reservations StockReservation[]
-  adjustments  StockAdjustment[]
-  transfersOut StockTransfer[]    @relation("StockTransferFrom")
-  transfersIn  StockTransfer[]    @relation("StockTransferTo")
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stock                 InventoryStock[]
+  reservations          StockReservation[]
+  adjustments           StockAdjustment[]
+  transfersOut          StockTransfer[]        @relation("StockTransferFrom")
+  transfersIn           StockTransfer[]        @relation("StockTransferTo")
+  purchaseOrderReceipts PurchaseOrderReceipt[]
 
   @@unique([companyId, name], map: "warehouses_company_name_key")
   @@index([companyId, name, id], map: "warehouses_keyset_idx")
@@ -936,6 +954,8 @@ model Order {
   activities   OrderActivity[]
   reservations StockReservation[]
   shipments    Shipment[]
+  invoices     Invoice[]
+  refunds      Refund[]
 
   @@unique([companyId, orderNumber], map: "orders_company_number_key")
   @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
@@ -1044,8 +1064,9 @@ model Shipment {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  company             Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order               Order                        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  reconciliationLines ShippingReconciliationLine[]
 
   @@unique([companyId, carrier, trackingNumber], map: "shipments_company_carrier_tracking_key")
   @@unique([companyId, idempotencyKey], map: "shipments_idempotency_key")
@@ -1079,4 +1100,371 @@ model ShippingWebhookEvent {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_webhook_events_keyset_idx")
   @@index([status, nextAttemptAt], map: "shipping_webhook_events_pending_idx")
   @@map("shipping_webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-13 — Finance & Compliance. Suppliers/POs (atomic receipt raises stock
+// and rolls product_variants.average_cost — D7), expenses, tax_settings (D3),
+// invoices (real PDF via pdfkit, D1) + VAT, refunds (mandatory idempotency
+// key), shipping reconciliation (D5), and an atomic sequential monthly close
+// (accounting_periods, D4). Cash center / P&L are computed reads over these
+// tables, not a new ledger (D6). All tables tenant-editable (base columns +
+// FORCE RLS by company_id + touch_updated_at, except append-only child log
+// rows which carry no updated_at/trigger, matching order_activities). Money
+// is integer minor units (bigint), never a float.
+// ---------------------------------------------------------------------------
+
+/// A goods/services supplier (EPIC-13). Simple reference entity; archived via
+/// `isActive`.
+model Supplier {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  taxId     String?  @map("tax_id")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  purchaseOrders PurchaseOrder[]
+  expenses       Expense[]
+
+  @@index([companyId, name, id], map: "suppliers_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "suppliers_created_keyset_idx")
+  @@map("suppliers")
+}
+
+/// Per-company monotonic PO-number counter (EPIC-13), same discipline as
+/// {@link OrderSequence}.
+model PurchaseOrderSequence {
+  companyId  String   @id @map("company_id") @db.Uuid
+  nextNumber BigInt   @default(1) @map("next_number")
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_order_sequences")
+}
+
+/// A purchase order (EPIC-13): draft → ordered → partially_received →
+/// received → cancelled. The supplier is PINNED (`RESTRICT`).
+model PurchaseOrder {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  supplierId     String    @map("supplier_id") @db.Uuid
+  number         BigInt
+  status         String    @default("draft")
+  expectedDate   DateTime? @map("expected_date") @db.Timestamptz(6)
+  notes          String?
+  idempotencyKey String?   @map("idempotency_key")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier Supplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines    PurchaseOrderLine[]
+  receipts PurchaseOrderReceipt[]
+  payments PurchaseOrderPayment[]
+
+  @@unique([companyId, number], map: "purchase_orders_company_number_key")
+  @@unique([companyId, idempotencyKey], map: "purchase_orders_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "purchase_orders_created_keyset_idx")
+  @@index([companyId, status], map: "purchase_orders_status_idx")
+  @@index([supplierId], map: "purchase_orders_supplier_idx")
+  @@map("purchase_orders")
+}
+
+/// A line on a purchase order (EPIC-13): a variant, ordered quantity, running
+/// received quantity, and the unit cost that rolls into `averageCost` on
+/// receipt (D7). The variant is PINNED (`RESTRICT`).
+model PurchaseOrderLine {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  poId             String   @map("po_id") @db.Uuid
+  variantId        String   @map("variant_id") @db.Uuid
+  quantityOrdered  BigInt   @map("quantity_ordered")
+  quantityReceived BigInt   @default(0) @map("quantity_received")
+  unitCost         BigInt   @map("unit_cost")
+  createdBy        String?  @map("created_by") @db.Uuid
+  updatedBy        String?  @map("updated_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company      Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  po           PurchaseOrder              @relation(fields: [poId], references: [id], onDelete: Cascade)
+  variant      ProductVariant             @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  receiptLines PurchaseOrderReceiptLine[]
+
+  @@index([poId], map: "purchase_order_lines_po_idx")
+  @@index([variantId], map: "purchase_order_lines_variant_idx")
+  @@map("purchase_order_lines")
+}
+
+/// An atomic receipt against a PO (EPIC-13): raises `inventory_stock.on_hand`
+/// in `warehouseId`, rolls `product_variants.average_cost`, and appends one
+/// `stock_adjustments` row per line (`reason = 'purchase_receipt'`).
+model PurchaseOrderReceipt {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  poId           String   @map("po_id") @db.Uuid
+  warehouseId    String   @map("warehouse_id") @db.Uuid
+  receivedAt     DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  po        PurchaseOrder              @relation(fields: [poId], references: [id], onDelete: Restrict)
+  warehouse Warehouse                  @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  lines     PurchaseOrderReceiptLine[]
+
+  @@unique([companyId, idempotencyKey], map: "purchase_order_receipts_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "purchase_order_receipts_keyset_idx")
+  @@index([poId], map: "purchase_order_receipts_po_idx")
+  @@map("purchase_order_receipts")
+}
+
+/// A line of a receipt (EPIC-13): the quantity received against one PO line.
+/// Append-only — never updated after insert.
+model PurchaseOrderReceiptLine {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  receiptId String   @map("receipt_id") @db.Uuid
+  poLineId  String   @map("po_line_id") @db.Uuid
+  quantity  BigInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  receipt PurchaseOrderReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poLine  PurchaseOrderLine    @relation(fields: [poLineId], references: [id], onDelete: Restrict)
+
+  @@index([receiptId], map: "purchase_order_receipt_lines_receipt_idx")
+  @@index([poLineId], map: "purchase_order_receipt_lines_po_line_idx")
+  @@map("purchase_order_receipt_lines")
+}
+
+/// A (partial) payment against a purchase order (EPIC-13).
+model PurchaseOrderPayment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  poId           String   @map("po_id") @db.Uuid
+  amountMinor    BigInt   @map("amount_minor")
+  method         String
+  paidAt         DateTime @default(now()) @map("paid_at") @db.Timestamptz(6)
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  po      PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, idempotencyKey], map: "purchase_order_payments_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "purchase_order_payments_keyset_idx")
+  @@index([poId], map: "purchase_order_payments_po_idx")
+  @@map("purchase_order_payments")
+}
+
+/// A unified, categorized expense (EPIC-13). The supplier link is optional and
+/// soft-detaches (`SET NULL`).
+model Expense {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  category       String
+  amountMinor    BigInt   @map("amount_minor")
+  incurredAt     DateTime @default(now()) @map("incurred_at") @db.Timestamptz(6)
+  notes          String?
+  supplierId     String?  @map("supplier_id") @db.Uuid
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, idempotencyKey], map: "expenses_idempotency_key")
+  @@index([companyId, incurredAt(sort: Desc), id(sort: Desc)], map: "expenses_keyset_idx")
+  @@index([companyId, category], map: "expenses_category_idx")
+  @@index([supplierId], map: "expenses_supplier_idx")
+  @@map("expenses")
+}
+
+/// One row per company: the configured VAT rate (D3), kept off `companies`
+/// (tenancy-owned) so table ownership stays inside the module that uses it.
+model TaxSettings {
+  companyId             String   @id @map("company_id") @db.Uuid
+  vatRateBps            Int      @default(0) @map("vat_rate_bps")
+  vatRegistrationNumber String?  @map("vat_registration_number")
+  updatedBy             String?  @map("updated_by") @db.Uuid
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("tax_settings")
+}
+
+/// Per-company monotonic invoice-number counter (EPIC-13).
+model InvoiceSequence {
+  companyId  String   @id @map("company_id") @db.Uuid
+  nextNumber BigInt   @default(1) @map("next_number")
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_sequences")
+}
+
+/// An official VAT invoice (EPIC-13): a real PDF (pdfkit, D1), issued against
+/// an order or as a manual line-itemized bill (`orderId` nullable).
+/// `vatRateBpsSnapshot` freezes the rate used at issue time.
+model Invoice {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  orderId            String?   @map("order_id") @db.Uuid
+  number             BigInt
+  subtotalMinor      BigInt    @map("subtotal_minor")
+  vatMinor           BigInt    @map("vat_minor")
+  totalMinor         BigInt    @map("total_minor")
+  vatRateBpsSnapshot Int       @map("vat_rate_bps_snapshot")
+  pdfGeneratedAt     DateTime? @map("pdf_generated_at") @db.Timestamptz(6)
+  idempotencyKey     String?   @map("idempotency_key")
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order?        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  lines   InvoiceLine[]
+  refunds Refund[]
+
+  @@unique([companyId, number], map: "invoices_company_number_key")
+  @@unique([companyId, idempotencyKey], map: "invoices_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "invoices_created_keyset_idx")
+  @@index([orderId], map: "invoices_order_idx")
+  @@map("invoices")
+}
+
+/// A line item on an invoice (EPIC-13). Append-only — never updated after insert.
+model InvoiceLine {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  invoiceId      String   @map("invoice_id") @db.Uuid
+  description    String
+  quantity       BigInt
+  unitPriceMinor BigInt   @map("unit_price_minor")
+  lineTotalMinor BigInt   @map("line_total_minor")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId], map: "invoice_lines_invoice_idx")
+  @@map("invoice_lines")
+}
+
+/// A refund (EPIC-13): money out against a prior invoice and/or order.
+/// `idempotencyKey` is MANDATORY — a money-moving, irreversible action.
+model Refund {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  invoiceId      String?  @map("invoice_id") @db.Uuid
+  orderId        String?  @map("order_id") @db.Uuid
+  amountMinor    BigInt   @map("amount_minor")
+  reason         String
+  idempotencyKey String   @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  order   Order?   @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, idempotencyKey], map: "refunds_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "refunds_keyset_idx")
+  @@index([invoiceId], map: "refunds_invoice_idx")
+  @@index([orderId], map: "refunds_order_idx")
+  @@map("refunds")
+}
+
+/// A reconciled carrier statement batch (EPIC-13, D5): matches statement
+/// lines to shipments by tracking number and totals the variance.
+model ShippingReconciliation {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  carrier             String
+  statementRef        String   @map("statement_ref")
+  periodKey           String   @map("period_key")
+  totalStatementMinor BigInt   @map("total_statement_minor")
+  totalFeeMinor       BigInt   @map("total_fee_minor")
+  totalVarianceMinor  BigInt   @map("total_variance_minor")
+  idempotencyKey      String?  @map("idempotency_key")
+  createdBy           String?  @map("created_by") @db.Uuid
+  updatedBy           String?  @map("updated_by") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   ShippingReconciliationLine[]
+
+  @@unique([companyId, idempotencyKey], map: "shipping_reconciliations_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_reconciliations_keyset_idx")
+  @@index([companyId, carrier, periodKey], map: "shipping_reconciliations_carrier_period_idx")
+  @@map("shipping_reconciliations")
+}
+
+/// A matched line of a reconciliation (EPIC-13, D5): one shipment's statement
+/// amount vs. its recorded `fee`, with the signed variance. Append-only.
+model ShippingReconciliationLine {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId            String   @map("company_id") @db.Uuid
+  reconciliationId     String   @map("reconciliation_id") @db.Uuid
+  shipmentId           String   @map("shipment_id") @db.Uuid
+  statementAmountMinor BigInt   @map("statement_amount_minor")
+  shipmentFeeMinor     BigInt   @map("shipment_fee_minor")
+  varianceMinor        BigInt   @map("variance_minor")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company        Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reconciliation ShippingReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  shipment       Shipment               @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+
+  @@index([reconciliationId], map: "shipping_reconciliation_lines_reconciliation_idx")
+  @@index([shipmentId], map: "shipping_reconciliation_lines_shipment_idx")
+  @@map("shipping_reconciliation_lines")
+}
+
+/// A monthly accounting period (EPIC-13, D4). Closing is atomic and
+/// sequential: period N can only close once every earlier period with
+/// activity is already closed. Once closed, every finance service rejects a
+/// dated write inside it.
+model AccountingPeriod {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  periodKey String    @map("period_key")
+  status    String    @default("open")
+  closedAt  DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedBy  String?   @map("closed_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, periodKey], map: "accounting_periods_company_period_key")
+  @@index([companyId, periodKey], map: "accounting_periods_keyset_idx")
+  @@map("accounting_periods")
 }
