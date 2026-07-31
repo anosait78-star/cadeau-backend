@@ -99,6 +99,8 @@ model Company {
   stockReservations StockReservation[]
   stockTransfers    StockTransfer[]
   stockAdjustments  StockAdjustment[]
+  customers         Customer[]
+  customerAddresses CustomerAddress[]
 
   @@map("companies")
 }
@@ -459,6 +461,8 @@ model Governorate {
 
   country CountryConfig @relation(fields: [countryCode], references: [code], onDelete: Cascade)
 
+  addresses CustomerAddress[]
+
   @@unique([countryCode, name], map: "governorates_country_name_key")
   @@index([countryCode, name, id], map: "governorates_keyset_idx")
   @@map("governorates")
@@ -788,4 +792,80 @@ model StockAdjustment {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_adjustments_keyset_idx")
   @@index([variantId], map: "stock_adjustments_variant_idx")
   @@map("stock_adjustments")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-10 — Customers. The customer base: a person identified by a phone
+// number, with zero or more delivery addresses. Both tables are tenant-editable
+// (base columns + FORCE RLS by company_id + touch_updated_at).
+//
+// The phone is stored twice and never in plaintext: `phoneEncrypted` is the
+// reversible source of truth, `phoneHash` is the keyed blind index that carries
+// the per-company uniqueness rule and answers exact lookups. See
+// docs/privacy-model.md — that document is binding for every sensitive column.
+// ---------------------------------------------------------------------------
+
+/// A customer (EPIC-10). `phoneHash` is unique per company — the E.164
+/// uniqueness rule — and the KPI columns are DERIVED: EPIC-11 maintains them
+/// once orders exist, and nothing in EPIC-10 writes them.
+model Customer {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  name           String
+  /// AES-256-GCM token of the E.164 phone (@cadeau/crypto); the source of truth.
+  phoneEncrypted String    @map("phone_encrypted")
+  /// HMAC-SHA256 blind index of the same normalized E.164 value (64 hex chars).
+  phoneHash      String    @map("phone_hash")
+  email          String?   @db.Citext
+  notes          String?
+  /// Derived (EPIC-11); read-only, no write path in EPIC-10.
+  ordersCount    Int       @default(0) @map("orders_count")
+  /// Derived (EPIC-11), integer minor units; read-only, no write path in EPIC-10.
+  totalSpent     BigInt    @default(0) @map("total_spent")
+  /// Derived (EPIC-11); read-only, no write path in EPIC-10.
+  lastOrderAt    DateTime? @map("last_order_at") @db.Timestamptz(6)
+  idempotencyKey String?   @map("idempotency_key")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  addresses CustomerAddress[]
+
+  @@unique([companyId, phoneHash], map: "customers_company_phone_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "customers_created_keyset_idx")
+  @@index([companyId, name, id], map: "customers_name_keyset_idx")
+  @@map("customers")
+}
+
+/// A customer delivery address (EPIC-10). The address line is encrypted: it is
+/// high-sensitivity PII and is never searched, so it needs no blind index.
+/// At most one default per customer (partial unique index).
+model CustomerAddress {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String  @map("company_id") @db.Uuid
+  customerId    String  @map("customer_id") @db.Uuid
+  /// AES-256-GCM token of the address line; never plaintext.
+  lineEncrypted String  @map("line_encrypted")
+  landmark      String?
+  notes         String?
+  governorateId String? @map("governorate_id") @db.Uuid
+  isDefault     Boolean @default(false) @map("is_default")
+  isActive      Boolean @default(true) @map("is_active")
+  createdBy     String? @map("created_by") @db.Uuid
+  updatedBy     String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  governorate Governorate? @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, createdAt(sort: Desc), id(sort: Desc)], map: "customer_addresses_customer_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "customer_addresses_keyset_idx")
+  @@index([governorateId], map: "customer_addresses_governorate_idx")
+  @@map("customer_addresses")
 }

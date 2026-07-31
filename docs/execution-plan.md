@@ -50,13 +50,14 @@ per-(warehouse, variant) levels with a trigger-derived `available`, and the thre
 durable logs (reservations, transfers, adjustments); every stock write is atomic
 under `SELECT … FOR UPDATE` and honours `Idempotency-Key`; per-product oversell
 policy (`products.allow_oversell`); the live `stock.changed` / `stock.low` events;
-and the Inventory frontend screen. **EPIC-8 and EPIC-9 §2.5 quality gates run and
-green** ([epic-8-quality-gate.md](epic-8-quality-gate.md),
-[epic-9-quality-gate.md](epic-9-quality-gate.md)) — both pending only the owner
-closure checkbox. EPIC-7 still has no formal gate doc. Next: owner sign-off, then
-EPIC-10 (Customers) per [epic-10-design.md](epic-10-design.md) — which needs
-decisions D1–D4 answered first. See [domain-map.md](domain-map.md) for how the
-delivered modules fit together and [project-metrics.md](project-metrics.md) for
+and the Inventory frontend screen. **EPIC-8 and EPIC-9 §2.5 quality gates are green
+and CLOSED** with owner sign-off on 2026-07-31
+([epic-8-quality-gate.md](epic-8-quality-gate.md),
+[epic-9-quality-gate.md](epic-9-quality-gate.md)). EPIC-7 still has no formal gate
+doc. **Now in progress: EPIC-10 (Customers)** on `feat/epic-10-customers`, per
+[epic-10-design.md](epic-10-design.md) with decisions D1–D4 answered (see below)
+and [privacy-model.md](privacy-model.md). See [domain-map.md](domain-map.md) for how
+the delivered modules fit together and [project-metrics.md](project-metrics.md) for
 the numbers.
 
 | Package / app      | What it is                                                                        | Status          |
@@ -422,11 +423,28 @@ policy. DB migration + RLS validated in CI. _Deviations:_ permissions use the
 reorder-points` was added (the thresholds alerting needs); reservations have no
 list endpoint yet — EPIC-11 surfaces them on the order. Then the §2.5 quality gate.
 
-### EPIC-10 — Customers
+### EPIC-10 — Customers 🟡 in progress — `feat/epic-10-customers`
 
-Contract: [api/customers.md](api/customers.md). Profile + KPIs + order history,
-**E.164 uniqueness per company** (unique index), manual merge, restricted+audited
-export, consistent currency. _Depends on:_ 7 (+ orders later).
+Contract: [api/customers.md](api/customers.md). Design + acceptance criteria:
+[epic-10-design.md](epic-10-design.md). Profile + addresses + derived KPIs,
+**E.164 uniqueness per company**, audited export, consistent currency.
+_Depends on:_ 7 (governorates), 5, 6.
+
+**Owner decisions (2026-07-31), binding for this epic:**
+
+- **D1** — the phone is stored as `phone_encrypted` (AES-256-GCM) **plus**
+  `phone_hash` (HMAC-SHA256 blind index, unique per company). Ciphertext is the
+  source of truth; the hash carries uniqueness and exact lookup. Partial-phone
+  search is not supported. Full rationale: [privacy-model.md](privacy-model.md).
+- **D2** — export is gated by `customers.manage`. **No new permission action**; the
+  catalog stays `read`/`manage` per feature.
+- **D3** — **customer merge is deferred to EPIC-11**, so it is written once against
+  the complete set of customer-owned tables. EPIC-10 ships **6 routes, not 7**, and
+  does not emit `customer.merged`.
+- **D4** — `Idempotency-Key` on `POST /v1/customers` reuses the EPIC-9 module-local
+  implementation (key on the row, partial unique index, replay on retry).
+
+Milestones M10.1–M10.5 are listed in [epic-10-design.md](epic-10-design.md) §6.
 
 ### EPIC-11 — Orders
 

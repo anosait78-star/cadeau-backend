@@ -18,6 +18,7 @@ function validEnv(
     JWT_ACCESS_TTL: "15m",
     JWT_REFRESH_TTL: "7d",
     ENCRYPTION_KEY: "0".repeat(64),
+    PII_HASH_KEY: "a".repeat(64),
     ...overrides,
   };
 }
@@ -51,6 +52,7 @@ describe("loadConfig — valid input", () => {
     expect(config.database.url).toContain("postgresql://");
     expect(config.jwt.accessTtl).toBe("15m");
     expect(config.encryption.key).toHaveLength(64);
+    expect(config.encryption.blindIndexKey).toHaveLength(64);
   });
 
   it("applies documented defaults for omitted optional variables", () => {
@@ -128,6 +130,13 @@ describe("loadConfig — rejects missing required variables (refuses boot)", () 
     expect(error.message).toContain("JWT_ACCESS_SECRET");
     expect(error.message).toContain("ENCRYPTION_KEY");
   });
+
+  it("rejects a missing PII_HASH_KEY and names it", () => {
+    const env = validEnv();
+    delete env["PII_HASH_KEY"];
+    const error = expectConfigError(env, "PII_HASH_KEY");
+    expect(error.message).toContain("PII_HASH_KEY");
+  });
 });
 
 describe("loadConfig — rejects invalid values (runtime validation)", () => {
@@ -158,6 +167,22 @@ describe("loadConfig — rejects invalid values (runtime validation)", () => {
   it("rejects a non-hex or wrong-length ENCRYPTION_KEY", () => {
     expectConfigError(validEnv({ ENCRYPTION_KEY: "zz" }), "ENCRYPTION_KEY");
     expectConfigError(validEnv({ ENCRYPTION_KEY: "abcd" }), "ENCRYPTION_KEY");
+  });
+
+  it("rejects a non-hex or wrong-length PII_HASH_KEY", () => {
+    expectConfigError(validEnv({ PII_HASH_KEY: "zz" }), "PII_HASH_KEY");
+    expectConfigError(validEnv({ PII_HASH_KEY: "abcd" }), "PII_HASH_KEY");
+  });
+
+  it("rejects a PII_HASH_KEY identical to ENCRYPTION_KEY", () => {
+    // Two separate keys is the point: compromising the search index must not
+    // compromise the plaintext (docs/privacy-model.md §3).
+    const key = "b".repeat(64);
+    expectConfigError(validEnv({ ENCRYPTION_KEY: key, PII_HASH_KEY: key }), "PII_HASH_KEY");
+    expectConfigError(
+      validEnv({ ENCRYPTION_KEY: key, PII_HASH_KEY: key.toUpperCase() }),
+      "PII_HASH_KEY",
+    );
   });
 
   it("rejects an invalid JWT TTL duration", () => {
@@ -237,6 +262,7 @@ describe("redactConfig", () => {
     const redacted = redactConfig(config) as Record<string, Record<string, unknown>>;
     expect(redacted["jwt"]?.["accessSecret"]).toBe("***REDACTED***");
     expect(redacted["encryption"]?.["key"]).toBe("***REDACTED***");
+    expect(redacted["encryption"]?.["blindIndexKey"]).toBe("***REDACTED***");
     expect(String(redacted["database"]?.["url"])).toContain("***REDACTED***");
     expect(String(redacted["database"]?.["url"])).not.toContain("pass");
     expect(redacted["http"]?.["port"]).toBe(3000);

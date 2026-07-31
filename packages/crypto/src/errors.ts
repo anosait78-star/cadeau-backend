@@ -9,6 +9,9 @@ export class CryptoError extends Error {
 /** Malformed key, ciphertext, or a failed authentication tag on decrypt. */
 export class EncryptionError extends CryptoError {}
 
+/** Malformed blind-index key, or an empty value offered for indexing. */
+export class BlindIndexError extends CryptoError {}
+
 /** Malformed, unsupported, expired, or invalidly-signed JWT. */
 export class JwtError extends CryptoError {}
 

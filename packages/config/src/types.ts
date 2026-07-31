@@ -33,6 +33,12 @@ export interface JwtConfig {
 export interface EncryptionConfig {
   /** 32-byte AES key encoded as 64 hex characters. */
   readonly key: string;
+  /**
+   * 32-byte HMAC key (64 hex characters) for PII blind indexes — the searchable,
+   * unique-indexable companion to an encrypted column (EPIC-10, `customers.phone_hash`).
+   * Separate from {@link key} by design: see `docs/privacy-model.md` §3.
+   */
+  readonly blindIndexKey: string;
 }
 
 export interface OAuthProviderConfig {

@@ -129,15 +129,15 @@ levels, notifications listen to `stock.low`.
 
 ## 6. Planned modules and where they attach
 
-| Epic | Module          | Attaches to                                                                     | New tables (planned)                       |
-| ---- | --------------- | ------------------------------------------------------------------------------- | ------------------------------------------ |
-| 10   | `customers`     | master-data (governorates), access, bus                                         | customers, customer addresses              |
-| 11   | `orders`        | customers, products, **inventory (reservations)**, master-data (labels/reasons) | orders, order lines, order activity        |
-| 12   | `shipping`      | orders, master-data (shipping zones)                                            | carriers, shipments, webhook events        |
-| 13   | `finance`       | products (`averageCost`), inventory (receipts raise stock), orders, shipping    | suppliers, POs, expenses, invoices, cash   |
-| 14   | `analytics`     | reads across orders / products / inventory / finance                            | cached aggregates                          |
-| 15   | `notifications` | the event bus (`stock.low`, order events)                                       | notifications, preferences, delivery queue |
-| 16   | —               | launch gate over everything                                                     | —                                          |
+| Epic | Module          | Attaches to                                                                     | New tables (planned)                                 |
+| ---- | --------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 10   | `customers`     | master-data (governorates), access, bus                                         | customers, customer addresses (merge deferred to 11) |
+| 11   | `orders`        | customers, products, **inventory (reservations)**, master-data (labels/reasons) | orders, order lines, order activity                  |
+| 12   | `shipping`      | orders, master-data (shipping zones)                                            | carriers, shipments, webhook events                  |
+| 13   | `finance`       | products (`averageCost`), inventory (receipts raise stock), orders, shipping    | suppliers, POs, expenses, invoices, cash             |
+| 14   | `analytics`     | reads across orders / products / inventory / finance                            | cached aggregates                                    |
+| 15   | `notifications` | the event bus (`stock.low`, order events)                                       | notifications, preferences, delivery queue           |
+| 16   | —               | launch gate over everything                                                     | —                                                    |
 
 ## 7. Forward references already in the schema
 

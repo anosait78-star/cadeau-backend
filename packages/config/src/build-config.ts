@@ -62,7 +62,7 @@ export function buildConfig(env: ValidatedEnv): AppConfig {
       refreshTtl: env.JWT_REFRESH_TTL,
       issuer: env.JWT_ISSUER,
     },
-    encryption: { key: env.ENCRYPTION_KEY },
+    encryption: { key: env.ENCRYPTION_KEY, blindIndexKey: env.PII_HASH_KEY },
     oauth,
     thirdParty,
     superAdminEmails: env.SUPER_ADMIN_EMAILS !== undefined ? splitList(env.SUPER_ADMIN_EMAILS) : [],
@@ -96,7 +96,7 @@ export function redactConfig(config: AppConfig): Record<string, unknown> {
       refreshTtl: config.jwt.refreshTtl,
       issuer: config.jwt.issuer,
     },
-    encryption: { key: REDACTED },
+    encryption: { key: REDACTED, blindIndexKey: REDACTED },
     oauth: config.oauth.google ? { google: { clientId: REDACTED, clientSecret: REDACTED } } : {},
     thirdParty: {
       whatsappApiKey: config.thirdParty.whatsappApiKey ? REDACTED : undefined,

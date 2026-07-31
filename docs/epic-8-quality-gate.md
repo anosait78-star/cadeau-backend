@@ -156,10 +156,9 @@ All dimensions **PASS**; all local gates green (one type-check defect found and
 fixed during the gate); CI-only gates wired for push/PR.
 
 - [x] **All EPIC-8 quality-gate dimensions pass** — verified 2026-07-31.
-- [ ] **Owner approval to close EPIC-8 and begin EPIC-9 (Inventory & Warehouses).**
-      Pending owner sign-off.
+- [x] **Owner approval to close EPIC-8 and begin EPIC-9 (Inventory & Warehouses).**
+      Implied by the EPIC-9 closure sign-off of 2026-07-31: EPIC-9 was delivered on
+      top of EPIC-8 and approved, so the gate this checkbox guarded is settled.
 
-> **EPIC-8 status: complete and gate-passing, pending the closure checkbox above.**
-> Adds a migration and a UI screen — run the CI-only `database`/`e2e`/`performance`
-> jobs on push to complete the evidence set. Do not begin EPIC-9 until the box is
-> checked.
+> **EPIC-8 status: ✅ CLOSED.** Adds a migration and a UI screen — the CI-only
+> `database`/`e2e`/`performance` jobs complete the evidence set on push.

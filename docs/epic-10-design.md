@@ -1,14 +1,13 @@
 # EPIC-10 Design — Customers
 
-**Status:** 🟡 Design proposal — **not approved, not started.** ·
-**Prerequisite:** the EPIC-9 closure checkbox in
-[epic-9-quality-gate.md](epic-9-quality-gate.md) must be ticked first. ·
+**Status:** ✅ **Approved — in progress on `feat/epic-10-customers`.** ·
+EPIC-9 closed and decisions D1–D4 answered by the owner on **2026-07-31**. ·
 **Drafted:** 2026-07-31.
 
-This document fixes the **scope, boundaries and acceptance criteria** of EPIC-10
-before any code is written, and surfaces the four decisions that need an answer
-first. Contract draft: [api/customers.md](api/customers.md). How it fits:
-[domain-map.md](domain-map.md) §6.
+This document fixes the **scope, boundaries and acceptance criteria** of EPIC-10,
+and records the four decisions that had to be settled before code.
+Contract: [api/customers.md](api/customers.md). Sensitive-field storage:
+[privacy-model.md](privacy-model.md). How it fits: [domain-map.md](domain-map.md) §6.
 
 ---
 
@@ -25,37 +24,70 @@ EPIC-10 pretending to know things only EPIC-11 will know."
 
 ## 2. In scope
 
-- **Customer** — name, phone (E.164, unique per company), optional email, optional
-  notes, `active` soft-delete.
+- **Customer** — name, phone (E.164, **stored as ciphertext + blind index** per
+  [privacy-model.md](privacy-model.md), unique per company), optional email,
+  optional notes, `active` soft-delete.
 - **CustomerAddress** — 0..n per customer; line, `governorateId` → EPIC-7
   `governorates`, optional landmark/notes, one flagged default.
 - **CRUD + keyset list** — search `q`, filters (`hasOrders`, `governorateId`,
   `createdAtFrom/To`), whitelisted sorts.
 - **Derived KPIs** — `ordersCount`, `totalSpent`, `lastOrderAt`: **read-only, no
   write path, zero/null until EPIC-11**. Same discipline as `averageCost` in EPIC-8.
-- **Manual merge** — collapse two customers into one, audited, reversible only by
-  the audit trail (not by an undo endpoint).
-- **Export** — permission-gated **and** audited, per ADR-0001.
+- **Export** — gated by `customers.manage` (D2) **and** audited, per ADR-0001.
 - **Frontend** — a capability-gated Customers screen in the Dual Shell, matching the
   Products/Inventory pattern (list, detail, create/edit/archive, addresses).
-- **Events** — `customer.created`, `customer.merged`, `customer.exported`.
+- **Events** — `customer.created`, `customer.updated`, `customer.exported`.
+  (`customer.merged` stays reserved for EPIC-11.)
 
 ## 3. Explicitly out of scope
 
-| Not in EPIC-10                                          | Why / where                                             |
-| ------------------------------------------------------- | ------------------------------------------------------- |
-| Order history endpoint returning rows                   | `GET /{id}/orders` ships in EPIC-11 with orders         |
-| KPI computation                                         | EPIC-11 (counts/spend) — EPIC-10 ships the columns only |
-| Automatic duplicate detection / fuzzy merge suggestions | Future, additive; v1 merge is manual                    |
-| Un-merge / merge rollback                               | Not a v1 feature; the audit log records the merge       |
-| Customer segments, tags, loyalty                        | Not in the roadmap for v1                               |
-| Bulk import of customers                                | Arrives with the EPIC-11 order import                   |
-| WhatsApp/SMS to customers                               | EPIC-15                                                 |
+| Not in EPIC-10                                          | Why / where                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Order history endpoint returning rows                   | `GET /{id}/orders` ships in EPIC-11 with orders                                             |
+| KPI computation                                         | EPIC-11 (counts/spend) — EPIC-10 ships the columns only                                     |
+| **Customer merge** (`POST /v1/customers/merge`)         | **EPIC-11 (decision D3)** — written once, against the complete set of customer-owned tables |
+| Automatic duplicate detection / fuzzy merge suggestions | Future, additive; merge itself is manual                                                    |
+| Un-merge / merge rollback                               | Not a v1 feature; the audit log records the merge                                           |
+| Partial-phone search (e.g. "ends with 4567")            | Not possible against a blind index — see [privacy-model.md](privacy-model.md) §5            |
+| Customer segments, tags, loyalty                        | Not in the roadmap for v1                                                                   |
+| Bulk import of customers                                | Arrives with the EPIC-11 order import                                                       |
+| WhatsApp/SMS to customers                               | EPIC-15                                                                                     |
 
-## 4. Decisions required before M10.1
+## 4. Decisions — **answered by the owner, 2026-07-31**
 
-These four cannot be settled by "follow the existing pattern" — the existing
-patterns conflict. **Each needs an explicit answer.**
+These four could not be settled by "follow the existing pattern" — the existing
+patterns conflicted. All four are now decided and binding for this epic.
+
+| #   | Decision                                                              | Outcome                          |
+| --- | --------------------------------------------------------------------- | -------------------------------- |
+| D1  | `phone_encrypted` (AES-256-GCM) **+** `phone_hash` (HMAC blind index) | ✅ option B — as recommended     |
+| D2  | Export gated by `customers.manage`; **no new permission action**      | ✅ option B1 — as recommended    |
+| D3  | **Customer merge deferred to EPIC-11** (until orders exist)           | ⚠️ **changed from the proposal** |
+| D4  | Reuse the EPIC-9 module-local `Idempotency-Key` implementation        | ✅ as recommended                |
+
+**D3 changes this epic's scope.** The proposal was to build merge now over
+addresses only; the owner deferred it instead. Consequences, applied throughout this
+document:
+
+- No `POST /v1/customers/merge` route in EPIC-10 — **6 routes, not 7.**
+- No `customer.merged` emission in EPIC-10 (the name stays reserved in the closed
+  event catalog for EPIC-11).
+- Acceptance criterion 4 (merge atomicity) is removed from this epic and becomes an
+  EPIC-11 criterion.
+- The upside: merge gets written **once**, against the complete set of
+  customer-owned tables, instead of being written now and extended later — which
+  removes the "merge silently misses a table added later" risk from §8 entirely.
+- The cost: duplicate customers created before EPIC-11 can only be resolved by
+  archiving one by hand. Acceptable — the E.164 unique index prevents the common
+  case from arising at all.
+
+The full rationale for D1 and its consequences (normalization, key management,
+rotation, what search survives) is now documented in
+[privacy-model.md](privacy-model.md) — that document, not this one, is the binding
+reference for sensitive-field storage.
+
+<details>
+<summary>The original options as presented (kept for the record)</summary>
 
 ### D1 — How is the customer phone stored? _(the important one)_
 
@@ -111,7 +143,9 @@ unique index, replay on retry). EPIC-8 deferred it. Proposal: **reuse the EPIC-9
 pattern** — it is proven and cheap — and keep the shared cross-module store as
 existing debt.
 
-## 5. Proposed data model
+</details>
+
+## 5. Data model (as decided)
 
 ```
 Customer (customers)
@@ -141,56 +175,64 @@ and on the whitelisted sort keys.
 
 ## 6. Milestones
 
-| ID    | Deliverable                                                                                                                                                                              |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M10.1 | Prisma models + migration `2026080500000_customers`: 2 tables, RLS, triggers, unique `phone_hash` per company, one-default-address partial index, derived-KPI columns with no write path |
-| M10.2 | `modules/customers` domain + application + infrastructure: tenant-scoped CRUD, addresses, keyset list with `q`/filters, blind-index lookup, merge transaction, idempotency replay        |
-| M10.3 | `/v1/customers` presentation: routes, DTOs, three-layer gating, audit-then-emit, unified error mapping; OpenAPI                                                                          |
-| M10.4 | Customers screen in the Dual Shell: list + search, detail with KPIs and addresses, create/edit/archive, merge flow, ar/en                                                                |
-| M10.5 | Docs + gates: contract marked delivered, `customer.*` events live, domain + review + retrospective + §2.5 gate; metrics and domain map refreshed                                         |
+| ID    | Deliverable                                                                                                                                                                                                                                                                           |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M10.1 | `PII_HASH_KEY` in `@cadeau/config` + `blindIndex()` in `@cadeau/crypto`; Prisma models + migration `20260805000000_customers`: 2 tables, RLS, triggers, unique `phone_hash` per company, one-default-address partial index, derived-KPI columns with no write path, idempotency index |
+| M10.2 | `modules/customers` domain + application + infrastructure: E.164 normalization, tenant-scoped CRUD, addresses, keyset list with `q`/filters, blind-index lookup, idempotency replay (EPIC-9 pattern)                                                                                  |
+| M10.3 | `/v1/customers` presentation: **6 routes**, DTOs, three-layer gating, audit-then-emit, phone masking on list, unified error mapping; OpenAPI                                                                                                                                          |
+| M10.4 | Customers screen in the Dual Shell: list + search, detail with KPIs and addresses, create/edit/archive, ar/en                                                                                                                                                                         |
+| M10.5 | Docs + gates: contract marked delivered, `customer.*` events live, domain + review + retrospective + §2.5 gate; metrics, domain map and privacy model refreshed                                                                                                                       |
 
 ## 7. Acceptance criteria
 
 The epic is done when **all** of these hold:
 
 1. A phone number cannot be duplicated within a company — enforced by a **database
-   unique index**, surfaced as `409` with the offending field.
-2. A phone number is never stored in a readable form (per D1-B), and an exact-phone
-   lookup still resolves in one indexed query.
-3. `ordersCount` / `totalSpent` / `lastOrderAt` have **no write path** at any layer
+   unique index on `(company_id, phone_hash)`**, surfaced as `409` naming the
+   `phone` field (never the colliding row's id).
+2. A phone number is **never stored in a readable form**; the plaintext exists only
+   in the request body and in the decrypted detail response. An exact-phone lookup
+   still resolves in one indexed query.
+3. Normalization to E.164 happens in **one** place and serves both writes and
+   lookups, so `+20 100 123 4567` and `+201001234567` collide as they should.
+4. `ordersCount` / `totalSpent` / `lastOrderAt` have **no write path** at any layer
    — no DTO field, no repository write.
-4. Merge is one atomic transaction, moves every customer-owned row, archives the
-   loser, writes one `audit_log` entry naming both ids, and emits `customer.merged`.
-5. Export is permission-gated **and** writes an `audit_log` row **and** emits
-   `customer.exported` — no unaudited path to bulk PII exists.
-6. Every route is three-layer gated; the tenant comes from the token; RLS + repo
+5. Export is gated by `customers.manage` **and** writes an `audit_log` row **and**
+   emits `customer.exported` — no unaudited path to bulk PII exists.
+6. No plaintext PII appears in `audit_log.changes`, in an event payload, in a
+   cursor, in a URL, or in a log line ([privacy-model.md](privacy-model.md) §6).
+7. Every route is three-layer gated; the tenant comes from the token; RLS + repo
    scoping both hold (verified by the CI `database` job).
-7. Every list is keyset-paginated over a covering index; no OFFSET.
-8. The Customers screen works in both shells, in ar and en, with the standard
+8. Every list is keyset-paginated over a covering index; no OFFSET.
+9. The Customers screen works in both shells, in ar and en, with the standard
    empty/loading/error states.
-9. All local gates green **from a cold cache**; test count grows from 668; web
-   bundle stays under 200 KB gzip.
-10. No access-catalog change (per D2-B1) and no new cross-cutting seam.
+10. All local gates green **from a cold cache**; test count grows from 668; web
+    bundle stays under 200 KB gzip.
+11. No access-catalog change (per D2) and no new cross-cutting seam.
 
 ## 8. Risks
 
-| Risk                                                             | Mitigation                                                             |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| D1 decided late → the phone column is reworked mid-epic          | Decide before M10.1; it is a migration-shaped decision                 |
-| Blind-index key rotation is undesigned                           | Document rotation (re-hash under a new key, dual-read window) in M10.1 |
-| Merge silently misses a table added later                        | A test that enumerates customer-owned tables and fails on drift        |
-| KPI columns get "temporarily" written by hand to demo the screen | Acceptance criterion 3 + no DTO field; review it explicitly            |
-| PII export becomes the easy path to a data leak                  | Criterion 5; export stays `manage`-gated and audited                   |
+| Risk                                                                      | Mitigation                                                                                                   |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Inconsistent E.164 normalization lets a duplicate through                 | Criterion 3: one normalization function, unit-tested against messy input                                     |
+| A new required secret (`PII_HASH_KEY`) breaks existing environment setups | Ship it with the config schema, `.env.example` and a startup error that names the variable                   |
+| Losing the key makes every phone unfindable                               | Ciphertext is the source of truth; the hash is rebuildable from it ([privacy-model.md](privacy-model.md) §3) |
+| KPI columns get "temporarily" written by hand to demo the screen          | Criterion 4 + no DTO field; review it explicitly                                                             |
+| PII export becomes the easy path to a data leak                           | Criterion 5; export stays `manage`-gated and audited                                                         |
+| Duplicates created before EPIC-11 have no merge path                      | Accepted (D3); the unique index prevents the common case, archive-by-hand covers the rest                    |
+
+~~Merge silently misses a table added later~~ — **removed by D3**: merge is now
+written once in EPIC-11, against the complete set of customer-owned tables.
 
 ## 9. Estimated shape
 
-Comparable to EPIC-8 (two tables, CRUD + one screen) plus the merge transaction and
-the blind-index work — smaller than EPIC-9, which carried the concurrency model.
-Expect the test count to land in the ~740–780 range and the bundle to grow a few KB.
+Comparable to EPIC-8 (two tables, CRUD + one screen) plus the blind-index work, and
+smaller than originally estimated now that merge is deferred (D3) — well short of
+EPIC-9, which carried the concurrency model. Expect the test count to land in the
+~730–770 range and the bundle to grow a few KB.
 
 ---
 
-**Next step:** the owner answers D1–D4 (and ticks the EPIC-9 closure box). Once
-those are settled, this document becomes the M10.1 brief and
-[api/customers.md](api/customers.md) is updated to match the decisions before any
-code is written.
+**Status:** decisions D1–D4 answered and the EPIC-9 closure box ticked on
+2026-07-31. This document is now the M10.1 brief;
+[api/customers.md](api/customers.md) has been updated to match.

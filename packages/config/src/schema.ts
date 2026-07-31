@@ -79,6 +79,12 @@ export const envSchema = z
     // Secret: Encryption (AES-256 key, 32 bytes as 64 hex chars)
     ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, "must be 64 hex characters (32 bytes)"),
 
+    // Secret: PII blind-index key (HMAC-SHA256, 32 bytes as 64 hex chars).
+    // Deliberately SEPARATE from ENCRYPTION_KEY so that compromising the search
+    // index does not compromise the plaintext, and so the two rotate on their own
+    // schedules. See docs/privacy-model.md §3.
+    PII_HASH_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, "must be 64 hex characters (32 bytes)"),
+
     // Platform Super-Admin bootstrap (optional, CSV of emails). The access seed
     // (EPIC-5) promotes matching profiles into `platform_admins`; privilege is a
     // separate DB-backed grant, never a tenant-token claim.
@@ -121,6 +127,17 @@ export const envSchema = z
       });
     }
 
+    // The PII blind-index key must not be the encryption key. Two separate keys
+    // is the point: compromising the search index must not compromise the
+    // plaintext, and the two rotate on their own schedules (docs/privacy-model.md).
+    if (value.PII_HASH_KEY.toLowerCase() === value.ENCRYPTION_KEY.toLowerCase()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["PII_HASH_KEY"],
+        message: "must differ from ENCRYPTION_KEY",
+      });
+    }
+
     // OAuth client id/secret must be provided together.
     const hasOAuthId = value.OAUTH_GOOGLE_CLIENT_ID !== undefined;
     const hasOAuthSecret = value.OAUTH_GOOGLE_CLIENT_SECRET !== undefined;
@@ -159,6 +176,7 @@ export const envSchema = z
         ["JWT_ACCESS_SECRET", value.JWT_ACCESS_SECRET],
         ["JWT_REFRESH_SECRET", value.JWT_REFRESH_SECRET],
         ["ENCRYPTION_KEY", value.ENCRYPTION_KEY],
+        ["PII_HASH_KEY", value.PII_HASH_KEY],
       ];
       for (const [name, secret] of productionSecrets) {
         if (INSECURE_PLACEHOLDER.test(secret)) {

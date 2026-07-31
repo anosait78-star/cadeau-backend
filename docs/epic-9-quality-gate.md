@@ -184,11 +184,16 @@ All dimensions **PASS**; all local gates green from a cold cache with no defects
 found; CI-only gates wired for push/PR.
 
 - [x] **All EPIC-9 quality-gate dimensions pass** — verified 2026-07-31.
-- [ ] **Owner approval to close EPIC-9 and begin EPIC-10 (Customers).**
-      Pending owner sign-off.
+- [x] **Owner approval to close EPIC-9 and begin EPIC-10 (Customers).**
+      Signed off 2026-07-31.
 
-> **EPIC-9 status: complete and gate-passing, pending the closure checkbox above.**
-> Adds a migration (with a new trigger function) and a UI screen — run the CI-only
-> `database`/`e2e`/`performance` jobs on push to complete the evidence set. Do not
-> begin EPIC-10 until the box is checked; the scope proposal is in
-> [epic-10-design.md](epic-10-design.md).
+> **EPIC-9 status: ✅ CLOSED.** All nine dimensions pass, all local gates green from
+> a cold cache, owner sign-off recorded above. Adds a migration (with a new trigger
+> function) and a UI screen — the CI-only `database`/`e2e`/`performance` jobs
+> complete the evidence set on push.
+>
+> **EPIC-10 (Customers) is open**, with decisions D1–D4 answered by the owner at
+> closure: `phone_encrypted` + `phone_hash` blind index; export gated by
+> `customers.manage`; **merge deferred to EPIC-11**; the EPIC-9 idempotency pattern
+> reused. See [epic-10-design.md](epic-10-design.md) and
+> [privacy-model.md](privacy-model.md).
