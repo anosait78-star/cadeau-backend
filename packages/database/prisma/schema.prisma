@@ -64,6 +64,8 @@ model Profile {
   sessions        Session[]
   acceptedInvites Invitation[]    @relation("InvitationAcceptedBy")
   platformAdmin   PlatformAdmin?
+  assignedOrders  Order[]         @relation("OrderAssignee")
+  orderActivities OrderActivity[] @relation("OrderActivityActor")
 
   @@map("profiles")
 }
@@ -101,6 +103,10 @@ model Company {
   stockAdjustments  StockAdjustment[]
   customers         Customer[]
   customerAddresses CustomerAddress[]
+  orders            Order[]
+  orderItems        OrderItem[]
+  orderActivities   OrderActivity[]
+  orderSequence     OrderSequence?
 
   @@map("companies")
 }
@@ -462,6 +468,7 @@ model Governorate {
   country CountryConfig @relation(fields: [countryCode], references: [code], onDelete: Cascade)
 
   addresses CustomerAddress[]
+  orders    Order[]
 
   @@unique([countryCode, name], map: "governorates_country_name_key")
   @@index([countryCode, name, id], map: "governorates_keyset_idx")
@@ -527,6 +534,7 @@ model OrderLabel {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders  Order[]
 
   @@unique([companyId, name], map: "order_labels_company_name_key")
   @@index([companyId, name, id], map: "order_labels_keyset_idx")
@@ -548,6 +556,7 @@ model OrderReason {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders  Order[]
 
   @@unique([companyId, kind, name], map: "order_reasons_company_kind_name_key")
   @@index([companyId, name, id], map: "order_reasons_keyset_idx")
@@ -642,6 +651,7 @@ model ProductVariant {
   reservations StockReservation[]
   transfers    StockTransfer[]
   adjustments  StockAdjustment[]
+  orderItems   OrderItem[]
 
   @@unique([productId, name], map: "product_variants_product_name_key")
   @@index([productId, name, id], map: "product_variants_product_idx")
@@ -722,7 +732,7 @@ model StockReservation {
   warehouseId    String    @map("warehouse_id") @db.Uuid
   variantId      String    @map("variant_id") @db.Uuid
   quantity       BigInt
-  /// The order this reservation backs (EPIC-11); no FK until orders exist.
+  /// The order this reservation backs (EPIC-11); real FK now that orders exist.
   orderId        String?   @map("order_id") @db.Uuid
   reference      String?
   status         String    @default("active")
@@ -736,8 +746,10 @@ model StockReservation {
   company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
   variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  order     Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_reservations_keyset_idx")
+  @@index([orderId], map: "stock_reservations_order_idx")
   @@index([companyId, status], map: "stock_reservations_status_idx")
   @@index([variantId], map: "stock_reservations_variant_idx")
   @@map("stock_reservations")
@@ -833,6 +845,7 @@ model Customer {
 
   company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   addresses CustomerAddress[]
+  orders    Order[]
 
   @@unique([companyId, phoneHash], map: "customers_company_phone_key")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "customers_created_keyset_idx")
@@ -868,4 +881,129 @@ model CustomerAddress {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "customer_addresses_keyset_idx")
   @@index([governorateId], map: "customer_addresses_governorate_idx")
   @@map("customer_addresses")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-11 — Orders. The core of the system: a 12-state lifecycle plus a separate
+// follow-up axis, per-order items with frozen cost snapshots (COGS), a per-order
+// append-only activity log, and a pivotal COD `collectedAmount`. All tables are
+// tenant-editable (base columns + FORCE RLS by company_id + touch_updated_at).
+// Money is integer minor units (bigint), never a float.
+// ---------------------------------------------------------------------------
+
+/// An order (EPIC-11). `orderNumber` is a per-company sequential, human-facing
+/// number (issued via {@link OrderSequence}). `status` is one of the 12 lifecycle
+/// states; `followUpState` is an independent axis. Amounts are integer minor
+/// units: `total = subtotal + shippingFee − discount`, and `collectedAmount` is
+/// the COD money actually taken. The customer is pinned (`RESTRICT`); the assignee
+/// and the EPIC-7 label/reason/governorate references soft-detach (`SET NULL`).
+model Order {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  orderNumber     BigInt   @map("order_number")
+  customerId      String   @map("customer_id") @db.Uuid
+  assigneeId      String?  @map("assignee_id") @db.Uuid
+  status          String   @default("new")
+  followUpState   String   @default("none") @map("follow_up_state")
+  labelId         String?  @map("label_id") @db.Uuid
+  reasonId        String?  @map("reason_id") @db.Uuid
+  governorateId   String?  @map("governorate_id") @db.Uuid
+  subtotal        BigInt   @default(0)
+  shippingFee     BigInt   @default(0) @map("shipping_fee")
+  discount        BigInt   @default(0)
+  total           BigInt   @default(0)
+  collectedAmount BigInt   @default(0) @map("collected_amount")
+  /// Derived from collected vs total: `unpaid` / `partial` / `paid`.
+  paymentStatus   String   @default("unpaid") @map("payment_status")
+  notes           String?
+  statusChangedAt DateTime @default(now()) @map("status_changed_at") @db.Timestamptz(6)
+  idempotencyKey  String?  @map("idempotency_key")
+  createdBy       String?  @map("created_by") @db.Uuid
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignee    Profile?     @relation("OrderAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  label       OrderLabel?  @relation(fields: [labelId], references: [id], onDelete: SetNull)
+  reason      OrderReason? @relation(fields: [reasonId], references: [id], onDelete: SetNull)
+  governorate Governorate? @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+
+  items        OrderItem[]
+  activities   OrderActivity[]
+  reservations StockReservation[]
+
+  @@unique([companyId, orderNumber], map: "orders_company_number_key")
+  @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "orders_created_keyset_idx")
+  @@index([companyId, updatedAt(sort: Desc), id(sort: Desc)], map: "orders_updated_keyset_idx")
+  @@index([companyId, status], map: "orders_status_idx")
+  @@index([customerId, createdAt(sort: Desc), id(sort: Desc)], map: "orders_customer_idx")
+  @@index([assigneeId], map: "orders_assignee_idx")
+  @@map("orders")
+}
+
+/// A line on an order (EPIC-11): a product variant, a quantity, a unit sell
+/// `price`, and a `costSnapshot` — the variant's `averageCost` frozen when the
+/// line was added, so COGS stays stable even as the moving average moves.
+/// `companyId` is denormalized so RLS scopes the row directly.
+model OrderItem {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  variantId    String   @map("variant_id") @db.Uuid
+  nameSnapshot String   @map("name_snapshot")
+  quantity     BigInt
+  price        BigInt   @default(0)
+  costSnapshot BigInt   @default(0) @map("cost_snapshot")
+  createdBy    String?  @map("created_by") @db.Uuid
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@index([orderId], map: "order_items_order_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_items_keyset_idx")
+  @@index([variantId], map: "order_items_variant_idx")
+  @@map("order_items")
+}
+
+/// The append-only activity log of an order (EPIC-11): one row per meaningful
+/// change (created, status_changed, assigned, edited, payment, …). `fromValue`/
+/// `toValue` carry ids/labels only — never customer PII.
+model OrderActivity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  kind      String
+  fromValue String?  @map("from_value")
+  toValue   String?  @map("to_value")
+  note      String?
+  actorId   String?  @map("actor_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor   Profile? @relation("OrderActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt(sort: Desc), id(sort: Desc)], map: "order_activities_order_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_activities_keyset_idx")
+  @@map("order_activities")
+}
+
+/// Per-company monotonic order-number counter (EPIC-11). One row per company;
+/// `UPDATE … RETURNING next_number` under the tenant transaction serializes
+/// number issuance so concurrent creates never collide.
+model OrderSequence {
+  companyId  String   @id @map("company_id") @db.Uuid
+  nextNumber BigInt   @default(1) @map("next_number")
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("order_sequences")
 }
