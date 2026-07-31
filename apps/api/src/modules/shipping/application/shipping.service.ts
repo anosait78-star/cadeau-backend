@@ -21,7 +21,6 @@ import {
   DuplicateActiveShipmentError,
   DuplicateShipmentError,
   IllegalTransitionError,
-  InvalidAmountError,
   OrderNotShippableError,
   ReferenceNotFoundError,
 } from "../domain/shipping.errors";
@@ -61,6 +60,15 @@ export class ShippingService {
     const shipment = await this.repo.findById(companyId, id);
     if (shipment === null) throw AppErrors.notFound("Shipment not found.");
     return shipment;
+  }
+
+  /** Looked up by the webhook processor (M12.4) to resolve a carrier callback. */
+  findShipmentByTracking(
+    companyId: string,
+    carrier: string,
+    trackingNumber: string,
+  ): Promise<ShipmentView | null> {
+    return this.repo.findByTrackingNumber(companyId, carrier, trackingNumber);
   }
 
   async create(
@@ -169,6 +177,27 @@ export class ShippingService {
   }
 
   /**
+   * Apply a status transition on behalf of a system process (EPIC-12 M12.4's
+   * webhook processor) — no principal, `actorId: null`. Raw domain errors
+   * (`IllegalTransitionError`, `ReferenceNotFoundError`, …) propagate
+   * **unwrapped** — no HTTP mapping — so the caller can apply its own
+   * retry/backoff policy instead of reading an HTTP status.
+   */
+  async applySystemTransition(
+    companyId: string,
+    id: string,
+    command: TransitionCommand,
+  ): Promise<ShipmentView> {
+    const change = await this.repo.transition({ companyId, actorId: null }, id, {
+      toStatus: command.toStatus,
+      ...(command.note !== undefined ? { note: command.note } : {}),
+    });
+    if (change === null) throw new ReferenceNotFoundError("shipmentId");
+    await this.recordTransitionCore(companyId, null, change);
+    return change.shipment;
+  }
+
+  /**
    * Issue the waybill: flips the metadata-only `waybillIssued` flag and asks
    * the carrier for the label metadata (decision D3 — no PDF body in this
    * epic; rendering reuses EPIC-13's shared PDF work).
@@ -195,19 +224,28 @@ export class ShippingService {
 
   // ---- internals -------------------------------------------------------------
 
-  /**
-   * Record the durable audit row + emit `shipment.status_changed` (or
-   * `shipment.cancelled`) for a transition, plus `shipment.delivered` when the
-   * transition deducted a shipping fee (decision D4).
-   */
+  /** Record the durable audit row + emit the transition events for a principal-driven change. */
   private async recordTransition(
     principal: RequestPrincipal,
     change: ShipmentStatusChangeResult,
   ): Promise<void> {
-    const companyId = principal.companyId as string;
+    await this.recordTransitionCore(principal.companyId as string, principal.userId, change);
+  }
+
+  /**
+   * Record the durable audit row + emit `shipment.status_changed` (or
+   * `shipment.cancelled`) for a transition, plus `shipment.delivered` when the
+   * transition deducted a shipping fee (decision D4). `actorId` is `null` for
+   * a system-originated change (M12.4's webhook processor).
+   */
+  private async recordTransitionCore(
+    companyId: string,
+    actorId: string | null,
+    change: ShipmentStatusChangeResult,
+  ): Promise<void> {
     await this.audit.record({
       companyId,
-      actorId: principal.userId,
+      actorId,
       action: change.toStatus === "cancelled" ? "shipment.cancelled" : "shipment.status_changed",
       entityType: "shipment",
       entityId: change.shipment.id,
@@ -216,7 +254,7 @@ export class ShippingService {
     await this.events.publish({
       type: "shipment.status_changed",
       companyId,
-      actorId: principal.userId,
+      actorId,
       occurredAt: this.clock.now(),
       payload: {
         shipmentId: change.shipment.id,
@@ -229,7 +267,7 @@ export class ShippingService {
       await this.events.publish({
         type: "shipment.delivered",
         companyId,
-        actorId: principal.userId,
+        actorId,
         occurredAt: this.clock.now(),
         payload: {
           shipmentId: change.shipment.id,
@@ -257,8 +295,7 @@ export class ShippingService {
     if (
       error instanceof ReferenceNotFoundError ||
       error instanceof IllegalTransitionError ||
-      error instanceof OrderNotShippableError ||
-      error instanceof InvalidAmountError
+      error instanceof OrderNotShippableError
     ) {
       const field = "field" in error && typeof error.field === "string" ? error.field : "status";
       return new AppException(

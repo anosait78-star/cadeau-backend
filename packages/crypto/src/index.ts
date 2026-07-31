@@ -14,4 +14,12 @@ export {
   buildOtpAuthUri,
 } from "./totp";
 export type { TotpOptions, VerifyTotpOptions, OtpAuthUriInput } from "./totp";
-export { CryptoError, EncryptionError, BlindIndexError, JwtError, TotpError } from "./errors";
+export { signWebhookPayload, verifyWebhookSignature } from "./webhook-signature";
+export {
+  CryptoError,
+  EncryptionError,
+  BlindIndexError,
+  JwtError,
+  TotpError,
+  WebhookSignatureError,
+} from "./errors";

@@ -29,7 +29,7 @@ export class ManualCarrierAdapter implements CarrierPort {
   }
 
   getTracking(_trackingNumber: string): Promise<CarrierTrackingInfo> {
-    throw new Error("The manual carrier has no upstream to poll for tracking.");
+    return Promise.reject(new Error("The manual carrier has no upstream to poll for tracking."));
   }
 
   generateWaybill(trackingNumber: string): Promise<CarrierWaybillInfo> {

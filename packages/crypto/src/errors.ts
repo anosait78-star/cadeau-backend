@@ -17,3 +17,6 @@ export class JwtError extends CryptoError {}
 
 /** Malformed TOTP secret, or invalid TOTP generation/verification parameters. */
 export class TotpError extends CryptoError {}
+
+/** Malformed webhook signing key, or an invalid/mismatched webhook signature. */
+export class WebhookSignatureError extends CryptoError {}

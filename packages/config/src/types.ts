@@ -55,6 +55,15 @@ export interface ThirdPartyConfig {
   readonly shippingBostaApiKey?: string;
 }
 
+export interface ShippingConfig {
+  /**
+   * 32-byte HMAC key (64 hex characters) verifying inbound carrier webhooks
+   * (EPIC-12 M12.4) against the raw request body. Separate from
+   * {@link EncryptionConfig.key} / {@link EncryptionConfig.blindIndexKey}.
+   */
+  readonly webhookSigningSecret: string;
+}
+
 /**
  * The fully validated, structured, read-only application configuration.
  * This is the single source of truth consumed everywhere — no module reads
@@ -73,6 +82,7 @@ export interface AppConfig {
   readonly encryption: EncryptionConfig;
   readonly oauth: OAuthConfig;
   readonly thirdParty: ThirdPartyConfig;
+  readonly shipping: ShippingConfig;
   /**
    * Emails that bootstrap the platform Super-Admin grant (EPIC-5). The access
    * seed promotes matching profiles into `platform_admins`. Empty when unset.

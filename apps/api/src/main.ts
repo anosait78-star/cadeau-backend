@@ -16,8 +16,12 @@ import { setupOpenApi } from "./shared/openapi/setup-openapi";
  */
 async function bootstrap(): Promise<void> {
   // Buffer logs until our structured logger is installed, so early framework
-  // logs are emitted through it too.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // logs are emitted through it too. `rawBody: true` additionally makes Nest
+  // populate `req.rawBody` (a Buffer) alongside the normal parsed JSON body,
+  // needed to verify an inbound carrier-webhook HMAC signature against the
+  // exact bytes received (EPIC-12 M12.4) — a re-serialization of the parsed
+  // body can byte-differ from what was actually signed.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   const logger = app.get(AppLogger);
   app.useLogger(logger);
 

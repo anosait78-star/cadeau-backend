@@ -46,11 +46,3 @@ export class IllegalTransitionError extends Error {
     this.name = "IllegalTransitionError";
   }
 }
-
-/** An amount is invalid (e.g. a negative fee). */
-export class InvalidAmountError extends Error {
-  constructor(readonly field: string) {
-    super(`Invalid amount for ${field}.`);
-    this.name = "InvalidAmountError";
-  }
-}

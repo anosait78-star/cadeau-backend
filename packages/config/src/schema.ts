@@ -85,6 +85,14 @@ export const envSchema = z
     // schedules. See docs/privacy-model.md §3.
     PII_HASH_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, "must be 64 hex characters (32 bytes)"),
 
+    // Secret: inbound carrier-webhook HMAC key (32 bytes as 64 hex chars,
+    // EPIC-12 M12.4). Verifies `POST /v1/shipping/webhooks/{carrier}/{companyId}`
+    // against the exact raw request bytes before the payload is trusted or
+    // enqueued. Deliberately separate from ENCRYPTION_KEY/PII_HASH_KEY.
+    SHIPPING_WEBHOOK_SIGNING_SECRET: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "must be 64 hex characters (32 bytes)"),
+
     // Platform Super-Admin bootstrap (optional, CSV of emails). The access seed
     // (EPIC-5) promotes matching profiles into `platform_admins`; privilege is a
     // separate DB-backed grant, never a tenant-token claim.
@@ -138,6 +146,20 @@ export const envSchema = z
       });
     }
 
+    // The webhook signing secret must not reuse either other secret — a leaked
+    // webhook secret (the one exposed to a third-party carrier's dashboard)
+    // must not compromise encryption or the PII blind index.
+    if (
+      value.SHIPPING_WEBHOOK_SIGNING_SECRET.toLowerCase() === value.ENCRYPTION_KEY.toLowerCase() ||
+      value.SHIPPING_WEBHOOK_SIGNING_SECRET.toLowerCase() === value.PII_HASH_KEY.toLowerCase()
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SHIPPING_WEBHOOK_SIGNING_SECRET"],
+        message: "must differ from ENCRYPTION_KEY and PII_HASH_KEY",
+      });
+    }
+
     // OAuth client id/secret must be provided together.
     const hasOAuthId = value.OAUTH_GOOGLE_CLIENT_ID !== undefined;
     const hasOAuthSecret = value.OAUTH_GOOGLE_CLIENT_SECRET !== undefined;
@@ -177,6 +199,7 @@ export const envSchema = z
         ["JWT_REFRESH_SECRET", value.JWT_REFRESH_SECRET],
         ["ENCRYPTION_KEY", value.ENCRYPTION_KEY],
         ["PII_HASH_KEY", value.PII_HASH_KEY],
+        ["SHIPPING_WEBHOOK_SIGNING_SECRET", value.SHIPPING_WEBHOOK_SIGNING_SECRET],
       ];
       for (const [name, secret] of productionSecrets) {
         if (INSECURE_PLACEHOLDER.test(secret)) {

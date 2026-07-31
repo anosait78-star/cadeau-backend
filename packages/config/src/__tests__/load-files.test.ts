@@ -25,6 +25,7 @@ const SCHEMA_KEYS = [
   "JWT_ISSUER",
   "ENCRYPTION_KEY",
   "PII_HASH_KEY",
+  "SHIPPING_WEBHOOK_SIGNING_SECRET",
   "OAUTH_GOOGLE_CLIENT_ID",
   "OAUTH_GOOGLE_CLIENT_SECRET",
   "WHATSAPP_API_KEY",
@@ -42,6 +43,7 @@ const FILE_ENV = [
   "JWT_REFRESH_TTL=7d",
   `ENCRYPTION_KEY=${"0".repeat(64)}`,
   `PII_HASH_KEY=${"a".repeat(64)}`,
+  `SHIPPING_WEBHOOK_SIGNING_SECRET=${"c".repeat(64)}`,
 ].join("\n");
 
 let originalEnv: Record<string, string | undefined>;
@@ -96,6 +98,7 @@ describe("loadConfig — dotenv file loading", () => {
     process.env["JWT_REFRESH_TTL"] = "7d";
     process.env["ENCRYPTION_KEY"] = "0".repeat(64);
     process.env["PII_HASH_KEY"] = "a".repeat(64);
+    process.env["SHIPPING_WEBHOOK_SIGNING_SECRET"] = "c".repeat(64);
 
     const config = loadConfig({ cwd: tmpDir, skipDotenv: true });
     expect(config.isDevelopment).toBe(true);
@@ -120,6 +123,7 @@ describe("redactConfig — optional third-party secrets", () => {
         JWT_REFRESH_TTL: "7d",
         ENCRYPTION_KEY: "0".repeat(64),
         PII_HASH_KEY: "a".repeat(64),
+        SHIPPING_WEBHOOK_SIGNING_SECRET: "c".repeat(64),
         SHIPPING_BOSTA_API_KEY: "bosta-key",
       },
     });

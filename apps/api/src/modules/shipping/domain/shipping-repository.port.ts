@@ -6,10 +6,16 @@ import type {
 } from "./shipment.entity";
 import type { ShipmentStatus } from "./shipment-status";
 
-/** The tenant + acting member for a write. */
+/**
+ * The tenant + acting member for a write. `actorId` is `null` for a
+ * system-originated write — the M12.4 webhook processor applying a carrier
+ * status change has no principal, only the event's own company (mirrors
+ * `TenantActor` in `@cadeau/database`, "null for system/unauthenticated
+ * actions").
+ */
 export interface WriteActor {
   readonly companyId: string;
-  readonly actorId: string;
+  readonly actorId: string | null;
 }
 
 /** Fields accepted when creating a shipment. */
@@ -35,6 +41,13 @@ export interface TransitionInput {
  */
 export interface ShippingRepositoryPort {
   findById(companyId: string, id: string): Promise<ShipmentView | null>;
+
+  /** Looked up by the webhook processor (M12.4) to resolve a carrier callback to a shipment. */
+  findByTrackingNumber(
+    companyId: string,
+    carrier: string,
+    trackingNumber: string,
+  ): Promise<ShipmentView | null>;
 
   create(actor: WriteActor, data: CreateShipmentInput): Promise<ShipmentWriteResult>;
 

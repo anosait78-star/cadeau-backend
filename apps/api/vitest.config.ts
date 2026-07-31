@@ -32,6 +32,8 @@ export default defineConfig({
       JWT_REFRESH_TTL: "1d",
       ENCRYPTION_KEY: "000000000000000000000000000000000000000000000000000000000000ffff",
       PII_HASH_KEY: "000000000000000000000000000000000000000000000000000000000000aaaa",
+      SHIPPING_WEBHOOK_SIGNING_SECRET:
+        "000000000000000000000000000000000000000000000000000000000000cccc",
     },
     // Booting a Nest app in the e2e beforeAll (SWC compile + DI wiring) can take
     // well over the 10s default under parallel/cold CI load, so give hooks room.

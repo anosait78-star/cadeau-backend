@@ -7,7 +7,8 @@
  */
 export interface ShippingAuditRecord {
   readonly companyId: string;
-  readonly actorId: string;
+  /** `null` for a system-originated change (the M12.4 webhook processor). */
+  readonly actorId: string | null;
   readonly action:
     | "shipment.created"
     | "shipment.status_changed"

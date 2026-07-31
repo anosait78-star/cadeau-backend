@@ -9,6 +9,7 @@ import {
   DuplicateShipmentError,
   IllegalTransitionError,
   OrderNotShippableError,
+  ReferenceNotFoundError,
 } from "../domain/shipping.errors";
 import { ShippingService } from "./shipping.service";
 
@@ -47,6 +48,7 @@ interface Harness {
 function makeHarness(): Harness {
   const repo = {
     findById: vi.fn().mockResolvedValue(shipment()),
+    findByTrackingNumber: vi.fn().mockResolvedValue(shipment()),
     create: vi.fn().mockResolvedValue({ shipment: shipment(), replayed: false }),
     bulkCreate: vi.fn().mockResolvedValue({
       results: [{ orderId: ORDER, ok: true, shipmentId: SHIPMENT }],
@@ -92,6 +94,17 @@ describe("ShippingService", () => {
     );
   });
 
+  it("gets an existing shipment", async () => {
+    const result = await h.service.getOne(principal(), SHIPMENT);
+    expect(result.id).toBe(SHIPMENT);
+  });
+
+  it("finds a shipment by tracking number (used by the M12.4 webhook processor)", async () => {
+    const result = await h.service.findShipmentByTracking(COMPANY, "manual", "MAN-ABC123");
+    expect(h.repo.findByTrackingNumber).toHaveBeenCalledWith(COMPANY, "manual", "MAN-ABC123");
+    expect(result?.id).toBe(SHIPMENT);
+  });
+
   describe("create", () => {
     const body = { orderId: ORDER };
 
@@ -133,6 +146,16 @@ describe("ShippingService", () => {
       await h.service.bulkCreate(principal(), [{ orderId: ORDER }]);
       expect(h.audit.record).toHaveBeenCalledTimes(1);
       expect(h.events.publish).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips audit/events for a replayed item in the batch", async () => {
+      h.repo.bulkCreate.mockResolvedValueOnce({
+        results: [{ orderId: ORDER, ok: true, shipmentId: SHIPMENT }],
+        created: [{ shipment: shipment(), replayed: true }],
+      });
+      await h.service.bulkCreate(principal(), [{ orderId: ORDER }]);
+      expect(h.audit.record).not.toHaveBeenCalled();
+      expect(h.events.publish).not.toHaveBeenCalled();
     });
   });
 
@@ -191,6 +214,66 @@ describe("ShippingService", () => {
       await expect(
         h.service.transition(principal(), SHIPMENT, { toStatus: "delivered" }),
       ).rejects.toMatchObject({ status: 422 });
+    });
+
+    it("maps a reference-not-found error to 422 (carrying its field)", async () => {
+      h.repo.transition.mockRejectedValueOnce(new ReferenceNotFoundError("orderId"));
+      await expect(
+        h.service.transition(principal(), SHIPMENT, { toStatus: "picked_up" }),
+      ).rejects.toMatchObject({ status: 422 });
+    });
+
+    it("forwards an optional note through to the repository", async () => {
+      await h.service.transition(principal(), SHIPMENT, {
+        toStatus: "picked_up",
+        note: "left at door",
+      });
+      expect(h.repo.transition).toHaveBeenCalledWith(expect.anything(), SHIPMENT, {
+        toStatus: "picked_up",
+        note: "left at door",
+      });
+    });
+
+    it("cancel forwards an optional note through to transition", async () => {
+      await h.service.cancel(principal(), SHIPMENT, "wrong address");
+      expect(h.repo.transition).toHaveBeenCalledWith(expect.anything(), SHIPMENT, {
+        toStatus: "cancelled",
+        note: "wrong address",
+      });
+    });
+  });
+
+  describe("applySystemTransition (M12.4 webhook processor)", () => {
+    it("applies the transition with a null actorId and records the audit/events", async () => {
+      const result = await h.service.applySystemTransition(COMPANY, SHIPMENT, {
+        toStatus: "picked_up",
+      });
+      expect(h.repo.transition).toHaveBeenCalledWith(
+        { companyId: COMPANY, actorId: null },
+        SHIPMENT,
+        { toStatus: "picked_up" },
+      );
+      expect(h.audit.record).toHaveBeenCalledWith(expect.objectContaining({ actorId: null }));
+      expect(result.id).toBe(SHIPMENT);
+    });
+
+    it("forwards an optional note", async () => {
+      await h.service.applySystemTransition(COMPANY, SHIPMENT, {
+        toStatus: "returned",
+        note: "damaged in transit",
+      });
+      expect(h.repo.transition).toHaveBeenCalledWith(
+        { companyId: COMPANY, actorId: null },
+        SHIPMENT,
+        { toStatus: "returned", note: "damaged in transit" },
+      );
+    });
+
+    it("throws ReferenceNotFoundError (unwrapped) for a missing shipment", async () => {
+      h.repo.transition.mockResolvedValueOnce(null);
+      await expect(
+        h.service.applySystemTransition(COMPANY, SHIPMENT, { toStatus: "picked_up" }),
+      ).rejects.toBeInstanceOf(ReferenceNotFoundError);
     });
   });
 

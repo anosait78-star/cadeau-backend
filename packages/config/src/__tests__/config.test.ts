@@ -19,6 +19,7 @@ function validEnv(
     JWT_REFRESH_TTL: "7d",
     ENCRYPTION_KEY: "0".repeat(64),
     PII_HASH_KEY: "a".repeat(64),
+    SHIPPING_WEBHOOK_SIGNING_SECRET: "c".repeat(64),
     ...overrides,
   };
 }
@@ -137,6 +138,13 @@ describe("loadConfig — rejects missing required variables (refuses boot)", () 
     const error = expectConfigError(env, "PII_HASH_KEY");
     expect(error.message).toContain("PII_HASH_KEY");
   });
+
+  it("rejects a missing SHIPPING_WEBHOOK_SIGNING_SECRET and names it", () => {
+    const env = validEnv();
+    delete env["SHIPPING_WEBHOOK_SIGNING_SECRET"];
+    const error = expectConfigError(env, "SHIPPING_WEBHOOK_SIGNING_SECRET");
+    expect(error.message).toContain("SHIPPING_WEBHOOK_SIGNING_SECRET");
+  });
 });
 
 describe("loadConfig — rejects invalid values (runtime validation)", () => {
@@ -182,6 +190,29 @@ describe("loadConfig — rejects invalid values (runtime validation)", () => {
     expectConfigError(
       validEnv({ ENCRYPTION_KEY: key, PII_HASH_KEY: key.toUpperCase() }),
       "PII_HASH_KEY",
+    );
+  });
+
+  it("rejects a non-hex or wrong-length SHIPPING_WEBHOOK_SIGNING_SECRET", () => {
+    expectConfigError(
+      validEnv({ SHIPPING_WEBHOOK_SIGNING_SECRET: "zz" }),
+      "SHIPPING_WEBHOOK_SIGNING_SECRET",
+    );
+    expectConfigError(
+      validEnv({ SHIPPING_WEBHOOK_SIGNING_SECRET: "abcd" }),
+      "SHIPPING_WEBHOOK_SIGNING_SECRET",
+    );
+  });
+
+  it("rejects a SHIPPING_WEBHOOK_SIGNING_SECRET identical to ENCRYPTION_KEY or PII_HASH_KEY", () => {
+    const key = "b".repeat(64);
+    expectConfigError(
+      validEnv({ ENCRYPTION_KEY: key, SHIPPING_WEBHOOK_SIGNING_SECRET: key }),
+      "SHIPPING_WEBHOOK_SIGNING_SECRET",
+    );
+    expectConfigError(
+      validEnv({ PII_HASH_KEY: key, SHIPPING_WEBHOOK_SIGNING_SECRET: key }),
+      "SHIPPING_WEBHOOK_SIGNING_SECRET",
     );
   });
 
@@ -263,6 +294,7 @@ describe("redactConfig", () => {
     expect(redacted["jwt"]?.["accessSecret"]).toBe("***REDACTED***");
     expect(redacted["encryption"]?.["key"]).toBe("***REDACTED***");
     expect(redacted["encryption"]?.["blindIndexKey"]).toBe("***REDACTED***");
+    expect(redacted["shipping"]?.["webhookSigningSecret"]).toBe("***REDACTED***");
     expect(String(redacted["database"]?.["url"])).toContain("***REDACTED***");
     expect(String(redacted["database"]?.["url"])).not.toContain("pass");
     expect(redacted["http"]?.["port"]).toBe(3000);
