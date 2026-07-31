@@ -59,11 +59,12 @@ front of that index, masked phones on lists and the full number on the detail re
 only, `Idempotency-Key` replay on the EPIC-9 pattern, a gated-**and**-audited
 export, derived KPI columns with no write path until EPIC-11, the live
 `customer.created`/`.updated`/`.exported` events, and the Customers frontend
-screen. **EPIC-8, EPIC-9 and EPIC-10 §2.5 quality gates are green and CLOSED** with
-owner sign-off on 2026-07-31
+screen. **EPIC-8, EPIC-9, EPIC-10 and EPIC-11 §2.5 quality gates are green and CLOSED**
+with owner sign-off on 2026-07-31
 ([epic-8-quality-gate.md](epic-8-quality-gate.md),
 [epic-9-quality-gate.md](epic-9-quality-gate.md),
-[epic-10-quality-gate.md](epic-10-quality-gate.md)). EPIC-7 still has no formal gate
+[epic-10-quality-gate.md](epic-10-quality-gate.md),
+[epic-11-quality-gate.md](epic-11-quality-gate.md)). EPIC-7 still has no formal gate
 doc. **EPIC-11 (Orders) delivered** on `feat/epic-11-orders`: the
 [orders module](../apps/api/src/modules/orders/) (`/v1/orders` — 12 routes) with
 migration `20260806000000_orders` (`orders`, `order_items`, `order_activities`
@@ -81,13 +82,16 @@ heuristics only, `no-ai-imports` green — and the Orders screen in the Dual She
 box). It also **discharged the EPIC-10 deferrals**: `POST /v1/customers/merge`
 (re-parents every customer-owned table + a completeness guard test, emits
 `customer.merged`), `GET /v1/customers/{id}/orders`, and the `hasOrders` filter
-plus the `-ordersCount`/`-totalSpent` sorts. **EPIC-11 §2.5 gate green; awaiting
-owner sign-off** ([epic-11-quality-gate.md](epic-11-quality-gate.md)); domain +
-retrospective in [orders-domain.md](orders-domain.md) and
+plus the `-ordersCount`/`-totalSpent` sorts. **EPIC-11 §2.5 gate green and
+CLOSED, owner sign-off 2026-07-31**
+([epic-11-quality-gate.md](epic-11-quality-gate.md)); domain + retrospective in
+[orders-domain.md](orders-domain.md) and
 [epic-11-retrospective.md](epic-11-retrospective.md). **Next: EPIC-12
-(Shipping)** — starts after the owner signs the EPIC-11 gate. See
-[domain-map.md](domain-map.md) for how the delivered modules fit together and
-[project-metrics.md](project-metrics.md) for the numbers.
+(Shipping)** — design phase started 2026-07-31, see
+[epic-12-design.md](epic-12-design.md) for the open decisions awaiting owner
+input before code (M12.0). See [domain-map.md](domain-map.md) for how the
+delivered modules fit together and [project-metrics.md](project-metrics.md) for
+the numbers.
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -537,12 +541,17 @@ full activity log, configurable state machine (P1). _Depends on:_ 8, 9, 10.
 See [customers-domain.md](customers-domain.md) §8 and
 [epic-10-retrospective.md](epic-10-retrospective.md) §6.
 
-### EPIC-12 — Shipping
+### EPIC-12 — Shipping (design in progress) — `feat/epic-12-shipping`
 
-Contract: [api/shipping.md](api/shipping.md). **Carrier abstraction** + Egyptian
-integration (Bosta, …), bulk shipping + waybills, configurable zones, **reliable
-webhooks** (queue + retry, idempotent on carrier event id), in-order tracking,
-shipping-fee deduction from collected. _Depends on:_ 11.
+Contract: [api/shipping.md](api/shipping.md). Design:
+[epic-12-design.md](epic-12-design.md) — decisions D1–D4 answered by the owner
+on 2026-07-31: `CarrierPort` abstraction + `ManualCarrierAdapter` only (real
+Bosta adapter deferred), bulk shipping + waybill **metadata** (PDF rendering
+deferred to EPIC-13's shared PDF work), reuse of the EPIC-7 `shipping_zones`
+master data, a **DB-backed webhook inbox** with retry/backoff (no new queue
+infra) idempotent on `(carrier, carrierEventId)`, in-order tracking,
+shipping-fee deduction from collected (simple deduction; full reconciliation is
+EPIC-13). _Depends on:_ 11.
 
 ### EPIC-13 — Finance & Compliance
 

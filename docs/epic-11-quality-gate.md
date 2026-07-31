@@ -104,9 +104,9 @@ under the 200 KB budget.
 
 ## 7. Owner approval
 
-> **Status:** _Awaiting owner sign-off._ Record the decision and date here, then set
-> the execution-plan §0 EPIC-11 line to CLOSED, exactly as EPIC-8/9/10 were closed.
+> **Status:** ✅ **Signed off.** EPIC-11 is **CLOSED**. See execution-plan §0 for
+> the closure line, exactly as EPIC-8/9/10 were closed.
 
-| Reviewer  | Role  | Decision  | Date      |
-| --------- | ----- | --------- | --------- |
-| _pending_ | Owner | _pending_ | _pending_ |
+| Reviewer | Role  | Decision    | Date       |
+| -------- | ----- | ----------- | ---------- |
+| Owner    | Owner | ✅ Approved | 2026-07-31 |
