@@ -50,8 +50,14 @@ per-(warehouse, variant) levels with a trigger-derived `available`, and the thre
 durable logs (reservations, transfers, adjustments); every stock write is atomic
 under `SELECT … FOR UPDATE` and honours `Idempotency-Key`; per-product oversell
 policy (`products.allow_oversell`); the live `stock.changed` / `stock.low` events;
-and the Inventory frontend screen. Next: EPIC-6 + EPIC-7 + EPIC-8 + EPIC-9 §2.5
-quality gates, then EPIC-10 (Customers).
+and the Inventory frontend screen. **EPIC-8 and EPIC-9 §2.5 quality gates run and
+green** ([epic-8-quality-gate.md](epic-8-quality-gate.md),
+[epic-9-quality-gate.md](epic-9-quality-gate.md)) — both pending only the owner
+closure checkbox. EPIC-7 still has no formal gate doc. Next: owner sign-off, then
+EPIC-10 (Customers) per [epic-10-design.md](epic-10-design.md) — which needs
+decisions D1–D4 answered first. See [domain-map.md](domain-map.md) for how the
+delivered modules fit together and [project-metrics.md](project-metrics.md) for
+the numbers.
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
