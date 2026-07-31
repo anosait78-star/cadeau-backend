@@ -30,6 +30,7 @@ import {
   type ParsedDraft,
 } from "@/features/orders/orders-api";
 import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
+import { ShipmentSection } from "@/features/shipping/shipment-section";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
@@ -500,6 +501,8 @@ function DetailPanel({
           </ul>
         )}
       </div>
+
+      <ShipmentSection orderId={orderId} onNotify={onNotify} />
     </div>
   );
 }
