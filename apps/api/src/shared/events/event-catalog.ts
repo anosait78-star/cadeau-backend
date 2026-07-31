@@ -154,17 +154,26 @@ export interface EventPayloads {
     readonly survivingCustomerId: string;
     readonly mergedCustomerId: string;
   };
-  /** An order was created. Shape finalized in EPIC-11. */
+  /** An order was created (EPIC-11). Ids only — no customer PII. */
   "order.created": {
     readonly orderId: string;
   };
-  /** An order moved between lifecycle states. Shape finalized in EPIC-11. */
+  /** An order moved between lifecycle states (EPIC-11). */
   "order.status_changed": {
     readonly orderId: string;
     readonly fromStatus: string;
     readonly toStatus: string;
   };
-  /** Money was collected against an order. Shape finalized in EPIC-13. */
+  /** An order was assigned to (or unassigned from) a member (EPIC-11). */
+  "order.assigned": {
+    readonly orderId: string;
+    /** The member's user id, or `null` when the order was unassigned. */
+    readonly assigneeId: string | null;
+  };
+  /**
+   * Money was collected against an order (EPIC-11 emits it on a COD collection;
+   * finance EPIC-13 reads it). `amountMinor` is the positive delta collected.
+   */
   "payment.collected": {
     readonly orderId: string;
     /** Amount in integer minor units (api-conventions §money). */

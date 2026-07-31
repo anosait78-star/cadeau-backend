@@ -7,6 +7,7 @@ import { AccessModule } from "./modules/access/access.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
+import { OrdersModule } from "./modules/orders/orders.module";
 import { ProductsModule } from "./modules/products/products.module";
 import { AccessCoreModule } from "./shared/access/access.module";
 import { ConfigModule } from "./shared/config/config.module";
@@ -33,6 +34,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     ProductsModule,
     InventoryModule,
     CustomersModule,
+    OrdersModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })
