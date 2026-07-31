@@ -82,31 +82,33 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  members           CompanyMember[]
-  sessions          Session[]
-  invitations       Invitation[]
-  subscription      Subscription?
-  featureFlags      CompanyFeatureFlag[]
-  addOns            AddOn[]
-  memberPermissions MemberPermission[]
-  units             Unit[]
-  productCategories ProductCategory[]
-  orderLabels       OrderLabel[]
-  orderReasons      OrderReason[]
-  shippingZones     ShippingZone[]
-  products          Product[]
-  productVariants   ProductVariant[]
-  warehouses        Warehouse[]
-  inventoryStock    InventoryStock[]
-  stockReservations StockReservation[]
-  stockTransfers    StockTransfer[]
-  stockAdjustments  StockAdjustment[]
-  customers         Customer[]
-  customerAddresses CustomerAddress[]
-  orders            Order[]
-  orderItems        OrderItem[]
-  orderActivities   OrderActivity[]
-  orderSequence     OrderSequence?
+  members               CompanyMember[]
+  sessions              Session[]
+  invitations           Invitation[]
+  subscription          Subscription?
+  featureFlags          CompanyFeatureFlag[]
+  addOns                AddOn[]
+  memberPermissions     MemberPermission[]
+  units                 Unit[]
+  productCategories     ProductCategory[]
+  orderLabels           OrderLabel[]
+  orderReasons          OrderReason[]
+  shippingZones         ShippingZone[]
+  products              Product[]
+  productVariants       ProductVariant[]
+  warehouses            Warehouse[]
+  inventoryStock        InventoryStock[]
+  stockReservations     StockReservation[]
+  stockTransfers        StockTransfer[]
+  stockAdjustments      StockAdjustment[]
+  customers             Customer[]
+  customerAddresses     CustomerAddress[]
+  orders                Order[]
+  orderItems            OrderItem[]
+  orderActivities       OrderActivity[]
+  orderSequence         OrderSequence?
+  shipments             Shipment[]
+  shippingWebhookEvents ShippingWebhookEvent[]
 
   @@map("companies")
 }
@@ -933,6 +935,7 @@ model Order {
   items        OrderItem[]
   activities   OrderActivity[]
   reservations StockReservation[]
+  shipments    Shipment[]
 
   @@unique([companyId, orderNumber], map: "orders_company_number_key")
   @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
@@ -1006,4 +1009,74 @@ model OrderSequence {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@map("order_sequences")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-12 — Shipping. A carrier-abstraction layer (`CarrierPort`, application
+// layer) over the orders delivered in EPIC-11, reusing the `shipping_zones`
+// master data seeded in EPIC-7. Two tenant-editable tables (base columns +
+// FORCE RLS by company_id). The only adapter shipped this epic is
+// `ManualCarrierAdapter` (D1) — `carrier` is `'manual'` today, extensible to
+// real carriers later without a schema change. The inbound-webhook company is
+// resolved from the signed `/v1/shipping/webhooks/{carrier}/{companyId}` path
+// (never from the payload, ADR-0003), so `ShippingWebhookEvent.companyId` is
+// always known synchronously — no RLS bootstrap-window policy needed (D2).
+// ---------------------------------------------------------------------------
+
+/// A dispatched order (EPIC-12): one shipment per order, a carrier + tracking
+/// number, a lifecycle `status`, and a `fee` deducted from the order's
+/// `collectedAmount` at delivery (D4 — simple deduction only; reconciliation is
+/// EPIC-13). The order is PINNED (`RESTRICT`): a shipment always resolves its
+/// order.
+model Shipment {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  orderId        String    @map("order_id") @db.Uuid
+  carrier        String    @default("manual")
+  trackingNumber String    @map("tracking_number")
+  status         String    @default("created")
+  fee            BigInt    @default(0)
+  waybillIssued  Boolean   @default(false) @map("waybill_issued")
+  deliveredAt    DateTime? @map("delivered_at") @db.Timestamptz(6)
+  idempotencyKey String?   @map("idempotency_key")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, carrier, trackingNumber], map: "shipments_company_carrier_tracking_key")
+  @@unique([companyId, idempotencyKey], map: "shipments_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipments_created_keyset_idx")
+  @@index([orderId], map: "shipments_order_idx")
+  @@index([companyId, status], map: "shipments_status_idx")
+  @@map("shipments")
+}
+
+/// Durable inbox for inbound carrier webhooks (EPIC-12), keyed
+/// `UNIQUE(carrier, carrierEventId)` so reprocessing the same event is a no-op
+/// (D2). A retry worker processes `pending` rows with exponential backoff
+/// (`attempts` / `nextAttemptAt`); the domain change, audit row, and event
+/// emission happen in one transaction per successful pass.
+model ShippingWebhookEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  carrier        String
+  carrierEventId String    @map("carrier_event_id")
+  payload        Json
+  status         String    @default("pending")
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  processedAt    DateTime? @map("processed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([carrier, carrierEventId], map: "shipping_webhook_events_carrier_event_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_webhook_events_keyset_idx")
+  @@index([status, nextAttemptAt], map: "shipping_webhook_events_pending_idx")
+  @@map("shipping_webhook_events")
 }

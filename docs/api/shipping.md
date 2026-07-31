@@ -16,14 +16,14 @@ Draft — follows [../api-conventions.md](../api-conventions.md).
 
 ## Planned endpoints
 
-| Method | Path                                          | Purpose                                          | Permission        |
-| ------ | --------------------------------------------- | ------------------------------------------------ | ----------------- |
-| GET    | `/v1/shipping/carriers`                       | Available carriers.                              | `shipping.read`   |
-| POST   | `/v1/shipping/shipments`                      | Create a shipment for an order. Idempotency-Key. | `shipping.write`  |
-| POST   | `/v1/shipping/shipments/bulk`                 | Bulk-create shipments. Idempotency-Key.          | `shipping.write`  |
-| GET    | `/v1/shipping/shipments/{shipmentId}`         | Shipment + tracking.                             | `shipping.read`   |
-| POST   | `/v1/shipping/shipments/{shipmentId}/waybill` | Generate a waybill (PDF).                        | `shipping.write`  |
-| POST   | `/v1/shipping/webhooks/{carrier}`             | Inbound carrier callback (queued, verified).     | webhook signature |
+| Method | Path                                          | Purpose                                                                   | Permission        |
+| ------ | --------------------------------------------- | ------------------------------------------------------------------------- | ----------------- |
+| GET    | `/v1/shipping/carriers`                       | Available carriers.                                                       | `shipping.read`   |
+| POST   | `/v1/shipping/shipments`                      | Create a shipment for an order. Idempotency-Key.                          | `shipping.manage` |
+| POST   | `/v1/shipping/shipments/bulk`                 | Bulk-create shipments. Idempotency-Key.                                   | `shipping.manage` |
+| GET    | `/v1/shipping/shipments/{shipmentId}`         | Shipment + tracking.                                                      | `shipping.read`   |
+| POST   | `/v1/shipping/shipments/{shipmentId}/waybill` | Waybill metadata (tracking/label fields; no PDF in this epic, see below). | `shipping.manage` |
+| POST   | `/v1/shipping/webhooks/{carrier}/{companyId}` | Inbound carrier callback (queued, verified).                              | webhook signature |
 
 ## List parameters
 
@@ -35,7 +35,18 @@ Draft — follows [../api-conventions.md](../api-conventions.md).
 
 ## Notes
 
-- Webhooks are **signature-verified**, **enqueued**, and **retried**; processing is
-  idempotent on the carrier's event id.
-- Shipping fees are deducted from the collected amount at reconciliation.
-- The carrier abstraction keeps provider specifics out of the core (ADR-004).
+- Webhooks are **signature-verified**, **enqueued** (a durable DB-backed inbox,
+  no new queue dependency), and **retried** with exponential backoff;
+  processing is idempotent on `(carrier, carrierEventId)`.
+- The company is resolved from the **signed webhook path**
+  (`{carrier}/{companyId}`), never from the payload (ADR-0003) — the same
+  principle as tenant resolution everywhere else in the API.
+- Shipping fees are a **simple deduction** from the collected amount at
+  delivery in this epic; matching that fee against carrier remittance/invoices
+  ("working shipping reconciliation") is EPIC-13.
+- Waybill generation returns **tracking/label metadata only** in this epic — no
+  PDF body. PDF rendering reuses the vetted PDF library EPIC-13 needs for
+  official invoices, so it ships once.
+- The carrier abstraction (`CarrierPort`) keeps provider specifics out of the
+  core (ADR-004). The only adapter shipped in EPIC-12 is a manual/mock carrier;
+  a real Bosta adapter is a future, additive implementation of the same port.

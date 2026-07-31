@@ -120,14 +120,14 @@ Shipment (shipments)
   └─ (base columns)
 
 ShippingWebhookEvent (shipping_webhook_events)
-  ├─ id, companyId?     (nullable until the carrier/tracking number resolves it)
+  ├─ id, companyId      (NOT NULL — resolved synchronously, see below)
   ├─ carrier
   ├─ carrierEventId
   ├─ payload            (jsonb, raw verified body)
   ├─ status             (pending/processing/processed/failed)
   ├─ attempts, nextAttemptAt   ← exponential backoff
   ├─ processedAt?
-  └─ createdAt
+  └─ createdAt, updatedAt
   UNIQUE (carrier, carrierEventId)                            ← D2 idempotency
 
 ShippingZone (shipping_zones)                                 ← already seeded, EPIC-7
@@ -135,11 +135,17 @@ ShippingZone (shipping_zones)                                 ← already seeded
 ```
 
 All tenant-editable tables: base columns + `FORCE` RLS by `company_id` +
-`touch_updated_at`. `ShippingWebhookEvent` is process-scoped rather than purely
-tenant-scoped (a webhook arrives before the company is known from the carrier
-payload alone in some carriers) — resolved to a company as soon as the
-tracking number/order lookup succeeds, mirroring how EPIC-9's stock
-reservations resolve their FK post-creation.
+`touch_updated_at`. `ShippingWebhookEvent.companyId` is **NOT NULL, resolved
+synchronously**: the inbound route is
+`POST /v1/shipping/webhooks/{carrier}/{companyId}` — the company comes from
+that signed path, never from the payload (ADR-0003), so the row's tenant key
+is always known at insert time. This avoids inventing a new RLS
+bootstrap-window policy (the `profiles_self`/`sessions_self` null-principal
+pattern exists only for the _user_ dimension, never for `company_id` on a
+domain table — `companies_create`/`company_members_access` show the
+established alternative is a narrow identity-scoped policy, not a blanket
+null-context bypass). Standard `FORCE` RLS + `company_id = current_company_id()`
+applies unchanged.
 
 ## 6. Milestones
 
@@ -181,7 +187,7 @@ The epic is done when **all** hold:
 | Risk                                                                | Mitigation                                                                                                                                                |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Domain layer accidentally couples to `ManualCarrierAdapter`         | `CarrierPort` interface + lint/arch-check rule mirroring `no-cross-feature-imports`                                                                       |
-| Webhook arrives before its company/order can be resolved            | Store raw payload first (nullable `companyId`), resolve on processing, not on receipt                                                                     |
+| Webhook company can't be resolved without reading tenant data first | Company comes from the signed `{carrier}/{companyId}` path, not the payload — resolved before any DB read, no RLS bypass needed                           |
 | Retry worker double-processes under concurrent runs                 | `UNIQUE(carrier, carrierEventId)` + row-level lock during processing, same discipline as EPIC-9's `FOR UPDATE`                                            |
 | Waybill stub blocks a real frontend need for a printable label      | Metadata-only response still unblocks tracking-number/label-field display; PDF is additive later                                                          |
 | Building toward Bosta without real credentials never gets validated | `ManualCarrierAdapter` is fully exercised by tests today; the real adapter is scoped as a drop-in replacement, reviewed on its own when credentials exist |
