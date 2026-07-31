@@ -10,13 +10,13 @@ one. Every contract follows [../api-conventions.md](../api-conventions.md).
 | Module                              | Base path                         | Epic    | Status | Contract                             |
 | ----------------------------------- | --------------------------------- | ------- | ------ | ------------------------------------ |
 | Health                              | `/v1/health`                      | EPIC-1  | ✅     | [health.md](health.md)               |
-| Auth                                | `/v1/auth`                        | EPIC-4  | ⬜     | [auth.md](auth.md)                   |
-| Tenancy (companies/members/me)      | `/v1/companies`, `/v1/me`         | EPIC-4  | ⬜     | [tenancy.md](tenancy.md)             |
-| Access (features/plans/permissions) | `/v1/access`, `/v1/admin`         | EPIC-5  | ⬜     | [access.md](access.md)               |
-| Master Data                         | `/v1/master-data`                 | EPIC-7  | ⬜     | [master-data.md](master-data.md)     |
-| Products                            | `/v1/products`                    | EPIC-8  | ⬜     | [products.md](products.md)           |
+| Auth                                | `/v1/auth`                        | EPIC-4  | ✅     | [auth.md](auth.md)                   |
+| Tenancy (companies/members/me)      | `/v1/companies`, `/v1/me`         | EPIC-4  | 🟡     | [tenancy.md](tenancy.md)             |
+| Access (features/plans/permissions) | `/v1/access`, `/v1/admin`         | EPIC-5  | ✅     | [access.md](access.md)               |
+| Master Data                         | `/v1/master-data`                 | EPIC-7  | ✅     | [master-data.md](master-data.md)     |
+| Products                            | `/v1/products`                    | EPIC-8  | ✅     | [products.md](products.md)           |
 | Inventory & Warehouses              | `/v1/warehouses`, `/v1/inventory` | EPIC-9  | ✅     | [inventory.md](inventory.md)         |
-| Customers                           | `/v1/customers`                   | EPIC-10 | ⬜     | [customers.md](customers.md)         |
+| Customers                           | `/v1/customers`                   | EPIC-10 | ✅     | [customers.md](customers.md)         |
 | Orders                              | `/v1/orders`                      | EPIC-11 | ⬜     | [orders.md](orders.md)               |
 | Shipping                            | `/v1/shipping`                    | EPIC-12 | ⬜     | [shipping.md](shipping.md)           |
 | Finance                             | `/v1/finance`                     | EPIC-13 | ⬜     | [finance.md](finance.md)             |

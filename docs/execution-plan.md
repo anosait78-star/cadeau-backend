@@ -50,13 +50,23 @@ per-(warehouse, variant) levels with a trigger-derived `available`, and the thre
 durable logs (reservations, transfers, adjustments); every stock write is atomic
 under `SELECT … FOR UPDATE` and honours `Idempotency-Key`; per-product oversell
 policy (`products.allow_oversell`); the live `stock.changed` / `stock.low` events;
-and the Inventory frontend screen. **EPIC-8 and EPIC-9 §2.5 quality gates are green
-and CLOSED** with owner sign-off on 2026-07-31
+and the Inventory frontend screen. **EPIC-10 delivered** on
+`feat/epic-10-customers`: the [customers module](../apps/api/src/modules/customers/)
+(`/v1/customers` — 9 routes) with migration `20260805000000_customers`; the phone
+stored as **ciphertext + HMAC blind index** unique per company (decision D1,
+[privacy-model.md](privacy-model.md)), E.164 normalization as the single gate in
+front of that index, masked phones on lists and the full number on the detail read
+only, `Idempotency-Key` replay on the EPIC-9 pattern, a gated-**and**-audited
+export, derived KPI columns with no write path until EPIC-11, the live
+`customer.created`/`.updated`/`.exported` events, and the Customers frontend
+screen. **EPIC-8, EPIC-9 and EPIC-10 §2.5 quality gates are green and CLOSED** with
+owner sign-off on 2026-07-31
 ([epic-8-quality-gate.md](epic-8-quality-gate.md),
-[epic-9-quality-gate.md](epic-9-quality-gate.md)). EPIC-7 still has no formal gate
-doc. **Now in progress: EPIC-10 (Customers)** on `feat/epic-10-customers`, per
-[epic-10-design.md](epic-10-design.md) with decisions D1–D4 answered (see below)
-and [privacy-model.md](privacy-model.md). See [domain-map.md](domain-map.md) for how
+[epic-9-quality-gate.md](epic-9-quality-gate.md),
+[epic-10-quality-gate.md](epic-10-quality-gate.md)). EPIC-7 still has no formal gate
+doc. **Next up: EPIC-11 (Orders)**, which also inherits the two EPIC-10 deferrals —
+customer merge and the customer order-history read. See
+[domain-map.md](domain-map.md) for how
 the delivered modules fit together and [project-metrics.md](project-metrics.md) for
 the numbers.
 
@@ -72,8 +82,8 @@ the numbers.
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 668 unit/integration after EPIC-9 (config 37 · web 100 ·
-crypto 25 · database 71 · api 435). Keep it growing; never let a gate regress.
+**Test count baseline:** 795 unit/integration after EPIC-10 (config 40 · web 111 ·
+crypto 35 · database 71 · api 538). Keep it growing; never let a gate regress.
 
 ---
 
@@ -423,7 +433,7 @@ policy. DB migration + RLS validated in CI. _Deviations:_ permissions use the
 reorder-points` was added (the thresholds alerting needs); reservations have no
 list endpoint yet — EPIC-11 surfaces them on the order. Then the §2.5 quality gate.
 
-### EPIC-10 — Customers 🟡 in progress — `feat/epic-10-customers`
+### EPIC-10 — Customers ✅ delivered — `feat/epic-10-customers`
 
 Contract: [api/customers.md](api/customers.md). Design + acceptance criteria:
 [epic-10-design.md](epic-10-design.md). Profile + addresses + derived KPIs,
@@ -462,8 +472,28 @@ Milestones M10.1–M10.5 are listed in [epic-10-design.md](epic-10-design.md) §
   (including the concurrent race); audit-then-emit with **ids and field names
   only** — no PII in an audit row, an event payload, or a cursor. `customer.*`
   added to the closed event catalog (`customer.merged` reserved for EPIC-11).
-- **M10.3 Presentation** ⬜ — the 6 routes, DTOs, three-layer gating, module
-  registration in `app.module`.
+- **M10.3 Presentation** ✅ — the 6 customer routes plus the 3 nested address
+  routes, DTOs, three-layer gating (`customers.read` / `customers.manage`, export
+  included per D2), module registration in `app.module`, OpenAPI. The mask/full
+  split is carried by the **DTO types**: the list-item DTO has no full-phone field
+  at all. `Idempotency-Key` replay answers `200`, not `201`. Export takes its
+  filters in the **body**, not a query string, so a phone never reaches a URL, and
+  is capped at 5000 rows.
+- **M10.4 Frontend** ✅ — the Customers screen in the Dual Shell: keyset list with
+  search, expandable detail (full phone, KPIs, addresses), create/edit/archive,
+  address add/edit with a governorate select, ar/en, standard empty/loading/error
+  states. The full phone is fetched only when a customer is opened, and a detail
+  response folded back into a list row is re-masked.
+- **M10.5 Docs + gate** ✅ — contract marked delivered, `customer.*` live in
+  [events.md](events.md), [customers-domain.md](customers-domain.md),
+  [customers-review.md](customers-review.md),
+  [epic-10-retrospective.md](epic-10-retrospective.md) and the §2.5
+  [gate](epic-10-quality-gate.md); metrics, domain map and privacy model refreshed.
+
+_Deviations from the contract draft:_ permissions use `read`/`manage` (D2 — no
+`customers.export` action); merge and `GET /{id}/orders` are **deferred to EPIC-11**
+(D3); `hasOrders` and the `-ordersCount`/`-totalSpent` sorts arrive with EPIC-11
+because the KPIs they filter and sort on are `0`/`null` until then.
 
 ### EPIC-11 — Orders
 

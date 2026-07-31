@@ -1,7 +1,11 @@
 # Privacy Model — Sensitive Field Storage
 
 **Status:** ✅ Binding · **Owner decision:** 2026-07-31 (EPIC-9 closure, decision D1)
-· Implements [ADR-0001 Security First](adr/0001-security-first.md).
+· Implements [ADR-0001 Security First](adr/0001-security-first.md) ·
+**Implemented and verified in EPIC-10** (2026-07-31) — every rule in §6 is now
+carried by delivered code and covered by tests; see
+[customers-review.md](customers-review.md) §Privacy and
+[epic-10-quality-gate.md](epic-10-quality-gate.md) §1.
 
 How every sensitive field in Cadeau CRM is stored, whether it can be made unique,
 and whether it can be searched. Read this **before adding any column that holds
