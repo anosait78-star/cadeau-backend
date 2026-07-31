@@ -64,8 +64,9 @@ owner sign-off on 2026-07-31
 ([epic-8-quality-gate.md](epic-8-quality-gate.md),
 [epic-9-quality-gate.md](epic-9-quality-gate.md),
 [epic-10-quality-gate.md](epic-10-quality-gate.md)). EPIC-7 still has no formal gate
-doc. **Next up: EPIC-11 (Orders)**, which also inherits the two EPIC-10 deferrals —
-customer merge and the customer order-history read. See
+doc. **Now open: EPIC-11 (Orders)**, which also inherits the EPIC-10 deferrals —
+the customer KPI computation, customer merge, and the customer order-history read
+([customers-domain.md](customers-domain.md) §8). See
 [domain-map.md](domain-map.md) for how
 the delivered modules fit together and [project-metrics.md](project-metrics.md) for
 the numbers.
@@ -495,13 +496,28 @@ _Deviations from the contract draft:_ permissions use `read`/`manage` (D2 — no
 (D3); `hasOrders` and the `-ordersCount`/`-totalSpent` sorts arrive with EPIC-11
 because the KPIs they filter and sort on are `0`/`null` until then.
 
-### EPIC-11 — Orders
+### EPIC-11 — Orders 🟡 open (next)
 
 Contract: [api/orders.md](api/orders.md). 12-state lifecycle + separate follow-up
 state, **deterministic smart-paste (Regex/Heuristics — no AI)**, dual view + saved
 filters, inline + bulk status/assign, side detail panel, pivotal `collectedAmount`,
 labels/reasons, **keyset + deep-linking**, Excel/CSV import with column mapping,
 full activity log, configurable state machine (P1). _Depends on:_ 8, 9, 10.
+
+**Inherited from EPIC-10 (do not re-plan these — they are already specified):**
+
+- Compute `customers.orders_count` / `total_spent` / `last_order_at`; they exist as
+  columns today with **no write path at any layer**.
+- `POST /v1/customers/merge` (decision D3) — one atomic, audited transaction that
+  re-parents **every** customer-owned table, with a test that fails loudly if a new
+  one is added without updating the merge. Losing customer is archived, not deleted.
+  Emit the reserved `customer.merged`.
+- `GET /v1/customers/{customerId}/orders`, the `hasOrders` filter and the
+  `-ordersCount` / `-totalSpent` sorts.
+- Give `stock_reservations.order_id` a real FK now that `orders` exists.
+
+See [customers-domain.md](customers-domain.md) §8 and
+[epic-10-retrospective.md](epic-10-retrospective.md) §6.
 
 ### EPIC-12 — Shipping
 

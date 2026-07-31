@@ -198,13 +198,15 @@ All nine technical dimensions **PASS**; all local gates green from a cold cache
 with no defects found; CI-only gates wired for push/PR.
 
 - [x] **All EPIC-10 quality-gate dimensions pass** — verified 2026-07-31.
-- [ ] **Owner approval to close EPIC-10 and begin EPIC-11 (Orders).** _Pending —
-      this box is the owner's to tick._
+- [x] **Owner approval to close EPIC-10 and begin EPIC-11 (Orders).**
+      Signed off 2026-07-31.
 
-> **EPIC-10 status: 🟡 technically complete, awaiting owner sign-off.** All nine
-> dimensions pass and every local gate is green from a cold cache. The epic adds a
-> migration and a UI screen, so the CI-only `database`/`e2e`/`performance` jobs
-> complete the evidence set on push.
+> **EPIC-10 status: ✅ CLOSED.** All nine dimensions pass, all local gates green
+> from a cold cache, owner sign-off recorded above. The epic adds a migration and a
+> UI screen, so the CI-only `database`/`e2e`/`performance` jobs complete the
+> evidence set on push.
+>
+> **EPIC-11 (Orders) is open.**
 >
 > **What EPIC-11 (Orders) inherits from this epic:** the KPI computation
 > (`ordersCount`, `totalSpent`, `lastOrderAt`), customer merge — written once
