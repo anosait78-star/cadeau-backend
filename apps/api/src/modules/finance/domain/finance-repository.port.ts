@@ -2,17 +2,25 @@ import type { KeysetPage } from "@cadeau/database";
 import type {
   ExpenseView,
   ExpenseWriteResult,
+  InvoiceListView,
+  InvoicePdfData,
+  InvoiceView,
+  InvoiceWriteResult,
   PurchaseOrderListView,
   PurchaseOrderPaymentResult,
   PurchaseOrderReceiptResult,
   PurchaseOrderView,
   PurchaseOrderWriteResult,
+  RefundView,
+  RefundWriteResult,
   SupplierView,
   TaxSettingsView,
 } from "./finance.entity";
 import type {
   ParsedExpenseListQuery,
+  ParsedInvoiceListQuery,
   ParsedPurchaseOrderListQuery,
+  ParsedRefundListQuery,
   ParsedSupplierListQuery,
 } from "./list-query";
 
@@ -102,6 +110,41 @@ export interface UpdateExpenseInput {
 export interface UpdateTaxSettingsInput {
   readonly vatRateBps?: number;
   readonly vatRegistrationNumber?: string | null;
+}
+
+// ---- Invoices (M13.4) --------------------------------------------------------
+
+/** One manual line requested on a new invoice (the no-order path). */
+export interface CreateInvoiceLineInput {
+  readonly description: string;
+  readonly quantity: number;
+  readonly unitPriceMinor: number;
+}
+
+/**
+ * Fields accepted when issuing an invoice: EITHER `orderId` (lines are
+ * derived read-only from the order's items) OR a manual `lines[]` — never
+ * both, never neither (enforced by the service, {@link InvalidInvoiceSourceError}).
+ */
+export interface CreateInvoiceInput {
+  readonly orderId?: string | undefined;
+  readonly lines?: readonly CreateInvoiceLineInput[] | undefined;
+  readonly idempotencyKey?: string | undefined;
+}
+
+// ---- Refunds (M13.4) ---------------------------------------------------------
+
+/**
+ * Fields accepted when issuing a refund. `idempotencyKey` is mandatory here
+ * (unlike every other finance write) — the service rejects a missing header
+ * before this ever reaches the repository ({@link MissingIdempotencyKeyError}).
+ */
+export interface CreateRefundInput {
+  readonly invoiceId?: string | undefined;
+  readonly orderId?: string | undefined;
+  readonly amountMinor: number;
+  readonly reason: string;
+  readonly idempotencyKey: string;
 }
 
 /**
@@ -204,6 +247,42 @@ export interface FinanceRepositoryPort {
 
   /** Update the company's tax settings (upsert semantics). */
   updateTaxSettings(actor: WriteActor, data: UpdateTaxSettingsInput): Promise<TaxSettingsView>;
+
+  // ---- Invoices (M13.4) -------------------------------------------------------
+
+  listInvoices(
+    companyId: string,
+    query: ParsedInvoiceListQuery,
+  ): Promise<KeysetPage<InvoiceListView>>;
+
+  findInvoice(companyId: string, id: string): Promise<InvoiceView | null>;
+
+  /**
+   * Issue an invoice: computes `subtotalMinor` from the resolved lines,
+   * reads and freezes the current `tax_settings.vatRateBps`, rounds
+   * `vatMinor` half-up, and issues the number via `invoice_sequences`.
+   * Rejects a write dated inside a closed accounting period
+   * ({@link PeriodClosedError}, D4, checked against the write time).
+   */
+  createInvoice(actor: WriteActor, data: CreateInvoiceInput): Promise<InvoiceWriteResult>;
+
+  /**
+   * Gather everything the PDF renderer needs for one invoice, and — on the
+   * first call only (`pdfGeneratedAt` was `null`) — stamp `pdfGeneratedAt`.
+   * Returns `null` when the invoice is unknown in this tenant.
+   */
+  getInvoicePdfData(companyId: string, id: string): Promise<InvoicePdfData | null>;
+
+  // ---- Refunds (M13.4) ---------------------------------------------------------
+
+  listRefunds(companyId: string, query: ParsedRefundListQuery): Promise<KeysetPage<RefundView>>;
+
+  /**
+   * Issue a refund. `data.idempotencyKey` is mandatory (the DB column is
+   * `NOT NULL`). Rejects a write dated inside a closed accounting period
+   * ({@link PeriodClosedError}, D4, checked against the write time).
+   */
+  createRefund(actor: WriteActor, data: CreateRefundInput): Promise<RefundWriteResult>;
 }
 
 /** DI token for {@link FinanceRepositoryPort}. */

@@ -84,3 +84,43 @@ export class InvalidVatRateError extends Error {
     this.name = "InvalidVatRateError";
   }
 }
+
+/**
+ * A refund was requested without an `Idempotency-Key`. Unlike every other
+ * finance write (where the header is optional and replay is a convenience),
+ * `refunds.idempotency_key` is `NOT NULL` — the contract makes it mandatory
+ * because a refund is money-out and irreversible (D2 rationale).
+ */
+export class MissingIdempotencyKeyError extends Error {
+  constructor() {
+    super("Idempotency-Key is required for this operation.");
+    this.name = "MissingIdempotencyKeyError";
+  }
+}
+
+/**
+ * An invoice must be issued from exactly one source: either `orderId` or a
+ * manual `lines[]` array — never both, never neither.
+ */
+export class InvalidInvoiceSourceError extends Error {
+  constructor() {
+    super("Provide exactly one of orderId or lines.");
+    this.name = "InvalidInvoiceSourceError";
+  }
+}
+
+/** A refund must reference at least one of `invoiceId` or `orderId`. */
+export class RefundTargetRequiredError extends Error {
+  constructor() {
+    super("A refund requires at least one of invoiceId or orderId.");
+    this.name = "RefundTargetRequiredError";
+  }
+}
+
+/** An invoice would be issued with zero lines (no order items, or an empty manual `lines[]`). */
+export class EmptyInvoiceError extends Error {
+  constructor(message = "An invoice must have at least one line.") {
+    super(message);
+    this.name = "EmptyInvoiceError";
+  }
+}

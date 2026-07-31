@@ -102,11 +102,57 @@ function makeRepo() {
     stockAdjustment: delegate(),
     expense: delegate(),
     taxSettings: delegate(),
+    invoice: delegate(),
+    invoiceLine: delegate(),
+    refund: delegate(),
+    order: delegate(),
+    company: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
   const prisma = { $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(txHost)) };
   return { repo: new FinanceRepository(prisma as unknown as PrismaClient), models, queryRaw };
+}
+
+const INVOICE = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const REFUND = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+
+function invoiceDetailRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: INVOICE,
+    number: 1n,
+    orderId: null,
+    subtotalMinor: 10000n,
+    vatMinor: 1400n,
+    totalMinor: 11400n,
+    vatRateBpsSnapshot: 1400,
+    pdfGeneratedAt: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    lines: [
+      {
+        id: "il1",
+        description: "Widget",
+        quantity: 1n,
+        unitPriceMinor: 10000n,
+        lineTotalMinor: 10000n,
+      },
+    ],
+    ...extra,
+  };
+}
+
+function refundRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: REFUND,
+    invoiceId: INVOICE,
+    orderId: null,
+    amountMinor: 5000n,
+    reason: "Customer returned the item.",
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...extra,
+  };
 }
 
 function uniqueViolation(target: string): Prisma.PrismaClientKnownRequestError {
@@ -438,6 +484,100 @@ describe("FinanceRepository — expense idempotency", () => {
         category: "office_supplies",
         amountMinor: 12500,
         incurredAt: "2026-01-02T00:00:00.000Z",
+      }),
+    ).rejects.toThrow("connection lost");
+  });
+});
+
+describe("FinanceRepository — invoice idempotency", () => {
+  it("replays a stored invoice for a repeated key without issuing a new number", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.invoice.findFirst.mockResolvedValue(invoiceDetailRow());
+    const result = await repo.createInvoice(ACTOR_CTX, {
+      lines: [{ description: "Widget", quantity: 1, unitPriceMinor: 10000 }],
+      idempotencyKey: "k1",
+    });
+    expect(result.replayed).toBe(true);
+    expect(result.invoice.id).toBe(INVOICE);
+    expect(models.invoice.create).not.toHaveBeenCalled();
+    expect(queryRaw).not.toHaveBeenCalledWith(expect.stringContaining("invoice_sequences"));
+  });
+
+  it("replays an invoice whose key lost the insert race", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.invoice.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(invoiceDetailRow());
+    models.taxSettings.upsert.mockResolvedValue({ vatRateBps: 1400 });
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    queryRaw.mockResolvedValueOnce([{ next_number: 2n }]); // issueInvoiceNumber
+    models.invoice.create.mockRejectedValue(uniqueViolation("invoices_idempotency_key"));
+
+    const result = await repo.createInvoice(ACTOR_CTX, {
+      lines: [{ description: "Widget", quantity: 1, unitPriceMinor: 10000 }],
+      idempotencyKey: "k1",
+    });
+    expect(result.replayed).toBe(true);
+  });
+
+  it("rethrows an invoice create failure that is not a unique violation", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.taxSettings.upsert.mockResolvedValue({ vatRateBps: 1400 });
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    queryRaw.mockResolvedValueOnce([{ next_number: 2n }]);
+    models.invoice.create.mockRejectedValue(new Error("connection lost"));
+    await expect(
+      repo.createInvoice(ACTOR_CTX, {
+        lines: [{ description: "Widget", quantity: 1, unitPriceMinor: 10000 }],
+      }),
+    ).rejects.toThrow("connection lost");
+  });
+});
+
+describe("FinanceRepository — refund idempotency (mandatory key)", () => {
+  it("replays a stored refund for a repeated key without a new write", async () => {
+    const { repo, models } = makeRepo();
+    models.refund.findFirst.mockResolvedValue(refundRow());
+    const result = await repo.createRefund(ACTOR_CTX, {
+      invoiceId: INVOICE,
+      amountMinor: 5000,
+      reason: "Customer returned the item.",
+      idempotencyKey: "k1",
+    });
+    expect(result.replayed).toBe(true);
+    expect(result.refund.id).toBe(REFUND);
+    expect(models.refund.create).not.toHaveBeenCalled();
+  });
+
+  it("replays a refund whose key lost the insert race", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.refund.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(refundRow());
+    models.invoice.findFirst.mockResolvedValue({ id: INVOICE });
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.refund.create.mockRejectedValue(uniqueViolation("refunds_idempotency_key"));
+
+    const result = await repo.createRefund(ACTOR_CTX, {
+      invoiceId: INVOICE,
+      amountMinor: 5000,
+      reason: "Customer returned the item.",
+      idempotencyKey: "k1",
+    });
+    expect(result.replayed).toBe(true);
+  });
+
+  it("rethrows a refund create failure that is not a unique violation", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.invoice.findFirst.mockResolvedValue({ id: INVOICE });
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.refund.create.mockRejectedValue(new Error("connection lost"));
+    await expect(
+      repo.createRefund(ACTOR_CTX, {
+        invoiceId: INVOICE,
+        amountMinor: 5000,
+        reason: "x",
+        idempotencyKey: "k1",
       }),
     ).rejects.toThrow("connection lost");
   });

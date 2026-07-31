@@ -19,12 +19,16 @@ import type { KeysetPage } from "@cadeau/database";
 import {
   PURCHASE_ORDER_STATUSES,
   type ExpenseView,
+  type InvoiceLineView,
+  type InvoiceListView,
+  type InvoiceView,
   type PurchaseOrderLineView,
   type PurchaseOrderListView,
   type PurchaseOrderPaymentView,
   type PurchaseOrderReceiptView,
   type PurchaseOrderStatus,
   type PurchaseOrderView,
+  type RefundView,
   type SupplierView,
   type TaxSettingsView,
 } from "../../domain/finance.entity";
@@ -258,6 +262,66 @@ export class UpdateTaxSettingsDto {
   @IsOptional()
   @IsString()
   vatRegistrationNumber?: string | null;
+}
+
+/** One manual line requested on a new invoice (the no-order path). */
+export class CreateInvoiceLineDto {
+  @ApiProperty({ example: "Consulting services", maxLength: 500 })
+  @IsString()
+  @MinLength(1)
+  description!: string;
+
+  @ApiProperty({ example: 1, minimum: 1 })
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @ApiProperty({ example: 10000, minimum: 0, description: "Integer minor units." })
+  @IsInt()
+  @Min(0)
+  unitPriceMinor!: number;
+}
+
+/**
+ * Issue-an-invoice payload. Provide EITHER `orderId` (lines are derived
+ * read-only from the order's items) OR a manual `lines[]` — never both.
+ */
+export class CreateInvoiceDto {
+  @ApiPropertyOptional({ format: "uuid", description: "Invoice this order; lines are derived." })
+  @IsOptional()
+  @IsUUID()
+  orderId?: string;
+
+  @ApiPropertyOptional({ type: [CreateInvoiceLineDto], description: "A manual, no-order bill." })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateInvoiceLineDto)
+  lines?: CreateInvoiceLineDto[];
+}
+
+/** Issue-a-refund payload. At least one of `invoiceId`/`orderId` is required. */
+export class CreateRefundDto {
+  @ApiPropertyOptional({ format: "uuid" })
+  @IsOptional()
+  @IsUUID()
+  invoiceId?: string;
+
+  @ApiPropertyOptional({ format: "uuid" })
+  @IsOptional()
+  @IsUUID()
+  orderId?: string;
+
+  @ApiProperty({ example: 5000, minimum: 1, description: "Integer minor units." })
+  @IsInt()
+  @Min(1)
+  amountMinor!: number;
+
+  @ApiProperty({ example: "Customer returned the item.", maxLength: 500 })
+  @IsString()
+  @MinLength(1)
+  reason!: string;
 }
 
 // ---- Response DTOs -----------------------------------------------------------
@@ -587,6 +651,171 @@ export class TaxSettingsDto {
     dto.vatRateBps = view.vatRateBps;
     dto.vatRegistrationNumber = view.vatRegistrationNumber;
     dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+/** A line item on an invoice. */
+export class InvoiceLineDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty()
+  description!: string;
+
+  @ApiProperty({ example: 1 })
+  quantity!: number;
+
+  @ApiProperty({ example: 10000, description: "Integer minor units." })
+  unitPriceMinor!: number;
+
+  @ApiProperty({ example: 10000, description: "Integer minor units." })
+  lineTotalMinor!: number;
+
+  static from(view: InvoiceLineView): InvoiceLineDto {
+    const dto = new InvoiceLineDto();
+    dto.id = view.id;
+    dto.description = view.description;
+    dto.quantity = view.quantity;
+    dto.unitPriceMinor = view.unitPriceMinor;
+    dto.lineTotalMinor = view.lineTotalMinor;
+    return dto;
+  }
+}
+
+/** An invoice without its lines (list rendering). */
+export class InvoiceListDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ example: 1042 })
+  number!: number;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  orderId!: string | null;
+
+  @ApiProperty({ example: 100000, description: "Integer minor units." })
+  subtotalMinor!: number;
+
+  @ApiProperty({ example: 14000, description: "Integer minor units." })
+  vatMinor!: number;
+
+  @ApiProperty({ example: 114000, description: "Integer minor units." })
+  totalMinor!: number;
+
+  @ApiProperty({ example: 1400, description: "Basis points, frozen at issue time." })
+  vatRateBpsSnapshot!: number;
+
+  @ApiProperty({ format: "date-time", nullable: true })
+  pdfGeneratedAt!: string | null;
+
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  @ApiProperty({ format: "date-time" })
+  updatedAt!: string;
+
+  static from(view: InvoiceListView): InvoiceListDto {
+    const dto = new InvoiceListDto();
+    dto.id = view.id;
+    dto.number = view.number;
+    dto.orderId = view.orderId;
+    dto.subtotalMinor = view.subtotalMinor;
+    dto.vatMinor = view.vatMinor;
+    dto.totalMinor = view.totalMinor;
+    dto.vatRateBpsSnapshot = view.vatRateBpsSnapshot;
+    dto.pdfGeneratedAt = view.pdfGeneratedAt;
+    dto.createdAt = view.createdAt;
+    dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+/** An invoice with its lines (detail rendering). */
+export class InvoiceDto extends InvoiceListDto {
+  @ApiProperty({ type: [InvoiceLineDto] })
+  lines!: InvoiceLineDto[];
+
+  static override from(view: InvoiceView): InvoiceDto {
+    const dto = new InvoiceDto();
+    Object.assign(dto, InvoiceListDto.from(view));
+    dto.lines = view.lines.map((l) => InvoiceLineDto.from(l));
+    return dto;
+  }
+}
+
+/** Keyset-paginated invoices envelope. */
+export class InvoiceListDtoPage {
+  @ApiProperty({ type: [InvoiceListDto] })
+  data!: InvoiceListDto[];
+
+  @ApiProperty({ type: FinancePageDto })
+  page!: FinancePageDto;
+
+  static from(page: KeysetPage<InvoiceListView>): InvoiceListDtoPage {
+    const dto = new InvoiceListDtoPage();
+    dto.data = page.data.map((i) => InvoiceListDto.from(i));
+    dto.page = {
+      limit: page.page.limit,
+      nextCursor: page.page.nextCursor,
+      hasMore: page.page.hasMore,
+    };
+    return dto;
+  }
+}
+
+/** Money out against a prior invoice and/or order. */
+export class RefundDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  invoiceId!: string | null;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  orderId!: string | null;
+
+  @ApiProperty({ example: 5000, description: "Integer minor units." })
+  amountMinor!: number;
+
+  @ApiProperty({ example: "Customer returned the item." })
+  reason!: string;
+
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  @ApiProperty({ format: "date-time" })
+  updatedAt!: string;
+
+  static from(view: RefundView): RefundDto {
+    const dto = new RefundDto();
+    dto.id = view.id;
+    dto.invoiceId = view.invoiceId;
+    dto.orderId = view.orderId;
+    dto.amountMinor = view.amountMinor;
+    dto.reason = view.reason;
+    dto.createdAt = view.createdAt;
+    dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+/** Keyset-paginated refunds envelope. */
+export class RefundListDtoPage {
+  @ApiProperty({ type: [RefundDto] })
+  data!: RefundDto[];
+
+  @ApiProperty({ type: FinancePageDto })
+  page!: FinancePageDto;
+
+  static from(page: KeysetPage<RefundView>): RefundListDtoPage {
+    const dto = new RefundListDtoPage();
+    dto.data = page.data.map((r) => RefundDto.from(r));
+    dto.page = {
+      limit: page.page.limit,
+      nextCursor: page.page.nextCursor,
+      hasMore: page.page.hasMore,
+    };
     return dto;
   }
 }

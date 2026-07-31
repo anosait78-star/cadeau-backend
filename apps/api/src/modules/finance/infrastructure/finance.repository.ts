@@ -13,9 +13,11 @@ import {
 } from "@cadeau/database";
 import type {
   CreateExpenseInput,
+  CreateInvoiceInput,
   CreatePaymentInput,
   CreatePurchaseOrderInput,
   CreateReceiptInput,
+  CreateRefundInput,
   CreateSupplierInput,
   FinanceRepositoryPort,
   UpdateExpenseInput,
@@ -26,6 +28,11 @@ import type {
 import type {
   ExpenseView,
   ExpenseWriteResult,
+  InvoiceLineView,
+  InvoiceListView,
+  InvoicePdfData,
+  InvoiceView,
+  InvoiceWriteResult,
   PurchaseOrderListView,
   PurchaseOrderLineView,
   PurchaseOrderPaymentResult,
@@ -35,10 +42,13 @@ import type {
   PurchaseOrderStatus,
   PurchaseOrderView,
   PurchaseOrderWriteResult,
+  RefundView,
+  RefundWriteResult,
   SupplierView,
   TaxSettingsView,
 } from "../domain/finance.entity";
 import {
+  EmptyInvoiceError,
   EmptyPurchaseOrderError,
   IllegalPurchaseOrderStateError,
   InvalidAmountError,
@@ -50,9 +60,12 @@ import {
 } from "../domain/finance.errors";
 import type {
   ParsedExpenseListQuery,
+  ParsedInvoiceListQuery,
   ParsedPurchaseOrderListQuery,
+  ParsedRefundListQuery,
   ParsedSupplierListQuery,
 } from "../domain/list-query";
+import { computeVatMinor } from "../domain/vat";
 import { FINANCE_PRISMA_CLIENT } from "./prisma-client.provider";
 
 /** A Prisma client or transaction client. */
@@ -136,11 +149,50 @@ const TAX_SETTINGS_SELECT = {
   updatedAt: true,
 } as const;
 
+const INVOICE_LINE_SELECT = {
+  id: true,
+  description: true,
+  quantity: true,
+  unitPriceMinor: true,
+  lineTotalMinor: true,
+} as const;
+
+const INVOICE_LIST_SELECT = {
+  id: true,
+  number: true,
+  orderId: true,
+  subtotalMinor: true,
+  vatMinor: true,
+  totalMinor: true,
+  vatRateBpsSnapshot: true,
+  pdfGeneratedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const INVOICE_DETAIL_SELECT = {
+  ...INVOICE_LIST_SELECT,
+  lines: { select: INVOICE_LINE_SELECT, orderBy: { createdAt: "asc" as const } },
+} as const;
+
+const REFUND_SELECT = {
+  id: true,
+  invoiceId: true,
+  orderId: true,
+  amountMinor: true,
+  reason: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 type PoListRow = Prisma.PurchaseOrderGetPayload<{ select: typeof PO_LIST_SELECT }>;
 type PoDetailRow = Prisma.PurchaseOrderGetPayload<{ select: typeof PO_DETAIL_SELECT }>;
 type ReceiptRow = Prisma.PurchaseOrderReceiptGetPayload<{ select: typeof RECEIPT_SELECT }>;
 type ExpenseRow = Prisma.ExpenseGetPayload<{ select: typeof EXPENSE_SELECT }>;
 type TaxSettingsRow = Prisma.TaxSettingsGetPayload<{ select: typeof TAX_SETTINGS_SELECT }>;
+type InvoiceListRow = Prisma.InvoiceGetPayload<{ select: typeof INVOICE_LIST_SELECT }>;
+type InvoiceDetailRow = Prisma.InvoiceGetPayload<{ select: typeof INVOICE_DETAIL_SELECT }>;
+type RefundRow = Prisma.RefundGetPayload<{ select: typeof REFUND_SELECT }>;
 
 /** A stock level row locked `FOR UPDATE` inside the current transaction. */
 interface LockedStockLevel {
@@ -761,6 +813,265 @@ export class FinanceRepository implements FinanceRepositoryPort {
     });
   }
 
+  // ---- Invoices (M13.4) --------------------------------------------------------
+
+  async listInvoices(
+    companyId: string,
+    query: ParsedInvoiceListQuery,
+  ): Promise<KeysetPage<InvoiceListView>> {
+    const limit = clampLimit(query.limit);
+    const cursor = this.decodeGeneric("createdAt", query.cursor);
+    const where: Prisma.InvoiceWhereInput = { companyId };
+    if (query.orderId !== undefined) where.orderId = query.orderId;
+    if (query.dateFrom !== undefined || query.dateTo !== undefined) {
+      where.createdAt = {
+        ...(query.dateFrom !== undefined ? { gte: new Date(query.dateFrom) } : {}),
+        ...(query.dateTo !== undefined ? { lte: new Date(query.dateTo) } : {}),
+      };
+    }
+    if (cursor !== null) {
+      where.AND = [this.stringKeysetPredicate(query.sort, cursor) as Prisma.InvoiceWhereInput];
+    }
+    const rows = await this.tenantTx(companyId, (tx) =>
+      tx.invoice.findMany({
+        where,
+        orderBy: [{ [query.sort.field]: query.sort.dir }, { id: query.sort.dir }],
+        take: limit + 1,
+        select: INVOICE_LIST_SELECT,
+      }),
+    );
+    const views = rows.map((r) => this.toInvoiceListView(r));
+    return buildKeysetPage(views, limit, (view) => ({ p: view.createdAt, t: view.id }));
+  }
+
+  async findInvoice(companyId: string, id: string): Promise<InvoiceView | null> {
+    const row = await this.tenantTx(companyId, (tx) =>
+      tx.invoice.findFirst({ where: { id, companyId }, select: INVOICE_DETAIL_SELECT }),
+    );
+    return row === null ? null : this.toInvoiceDetailView(row);
+  }
+
+  async createInvoice(actor: WriteActor, data: CreateInvoiceInput): Promise<InvoiceWriteResult> {
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const replay = await this.findInvoiceByIdempotencyKey(
+        tx,
+        actor.companyId,
+        data.idempotencyKey,
+      );
+      if (replay !== null) return { invoice: this.toInvoiceDetailView(replay), replayed: true };
+
+      await this.assertPeriodOpen(tx, actor.companyId, new Date());
+
+      let orderId: string | null = null;
+      let resolvedLines: { description: string; quantity: bigint; unitPriceMinor: bigint }[];
+
+      if (data.orderId !== undefined) {
+        orderId = data.orderId;
+        const order = await tx.order.findFirst({
+          where: { id: data.orderId, companyId: actor.companyId },
+          select: {
+            id: true,
+            items: { select: { nameSnapshot: true, quantity: true, price: true } },
+          },
+        });
+        if (order === null) throw new ReferenceNotFoundError("orderId");
+        resolvedLines = order.items.map((item) => ({
+          description: item.nameSnapshot,
+          quantity: item.quantity,
+          unitPriceMinor: item.price,
+        }));
+      } else {
+        const manualLines = data.lines ?? [];
+        for (const line of manualLines) {
+          if (line.quantity <= 0) throw new InvalidAmountError("quantity");
+          if (line.unitPriceMinor < 0) throw new InvalidAmountError("unitPriceMinor");
+        }
+        resolvedLines = manualLines.map((line) => ({
+          description: line.description,
+          quantity: BigInt(line.quantity),
+          unitPriceMinor: BigInt(line.unitPriceMinor),
+        }));
+      }
+      if (resolvedLines.length === 0) throw new EmptyInvoiceError();
+
+      const subtotalMinor = resolvedLines.reduce(
+        (sum, line) => sum + line.quantity * line.unitPriceMinor,
+        0n,
+      );
+      const vatRateBps = await this.getVatRateBps(tx, actor.companyId);
+      const vatMinor = computeVatMinor(subtotalMinor, vatRateBps);
+      const totalMinor = subtotalMinor + vatMinor;
+
+      const number = await this.issueInvoiceNumber(tx, actor.companyId);
+
+      let invoiceId: string;
+      try {
+        const invoice = await tx.invoice.create({
+          data: stampForCreate(actor, {
+            orderId,
+            number,
+            subtotalMinor,
+            vatMinor,
+            totalMinor,
+            vatRateBpsSnapshot: vatRateBps,
+            idempotencyKey: data.idempotencyKey ?? null,
+          }) as Prisma.InvoiceUncheckedCreateInput,
+          select: { id: true },
+        });
+        invoiceId = invoice.id;
+        for (const line of resolvedLines) {
+          await tx.invoiceLine.create({
+            data: {
+              companyId: actor.companyId,
+              invoiceId,
+              description: line.description,
+              quantity: line.quantity,
+              unitPriceMinor: line.unitPriceMinor,
+              lineTotalMinor: line.quantity * line.unitPriceMinor,
+            } as Prisma.InvoiceLineUncheckedCreateInput,
+          });
+        }
+      } catch (error) {
+        const raced = await this.replayOnKeyConflict(
+          tx,
+          actor.companyId,
+          data.idempotencyKey,
+          error,
+          (key) => this.findInvoiceByIdempotencyKey(tx, actor.companyId, key),
+        );
+        if (raced !== null) return { invoice: this.toInvoiceDetailView(raced), replayed: true };
+        throw error;
+      }
+
+      const full = await tx.invoice.findFirstOrThrow({
+        where: { id: invoiceId },
+        select: INVOICE_DETAIL_SELECT,
+      });
+      return { invoice: this.toInvoiceDetailView(full), replayed: false };
+    });
+  }
+
+  async getInvoicePdfData(companyId: string, id: string): Promise<InvoicePdfData | null> {
+    return this.tenantTx(companyId, async (tx) => {
+      let row = await tx.invoice.findFirst({
+        where: { id, companyId },
+        select: INVOICE_DETAIL_SELECT,
+      });
+      if (row === null) return null;
+
+      if (row.pdfGeneratedAt === null) {
+        await tx.invoice.updateMany({
+          where: { id, companyId, pdfGeneratedAt: null },
+          data: { pdfGeneratedAt: new Date() },
+        });
+        row = await tx.invoice.findFirstOrThrow({
+          where: { id, companyId },
+          select: INVOICE_DETAIL_SELECT,
+        });
+      }
+
+      const company = await tx.company.findFirst({
+        where: { id: companyId },
+        select: { name: true },
+      });
+      const taxSettings = await tx.taxSettings.findFirst({
+        where: { companyId },
+        select: { vatRegistrationNumber: true },
+      });
+
+      let billToName: string | null = null;
+      if (row.orderId !== null) {
+        const order = await tx.order.findFirst({
+          where: { id: row.orderId, companyId },
+          select: { customer: { select: { name: true } } },
+        });
+        billToName = order?.customer.name ?? null;
+      }
+
+      return {
+        invoice: this.toInvoiceDetailView(row),
+        companyName: company?.name ?? null,
+        vatRegistrationNumber: taxSettings?.vatRegistrationNumber ?? null,
+        billToName,
+      };
+    });
+  }
+
+  // ---- Refunds (M13.4) ---------------------------------------------------------
+
+  async listRefunds(
+    companyId: string,
+    query: ParsedRefundListQuery,
+  ): Promise<KeysetPage<RefundView>> {
+    const limit = clampLimit(query.limit);
+    const cursor = this.decodeGeneric("createdAt", query.cursor);
+    const where: Prisma.RefundWhereInput = { companyId };
+    if (query.invoiceId !== undefined) where.invoiceId = query.invoiceId;
+    if (query.orderId !== undefined) where.orderId = query.orderId;
+    if (query.dateFrom !== undefined || query.dateTo !== undefined) {
+      where.createdAt = {
+        ...(query.dateFrom !== undefined ? { gte: new Date(query.dateFrom) } : {}),
+        ...(query.dateTo !== undefined ? { lte: new Date(query.dateTo) } : {}),
+      };
+    }
+    if (cursor !== null) {
+      where.AND = [this.stringKeysetPredicate(query.sort, cursor) as Prisma.RefundWhereInput];
+    }
+    const rows = await this.tenantTx(companyId, (tx) =>
+      tx.refund.findMany({
+        where,
+        orderBy: [{ [query.sort.field]: query.sort.dir }, { id: query.sort.dir }],
+        take: limit + 1,
+        select: REFUND_SELECT,
+      }),
+    );
+    const views = rows.map((r) => this.toRefundView(r));
+    return buildKeysetPage(views, limit, (view) => ({ p: view.createdAt, t: view.id }));
+  }
+
+  async createRefund(actor: WriteActor, data: CreateRefundInput): Promise<RefundWriteResult> {
+    if (data.amountMinor <= 0) throw new InvalidAmountError("amountMinor");
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const replay = await this.findRefundByIdempotencyKey(
+        tx,
+        actor.companyId,
+        data.idempotencyKey,
+      );
+      if (replay !== null) return { refund: this.toRefundView(replay), replayed: true };
+
+      await this.assertPeriodOpen(tx, actor.companyId, new Date());
+
+      if (data.invoiceId !== undefined)
+        await this.assertInvoice(tx, actor.companyId, data.invoiceId);
+      if (data.orderId !== undefined) await this.assertOrderRef(tx, actor.companyId, data.orderId);
+
+      let row: RefundRow;
+      try {
+        row = await tx.refund.create({
+          data: stampForCreate(actor, {
+            invoiceId: data.invoiceId ?? null,
+            orderId: data.orderId ?? null,
+            amountMinor: BigInt(data.amountMinor),
+            reason: data.reason,
+            idempotencyKey: data.idempotencyKey,
+          }) as Prisma.RefundUncheckedCreateInput,
+          select: REFUND_SELECT,
+        });
+      } catch (error) {
+        const raced = await this.replayOnKeyConflict(
+          tx,
+          actor.companyId,
+          data.idempotencyKey,
+          error,
+          (key) => this.findRefundByIdempotencyKey(tx, actor.companyId, key),
+        );
+        if (raced !== null) return { refund: this.toRefundView(raced), replayed: true };
+        throw error;
+      }
+      return { refund: this.toRefundView(row), replayed: false };
+    });
+  }
+
   // ---- internals: period-close guard (D4) -------------------------------------
 
   /**
@@ -905,6 +1216,16 @@ export class FinanceRepository implements FinanceRepositoryPort {
     if (found === null) throw new ReferenceNotFoundError("warehouseId");
   }
 
+  private async assertInvoice(tx: Tx, companyId: string, id: string): Promise<void> {
+    const found = await tx.invoice.findFirst({ where: { id, companyId }, select: { id: true } });
+    if (found === null) throw new ReferenceNotFoundError("invoiceId");
+  }
+
+  private async assertOrderRef(tx: Tx, companyId: string, id: string): Promise<void> {
+    const found = await tx.order.findFirst({ where: { id, companyId }, select: { id: true } });
+    if (found === null) throw new ReferenceNotFoundError("orderId");
+  }
+
   // ---- internals: PO number sequence -----------------------------------------
 
   /** Atomically issue the next per-company PO number (race-safe upsert). */
@@ -916,6 +1237,30 @@ export class FinanceRepository implements FinanceRepositoryPort {
       DO UPDATE SET next_number = public.purchase_order_sequences.next_number + 1, updated_at = now()
       RETURNING next_number`;
     return rows[0]!.next_number - 1n;
+  }
+
+  // ---- internals: invoice number sequence + VAT rate --------------------------
+
+  /** Atomically issue the next per-company invoice number (race-safe upsert). */
+  private async issueInvoiceNumber(tx: Tx, companyId: string): Promise<bigint> {
+    const rows = await tx.$queryRaw<{ next_number: bigint }[]>`
+      INSERT INTO public.invoice_sequences (company_id, next_number)
+      VALUES (${companyId}::uuid, 2)
+      ON CONFLICT (company_id)
+      DO UPDATE SET next_number = public.invoice_sequences.next_number + 1, updated_at = now()
+      RETURNING next_number`;
+    return rows[0]!.next_number - 1n;
+  }
+
+  /** Read the company's current `tax_settings.vatRateBps`, lazily creating the default zero-rate row. */
+  private async getVatRateBps(tx: Tx, companyId: string): Promise<number> {
+    const row = await tx.taxSettings.upsert({
+      where: { companyId },
+      create: { companyId, vatRateBps: 0, vatRegistrationNumber: null },
+      update: {},
+      select: { vatRateBps: true },
+    });
+    return row.vatRateBps;
   }
 
   // ---- internals: idempotency -------------------------------------------------
@@ -965,6 +1310,30 @@ export class FinanceRepository implements FinanceRepositoryPort {
     return tx.expense.findFirst({
       where: { companyId, idempotencyKey: key },
       select: EXPENSE_SELECT,
+    });
+  }
+
+  private async findInvoiceByIdempotencyKey(
+    tx: Tx,
+    companyId: string,
+    key: string | undefined,
+  ): Promise<InvoiceDetailRow | null> {
+    if (key === undefined) return null;
+    return tx.invoice.findFirst({
+      where: { companyId, idempotencyKey: key },
+      select: INVOICE_DETAIL_SELECT,
+    });
+  }
+
+  private async findRefundByIdempotencyKey(
+    tx: Tx,
+    companyId: string,
+    key: string | undefined,
+  ): Promise<RefundRow | null> {
+    if (key === undefined) return null;
+    return tx.refund.findFirst({
+      where: { companyId, idempotencyKey: key },
+      select: REFUND_SELECT,
     });
   }
 
@@ -1128,6 +1497,56 @@ export class FinanceRepository implements FinanceRepositoryPort {
       companyId: row.companyId,
       vatRateBps: row.vatRateBps,
       vatRegistrationNumber: row.vatRegistrationNumber,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toInvoiceListView(row: InvoiceListRow): InvoiceListView {
+    return {
+      id: row.id,
+      number: Number(row.number),
+      orderId: row.orderId,
+      subtotalMinor: Number(row.subtotalMinor),
+      vatMinor: Number(row.vatMinor),
+      totalMinor: Number(row.totalMinor),
+      vatRateBpsSnapshot: row.vatRateBpsSnapshot,
+      pdfGeneratedAt: row.pdfGeneratedAt === null ? null : row.pdfGeneratedAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toInvoiceDetailView(row: InvoiceDetailRow): InvoiceView {
+    return {
+      ...this.toInvoiceListView(row),
+      lines: row.lines.map((l) => this.toInvoiceLineView(l)),
+    };
+  }
+
+  private toInvoiceLineView(row: {
+    id: string;
+    description: string;
+    quantity: bigint;
+    unitPriceMinor: bigint;
+    lineTotalMinor: bigint;
+  }): InvoiceLineView {
+    return {
+      id: row.id,
+      description: row.description,
+      quantity: Number(row.quantity),
+      unitPriceMinor: Number(row.unitPriceMinor),
+      lineTotalMinor: Number(row.lineTotalMinor),
+    };
+  }
+
+  private toRefundView(row: RefundRow): RefundView {
+    return {
+      id: row.id,
+      invoiceId: row.invoiceId,
+      orderId: row.orderId,
+      amountMinor: Number(row.amountMinor),
+      reason: row.reason,
+      createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
   }

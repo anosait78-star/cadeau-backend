@@ -101,6 +101,48 @@ function taxSettingsRow(extra: Record<string, unknown> = {}) {
   };
 }
 
+const INVOICE = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const ORDER = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+const REFUND = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+
+function invoiceDetailRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: INVOICE,
+    number: 1n,
+    orderId: null,
+    subtotalMinor: 10000n,
+    vatMinor: 1400n,
+    totalMinor: 11400n,
+    vatRateBpsSnapshot: 1400,
+    pdfGeneratedAt: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    lines: [
+      {
+        id: "il1",
+        description: "Widget",
+        quantity: 1n,
+        unitPriceMinor: 10000n,
+        lineTotalMinor: 10000n,
+      },
+    ],
+    ...extra,
+  };
+}
+
+function refundRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: REFUND,
+    invoiceId: INVOICE,
+    orderId: null,
+    amountMinor: 5000n,
+    reason: "Customer returned the item.",
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...extra,
+  };
+}
+
 function delegate() {
   return {
     findMany: vi.fn().mockResolvedValue([]),
@@ -126,6 +168,11 @@ function makeRepo() {
     stockAdjustment: delegate(),
     expense: delegate(),
     taxSettings: delegate(),
+    invoice: delegate(),
+    invoiceLine: delegate(),
+    refund: delegate(),
+    order: delegate(),
+    company: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -504,5 +551,251 @@ describe("FinanceRepository — tax settings", () => {
     await expect(repo.updateTaxSettings(ACTOR_CTX, { vatRateBps: -1 })).rejects.toMatchObject({
       name: "InvalidVatRateError",
     });
+  });
+});
+
+describe("FinanceRepository — invoices", () => {
+  it("issues a manual-lines invoice with VAT computed and rounded half-up", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.taxSettings.upsert.mockResolvedValue(taxSettingsRow({ vatRateBps: 1400 }));
+    queryRaw.mockResolvedValueOnce([{ next_number: 2n }]); // issueInvoiceNumber
+    models.invoice.create.mockResolvedValue({ id: INVOICE });
+    models.invoiceLine.create.mockResolvedValue({});
+    models.invoice.findFirstOrThrow.mockResolvedValue(invoiceDetailRow());
+
+    const result = await repo.createInvoice(ACTOR_CTX, {
+      lines: [{ description: "Widget", quantity: 1, unitPriceMinor: 10000 }],
+    });
+    expect(result.replayed).toBe(false);
+
+    const createArgs = models.invoice.create.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    // 10000 * 1400bps / 10000 = 1400.0 exactly.
+    expect(createArgs.data).toMatchObject({
+      subtotalMinor: 10000n,
+      vatMinor: 1400n,
+      totalMinor: 11400n,
+      vatRateBpsSnapshot: 1400,
+      orderId: null,
+    });
+  });
+
+  it("issues an order-based invoice deriving lines from order items", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.order.findFirst.mockResolvedValue({
+      id: ORDER,
+      items: [{ nameSnapshot: "Widget", quantity: 3n, price: 2000n }],
+    });
+    models.taxSettings.upsert.mockResolvedValue(taxSettingsRow({ vatRateBps: 1400 }));
+    queryRaw.mockResolvedValueOnce([{ next_number: 2n }]);
+    models.invoice.create.mockResolvedValue({ id: INVOICE });
+    models.invoiceLine.create.mockResolvedValue({});
+    models.invoice.findFirstOrThrow.mockResolvedValue(invoiceDetailRow({ orderId: ORDER }));
+
+    const result = await repo.createInvoice(ACTOR_CTX, { orderId: ORDER });
+    expect(result.invoice.orderId).toBe(ORDER);
+
+    const createArgs = models.invoice.create.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    // subtotal = 3 * 2000 = 6000; vat = (6000*1400+5000)/10000 = 840 (rounds .5 up).
+    expect(createArgs.data).toMatchObject({
+      orderId: ORDER,
+      subtotalMinor: 6000n,
+      vatMinor: 840n,
+      totalMinor: 6840n,
+    });
+    const lineArgs = models.invoiceLine.create.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(lineArgs.data).toMatchObject({
+      description: "Widget",
+      quantity: 3n,
+      unitPriceMinor: 2000n,
+    });
+  });
+
+  it("rejects an invoice for an unknown order", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.order.findFirst.mockResolvedValue(null);
+    await expect(repo.createInvoice(ACTOR_CTX, { orderId: ORDER })).rejects.toMatchObject({
+      name: "ReferenceNotFoundError",
+    });
+  });
+
+  it("rejects an invoice with a non-positive manual line quantity", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    await expect(
+      repo.createInvoice(ACTOR_CTX, {
+        lines: [{ description: "Widget", quantity: 0, unitPriceMinor: 10000 }],
+      }),
+    ).rejects.toMatchObject({ name: "InvalidAmountError" });
+  });
+
+  it("rejects an empty manual-lines invoice", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    await expect(repo.createInvoice(ACTOR_CTX, { lines: [] })).rejects.toMatchObject({
+      name: "EmptyInvoiceError",
+    });
+  });
+
+  it("rejects an invoice dated inside a closed accounting period", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([{ status: "closed" }]); // assertPeriodOpen
+    await expect(
+      repo.createInvoice(ACTOR_CTX, {
+        lines: [{ description: "Widget", quantity: 1, unitPriceMinor: 10000 }],
+      }),
+    ).rejects.toMatchObject({ name: "PeriodClosedError" });
+  });
+
+  it("lists invoices", async () => {
+    const { repo, models } = makeRepo();
+    models.invoice.findMany.mockResolvedValue([invoiceDetailRow()]);
+    const page = await repo.listInvoices(COMPANY, { sort: { field: "createdAt", dir: "desc" } });
+    expect(page.data).toHaveLength(1);
+  });
+
+  it("finds an invoice by id, with lines", async () => {
+    const { repo, models } = makeRepo();
+    models.invoice.findFirst.mockResolvedValue(invoiceDetailRow());
+    const row = await repo.findInvoice(COMPANY, INVOICE);
+    expect(row?.lines).toHaveLength(1);
+  });
+
+  it("gathers PDF data and stamps pdfGeneratedAt on first render only", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    models.invoice.findFirst.mockResolvedValueOnce(
+      invoiceDetailRow({ orderId: ORDER, pdfGeneratedAt: null }),
+    );
+    models.invoice.findFirstOrThrow.mockResolvedValueOnce(
+      invoiceDetailRow({ orderId: ORDER, pdfGeneratedAt: NOW }),
+    );
+    models.company.findFirst.mockResolvedValue({ name: "Acme Trading" });
+    models.taxSettings.findFirst.mockResolvedValue({ vatRegistrationNumber: "VAT-1" });
+    models.order.findFirst.mockResolvedValue({ customer: { name: "Jane Customer" } });
+
+    const data = await repo.getInvoicePdfData(COMPANY, INVOICE);
+    expect(data).not.toBeNull();
+    expect(data?.companyName).toBe("Acme Trading");
+    expect(data?.vatRegistrationNumber).toBe("VAT-1");
+    expect(data?.billToName).toBe("Jane Customer");
+    expect(data?.invoice.pdfGeneratedAt).not.toBeNull();
+    expect(models.invoice.updateMany).toHaveBeenCalled();
+  });
+
+  it("does not re-stamp pdfGeneratedAt on a second render", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    models.invoice.findFirst.mockResolvedValueOnce(invoiceDetailRow({ pdfGeneratedAt: NOW }));
+    models.company.findFirst.mockResolvedValue({ name: "Acme Trading" });
+    models.taxSettings.findFirst.mockResolvedValue({ vatRegistrationNumber: null });
+
+    const data = await repo.getInvoicePdfData(COMPANY, INVOICE);
+    expect(data).not.toBeNull();
+    expect(models.invoice.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("returns null pdf data for an unknown invoice", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    models.invoice.findFirst.mockResolvedValue(null);
+    expect(await repo.getInvoicePdfData(COMPANY, "nope")).toBeNull();
+  });
+});
+
+describe("FinanceRepository — refunds", () => {
+  it("issues a refund against an invoice", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.invoice.findFirst.mockResolvedValue({ id: INVOICE });
+    models.refund.create.mockResolvedValue(refundRow());
+
+    const result = await repo.createRefund(ACTOR_CTX, {
+      invoiceId: INVOICE,
+      amountMinor: 5000,
+      reason: "Customer returned the item.",
+      idempotencyKey: "key-1",
+    });
+    expect(result.replayed).toBe(false);
+    expect(result.refund.amountMinor).toBe(5000);
+  });
+
+  it("issues a refund against an order", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.order.findFirst.mockResolvedValue({ id: ORDER });
+    models.refund.create.mockResolvedValue(refundRow({ invoiceId: null, orderId: ORDER }));
+
+    const result = await repo.createRefund(ACTOR_CTX, {
+      orderId: ORDER,
+      amountMinor: 5000,
+      reason: "Customer returned the item.",
+      idempotencyKey: "key-1",
+    });
+    expect(result.refund.orderId).toBe(ORDER);
+  });
+
+  it("rejects a refund against an unknown invoice", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.invoice.findFirst.mockResolvedValue(null);
+    await expect(
+      repo.createRefund(ACTOR_CTX, {
+        invoiceId: INVOICE,
+        amountMinor: 5000,
+        reason: "x",
+        idempotencyKey: "key-1",
+      }),
+    ).rejects.toMatchObject({ name: "ReferenceNotFoundError" });
+  });
+
+  it("rejects a non-positive refund amount", async () => {
+    const { repo } = makeRepo();
+    await expect(
+      repo.createRefund(ACTOR_CTX, {
+        invoiceId: INVOICE,
+        amountMinor: 0,
+        reason: "x",
+        idempotencyKey: "key-1",
+      }),
+    ).rejects.toMatchObject({ name: "InvalidAmountError" });
+  });
+
+  it("rejects a refund dated inside a closed accounting period", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([{ status: "closed" }]); // assertPeriodOpen
+    await expect(
+      repo.createRefund(ACTOR_CTX, {
+        invoiceId: INVOICE,
+        amountMinor: 5000,
+        reason: "x",
+        idempotencyKey: "key-1",
+      }),
+    ).rejects.toMatchObject({ name: "PeriodClosedError" });
+  });
+
+  it("lists refunds", async () => {
+    const { repo, models } = makeRepo();
+    models.refund.findMany.mockResolvedValue([refundRow()]);
+    const page = await repo.listRefunds(COMPANY, { sort: { field: "createdAt", dir: "desc" } });
+    expect(page.data).toHaveLength(1);
   });
 });

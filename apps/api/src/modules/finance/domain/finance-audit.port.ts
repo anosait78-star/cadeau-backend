@@ -11,7 +11,9 @@ export interface FinanceAuditRecord {
     | "purchase_order.payment_recorded"
     | "expense.created"
     | "expense.updated"
-    | "tax_settings.updated";
+    | "tax_settings.updated"
+    | "invoice.issued"
+    | "refund.issued";
   /** The kind of row the change landed on. */
   readonly entityType:
     | "supplier"
@@ -19,7 +21,9 @@ export interface FinanceAuditRecord {
     | "purchase_order_receipt"
     | "purchase_order_payment"
     | "expense"
-    | "tax_settings";
+    | "tax_settings"
+    | "invoice"
+    | "refund";
   /** The affected row's id. */
   readonly entityId: string;
   /** A secret-free snapshot of what changed. */

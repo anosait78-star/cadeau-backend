@@ -99,6 +99,60 @@ export interface ParsedExpenseListQuery {
 
 const EXPENSE_SORTS: readonly ExpenseSortField[] = ["incurredAt"];
 
+// ---- Invoices (M13.4) --------------------------------------------------------
+
+/** Sortable invoice fields (whitelist, `createdAt` only). */
+export type InvoiceSortField = "createdAt";
+
+/** Raw invoice query params as they arrive (all strings). */
+export interface RawInvoiceListQuery {
+  readonly limit?: string;
+  readonly cursor?: string;
+  readonly orderId?: string;
+  readonly dateFrom?: string;
+  readonly dateTo?: string;
+}
+
+/** A normalized, validated invoice list query. */
+export interface ParsedInvoiceListQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly sort: { readonly field: InvoiceSortField; readonly dir: "asc" | "desc" };
+  readonly orderId?: string;
+  readonly dateFrom?: string;
+  readonly dateTo?: string;
+}
+
+const INVOICE_SORTS: readonly InvoiceSortField[] = ["createdAt"];
+
+// ---- Refunds (M13.4) ---------------------------------------------------------
+
+/** Sortable refund fields (whitelist, `createdAt` only). */
+export type RefundSortField = "createdAt";
+
+/** Raw refund query params as they arrive (all strings). */
+export interface RawRefundListQuery {
+  readonly limit?: string;
+  readonly cursor?: string;
+  readonly invoiceId?: string;
+  readonly orderId?: string;
+  readonly dateFrom?: string;
+  readonly dateTo?: string;
+}
+
+/** A normalized, validated refund list query. */
+export interface ParsedRefundListQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly sort: { readonly field: RefundSortField; readonly dir: "asc" | "desc" };
+  readonly invoiceId?: string;
+  readonly orderId?: string;
+  readonly dateFrom?: string;
+  readonly dateTo?: string;
+}
+
+const REFUND_SORTS: readonly RefundSortField[] = ["createdAt"];
+
 // ---- Shared parsing --------------------------------------------------------
 
 /** Parse `?sort=` (a leading `-` means descending) against a whitelist. */
@@ -237,6 +291,68 @@ export function parseExpenseListQuery(raw: RawExpenseListQuery): {
       ? { category: raw.category.trim() }
       : {}),
     ...(raw.supplierId !== undefined ? { supplierId: raw.supplierId } : {}),
+    ...(raw.dateFrom !== undefined ? { dateFrom: raw.dateFrom } : {}),
+    ...(raw.dateTo !== undefined ? { dateTo: raw.dateTo } : {}),
+  };
+  return { query, errors };
+}
+
+/**
+ * Validate + normalize the invoice list query. The caller renders the
+ * returned errors into a `400 VALIDATION_FAILED`.
+ */
+export function parseInvoiceListQuery(raw: RawInvoiceListQuery): {
+  query?: ParsedInvoiceListQuery;
+  errors: FieldError[];
+} {
+  const errors: FieldError[] = [];
+
+  const { sort, error: sortError } = parseSort(undefined, INVOICE_SORTS, "-createdAt");
+  if (sortError !== undefined) errors.push(sortError);
+
+  checkUuid("orderId", raw.orderId, errors);
+  checkDate("dateFrom", raw.dateFrom, errors);
+  checkDate("dateTo", raw.dateTo, errors);
+
+  if (errors.length > 0 || sort === undefined) return { errors };
+
+  const query: ParsedInvoiceListQuery = {
+    ...(raw.limit !== undefined ? { limit: Number(raw.limit) } : {}),
+    ...(raw.cursor !== undefined ? { cursor: raw.cursor } : {}),
+    sort,
+    ...(raw.orderId !== undefined ? { orderId: raw.orderId } : {}),
+    ...(raw.dateFrom !== undefined ? { dateFrom: raw.dateFrom } : {}),
+    ...(raw.dateTo !== undefined ? { dateTo: raw.dateTo } : {}),
+  };
+  return { query, errors };
+}
+
+/**
+ * Validate + normalize the refund list query. The caller renders the
+ * returned errors into a `400 VALIDATION_FAILED`.
+ */
+export function parseRefundListQuery(raw: RawRefundListQuery): {
+  query?: ParsedRefundListQuery;
+  errors: FieldError[];
+} {
+  const errors: FieldError[] = [];
+
+  const { sort, error: sortError } = parseSort(undefined, REFUND_SORTS, "-createdAt");
+  if (sortError !== undefined) errors.push(sortError);
+
+  checkUuid("invoiceId", raw.invoiceId, errors);
+  checkUuid("orderId", raw.orderId, errors);
+  checkDate("dateFrom", raw.dateFrom, errors);
+  checkDate("dateTo", raw.dateTo, errors);
+
+  if (errors.length > 0 || sort === undefined) return { errors };
+
+  const query: ParsedRefundListQuery = {
+    ...(raw.limit !== undefined ? { limit: Number(raw.limit) } : {}),
+    ...(raw.cursor !== undefined ? { cursor: raw.cursor } : {}),
+    sort,
+    ...(raw.invoiceId !== undefined ? { invoiceId: raw.invoiceId } : {}),
+    ...(raw.orderId !== undefined ? { orderId: raw.orderId } : {}),
     ...(raw.dateFrom !== undefined ? { dateFrom: raw.dateFrom } : {}),
     ...(raw.dateTo !== undefined ? { dateTo: raw.dateTo } : {}),
   };

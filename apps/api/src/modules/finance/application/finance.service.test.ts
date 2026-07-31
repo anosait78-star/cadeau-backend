@@ -8,9 +8,11 @@ import type { FinanceAuditPort } from "../domain/finance-audit.port";
 import type { FinanceRepositoryPort } from "../domain/finance-repository.port";
 import type {
   ExpenseView,
+  InvoiceView,
   PurchaseOrderPaymentView,
   PurchaseOrderReceiptView,
   PurchaseOrderView,
+  RefundView,
   SupplierView,
   TaxSettingsView,
 } from "../domain/finance.entity";
@@ -18,6 +20,7 @@ import {
   EmptyPurchaseOrderError,
   IllegalPurchaseOrderStateError,
   InvalidVatRateError,
+  MissingIdempotencyKeyError,
   OverReceiptError,
   PeriodClosedError,
   ReferenceNotFoundError,
@@ -113,6 +116,44 @@ function taxSettings(extra: Partial<TaxSettingsView> = {}): TaxSettingsView {
   };
 }
 
+function invoice(extra: Partial<InvoiceView> = {}): InvoiceView {
+  return {
+    id: "inv1",
+    number: 1,
+    orderId: null,
+    subtotalMinor: 10000,
+    vatMinor: 1400,
+    totalMinor: 11400,
+    vatRateBpsSnapshot: 1400,
+    pdfGeneratedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    lines: [
+      {
+        id: "l1",
+        description: "Widget",
+        quantity: 1,
+        unitPriceMinor: 10000,
+        lineTotalMinor: 10000,
+      },
+    ],
+    ...extra,
+  };
+}
+
+function refund(extra: Partial<RefundView> = {}): RefundView {
+  return {
+    id: "ref1",
+    invoiceId: "inv1",
+    orderId: null,
+    amountMinor: 5000,
+    reason: "Customer returned the item.",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...extra,
+  };
+}
+
 function makeService() {
   const repo: FinanceRepositoryPort = {
     listSuppliers: vi.fn().mockResolvedValue(emptyPage()),
@@ -131,6 +172,12 @@ function makeService() {
     updateExpense: vi.fn().mockResolvedValue(null),
     getTaxSettings: vi.fn().mockResolvedValue(taxSettings()),
     updateTaxSettings: vi.fn().mockResolvedValue(taxSettings()),
+    listInvoices: vi.fn().mockResolvedValue(emptyPage()),
+    findInvoice: vi.fn().mockResolvedValue(null),
+    createInvoice: vi.fn(),
+    getInvoicePdfData: vi.fn().mockResolvedValue(null),
+    listRefunds: vi.fn().mockResolvedValue(emptyPage()),
+    createRefund: vi.fn(),
   };
   const audit: FinanceAuditPort = { record: vi.fn().mockResolvedValue(undefined) };
   const events: EventBusPort = {
@@ -387,6 +434,173 @@ describe("FinanceService — tax settings", () => {
     vi.mocked(repo.updateTaxSettings).mockRejectedValue(new InvalidVatRateError());
     await expect(
       service.updateTaxSettings(principal(), { vatRateBps: 20000 }),
+    ).rejects.toBeInstanceOf(AppException);
+  });
+});
+
+describe("FinanceService — invoices", () => {
+  it("issues an order-based invoice and audits + emits, but not on replay", async () => {
+    const { service, repo, audit, events } = makeService();
+    vi.mocked(repo.createInvoice).mockResolvedValue({
+      invoice: invoice({ orderId: "order1" }),
+      replayed: false,
+    });
+    const row = await service.createInvoice(principal(), { orderId: "order1" });
+    expect(row.id).toBe("inv1");
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "invoice.issued", entityId: "inv1" }),
+    );
+    expect(events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "invoice.issued",
+        payload: { invoiceId: "inv1", orderId: "order1" },
+      }),
+    );
+
+    vi.mocked(audit.record).mockClear();
+    vi.mocked(events.publish).mockClear();
+    vi.mocked(repo.createInvoice).mockResolvedValue({ invoice: invoice(), replayed: true });
+    await service.createInvoice(principal(), { orderId: "order1" });
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(events.publish).not.toHaveBeenCalled();
+  });
+
+  it("issues a manual-lines invoice", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.createInvoice).mockResolvedValue({ invoice: invoice(), replayed: false });
+    const row = await service.createInvoice(principal(), {
+      lines: [{ description: "Widget", quantity: 1, unitPriceMinor: 10000 }],
+    });
+    expect(row.id).toBe("inv1");
+    expect(repo.createInvoice).toHaveBeenCalled();
+  });
+
+  it("rejects an invoice with neither orderId nor lines", async () => {
+    const { service, repo } = makeService();
+    await expect(service.createInvoice(principal(), {})).rejects.toBeInstanceOf(AppException);
+    expect(repo.createInvoice).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invoice with both orderId and lines", async () => {
+    const { service, repo } = makeService();
+    await expect(
+      service.createInvoice(principal(), {
+        orderId: "order1",
+        lines: [{ description: "Widget", quantity: 1, unitPriceMinor: 10000 }],
+      }),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(repo.createInvoice).not.toHaveBeenCalled();
+  });
+
+  it("maps a period-closed error to 409 on invoice issue", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.createInvoice).mockRejectedValue(new PeriodClosedError("2026-01"));
+    await expect(service.createInvoice(principal(), { orderId: "order1" })).rejects.toBeInstanceOf(
+      AppException,
+    );
+  });
+
+  it("404s when the invoice to read is not found", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.findInvoice).mockResolvedValue(null);
+    await expect(service.getInvoice(principal(), "nope")).rejects.toBeInstanceOf(AppException);
+  });
+
+  it("404s when the invoice pdf data is not found", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.getInvoicePdfData).mockResolvedValue(null);
+    await expect(service.getInvoicePdfData(principal(), "nope")).rejects.toBeInstanceOf(
+      AppException,
+    );
+  });
+});
+
+describe("FinanceService — refunds", () => {
+  it("issues a refund and audits + emits, but not on replay", async () => {
+    const { service, repo, audit, events } = makeService();
+    vi.mocked(repo.createRefund).mockResolvedValue({ refund: refund(), replayed: false });
+    const row = await service.createRefund(principal(), {
+      invoiceId: "inv1",
+      amountMinor: 5000,
+      reason: "Customer returned the item.",
+      idempotencyKey: "key-1",
+    });
+    expect(row.id).toBe("ref1");
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "refund.issued", entityId: "ref1" }),
+    );
+    expect(events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refund.issued",
+        payload: { refundId: "ref1", amountMinor: 5000 },
+      }),
+    );
+
+    vi.mocked(audit.record).mockClear();
+    vi.mocked(events.publish).mockClear();
+    vi.mocked(repo.createRefund).mockResolvedValue({ refund: refund(), replayed: true });
+    await service.createRefund(principal(), {
+      invoiceId: "inv1",
+      amountMinor: 5000,
+      reason: "Customer returned the item.",
+      idempotencyKey: "key-1",
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(events.publish).not.toHaveBeenCalled();
+  });
+
+  it("rejects a refund without an Idempotency-Key", async () => {
+    const { service, repo } = makeService();
+    await expect(
+      service.createRefund(principal(), {
+        invoiceId: "inv1",
+        amountMinor: 5000,
+        reason: "Customer returned the item.",
+        idempotencyKey: undefined,
+      }),
+    ).rejects.toMatchObject({ getStatus: expect.any(Function) });
+    expect(repo.createRefund).not.toHaveBeenCalled();
+  });
+
+  it("maps MissingIdempotencyKeyError to 400", async () => {
+    const { service } = makeService();
+    try {
+      await service.createRefund(principal(), {
+        amountMinor: 5000,
+        reason: "x",
+        idempotencyKey: undefined,
+        invoiceId: "inv1",
+      });
+      throw new Error("expected to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppException);
+      if (error instanceof AppException) expect(error.getStatus()).toBe(400);
+      expect(error).not.toBeInstanceOf(MissingIdempotencyKeyError);
+    }
+  });
+
+  it("rejects a refund with neither invoiceId nor orderId", async () => {
+    const { service, repo } = makeService();
+    await expect(
+      service.createRefund(principal(), {
+        amountMinor: 5000,
+        reason: "Customer returned the item.",
+        idempotencyKey: "key-1",
+      }),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(repo.createRefund).not.toHaveBeenCalled();
+  });
+
+  it("maps a period-closed error to 409 on refund issue", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.createRefund).mockRejectedValue(new PeriodClosedError("2026-01"));
+    await expect(
+      service.createRefund(principal(), {
+        invoiceId: "inv1",
+        amountMinor: 5000,
+        reason: "x",
+        idempotencyKey: "key-1",
+      }),
     ).rejects.toBeInstanceOf(AppException);
   });
 });

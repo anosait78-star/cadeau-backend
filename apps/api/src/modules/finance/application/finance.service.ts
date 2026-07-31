@@ -9,9 +9,11 @@ import { FINANCE_AUDIT } from "../domain/finance-audit.port";
 import {
   FINANCE_REPOSITORY,
   type CreateExpenseInput,
+  type CreateInvoiceInput,
   type CreatePaymentInput,
   type CreatePurchaseOrderInput,
   type CreateReceiptInput,
+  type CreateRefundInput,
   type CreateSupplierInput,
   type FinanceRepositoryPort,
   type UpdateExpenseInput,
@@ -20,29 +22,41 @@ import {
 } from "../domain/finance-repository.port";
 import type {
   ExpenseView,
+  InvoiceListView,
+  InvoicePdfData,
+  InvoiceView,
   PurchaseOrderListView,
   PurchaseOrderPaymentView,
   PurchaseOrderReceiptView,
   PurchaseOrderView,
+  RefundView,
   SupplierView,
   TaxSettingsView,
 } from "../domain/finance.entity";
 import {
+  EmptyInvoiceError,
   EmptyPurchaseOrderError,
   IllegalPurchaseOrderStateError,
   InvalidAmountError,
+  InvalidInvoiceSourceError,
   InvalidListCursorError,
   InvalidVatRateError,
+  MissingIdempotencyKeyError,
   OverReceiptError,
   PeriodClosedError,
+  RefundTargetRequiredError,
   ReferenceNotFoundError,
 } from "../domain/finance.errors";
 import {
   parseExpenseListQuery,
+  parseInvoiceListQuery,
   parsePurchaseOrderListQuery,
+  parseRefundListQuery,
   parseSupplierListQuery,
   type RawExpenseListQuery,
+  type RawInvoiceListQuery,
   type RawPurchaseOrderListQuery,
+  type RawRefundListQuery,
   type RawSupplierListQuery,
 } from "../domain/list-query";
 
@@ -334,6 +348,125 @@ export class FinanceService {
     return row;
   }
 
+  // ---- Invoices (M13.4) --------------------------------------------------------
+
+  async listInvoices(
+    principal: RequestPrincipal,
+    rawQuery: RawInvoiceListQuery,
+  ): Promise<KeysetPage<InvoiceListView>> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseInvoiceListQuery(rawQuery);
+    if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
+    try {
+      return await this.repo.listInvoices(companyId, query);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+  }
+
+  async getInvoice(principal: RequestPrincipal, id: string): Promise<InvoiceView> {
+    const companyId = this.requireTenant(principal);
+    const row = await this.repo.findInvoice(companyId, id);
+    if (row === null) throw AppErrors.notFound("Invoice not found.");
+    return row;
+  }
+
+  async createInvoice(principal: RequestPrincipal, data: CreateInvoiceInput): Promise<InvoiceView> {
+    const companyId = this.requireTenant(principal);
+    const hasOrder = data.orderId !== undefined;
+    const hasLines = data.lines !== undefined && data.lines.length > 0;
+    if (hasOrder === hasLines) throw this.mapError(new InvalidInvoiceSourceError());
+
+    let result;
+    try {
+      result = await this.repo.createInvoice({ companyId, actorId: principal.userId }, data);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    if (!result.replayed) {
+      await this.record(companyId, principal.userId, {
+        action: "invoice.issued",
+        entityType: "invoice",
+        entityId: result.invoice.id,
+        changes: result.invoice,
+      });
+      await this.events.publish({
+        type: "invoice.issued",
+        companyId,
+        actorId: principal.userId,
+        occurredAt: this.clock.now(),
+        payload: { invoiceId: result.invoice.id, orderId: result.invoice.orderId },
+      });
+    }
+    return result.invoice;
+  }
+
+  /** Read everything the presentation layer needs to stream the invoice PDF. */
+  async getInvoicePdfData(principal: RequestPrincipal, id: string): Promise<InvoicePdfData> {
+    const companyId = this.requireTenant(principal);
+    const data = await this.repo.getInvoicePdfData(companyId, id);
+    if (data === null) throw AppErrors.notFound("Invoice not found.");
+    return data;
+  }
+
+  // ---- Refunds (M13.4) ---------------------------------------------------------
+
+  async listRefunds(
+    principal: RequestPrincipal,
+    rawQuery: RawRefundListQuery,
+  ): Promise<KeysetPage<RefundView>> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseRefundListQuery(rawQuery);
+    if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
+    try {
+      return await this.repo.listRefunds(companyId, query);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+  }
+
+  /**
+   * Issue a refund. `Idempotency-Key` is mandatory here (unlike every other
+   * finance write) — a missing header is rejected before this ever reaches
+   * the repository ({@link MissingIdempotencyKeyError}, mapped to `400`).
+   */
+  async createRefund(
+    principal: RequestPrincipal,
+    data: Omit<CreateRefundInput, "idempotencyKey"> & { idempotencyKey?: string | undefined },
+  ): Promise<RefundView> {
+    const companyId = this.requireTenant(principal);
+    if (data.idempotencyKey === undefined) throw this.mapError(new MissingIdempotencyKeyError());
+    if (data.invoiceId === undefined && data.orderId === undefined) {
+      throw this.mapError(new RefundTargetRequiredError());
+    }
+
+    let result;
+    try {
+      result = await this.repo.createRefund(
+        { companyId, actorId: principal.userId },
+        { ...data, idempotencyKey: data.idempotencyKey },
+      );
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    if (!result.replayed) {
+      await this.record(companyId, principal.userId, {
+        action: "refund.issued",
+        entityType: "refund",
+        entityId: result.refund.id,
+        changes: result.refund,
+      });
+      await this.events.publish({
+        type: "refund.issued",
+        companyId,
+        actorId: principal.userId,
+        occurredAt: this.clock.now(),
+        payload: { refundId: result.refund.id, amountMinor: result.refund.amountMinor },
+      });
+    }
+    return result.refund;
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private async record(
@@ -396,6 +529,20 @@ export class FinanceService {
       return AppErrors.validation(error.message, [
         { field: "vatRateBps", messages: [error.message] },
       ]);
+    }
+    if (error instanceof EmptyInvoiceError) {
+      return AppErrors.validation(error.message, [{ field: "lines", messages: [error.message] }]);
+    }
+    if (error instanceof InvalidInvoiceSourceError) {
+      return AppErrors.validation(error.message, [{ field: "orderId", messages: [error.message] }]);
+    }
+    if (error instanceof RefundTargetRequiredError) {
+      return AppErrors.validation(error.message, [
+        { field: "invoiceId", messages: [error.message] },
+      ]);
+    }
+    if (error instanceof MissingIdempotencyKeyError) {
+      return AppErrors.badRequest(error.message);
     }
     return error;
   }

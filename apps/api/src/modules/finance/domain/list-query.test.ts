@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parsePurchaseOrderListQuery, parseSupplierListQuery } from "./list-query";
+import {
+  parseInvoiceListQuery,
+  parsePurchaseOrderListQuery,
+  parseRefundListQuery,
+  parseSupplierListQuery,
+} from "./list-query";
 
 describe("parseSupplierListQuery", () => {
   it("defaults to newest-first, active-only", () => {
@@ -81,6 +86,73 @@ describe("parsePurchaseOrderListQuery", () => {
 
   it("passes limit and cursor through", () => {
     const { query } = parsePurchaseOrderListQuery({ limit: "10", cursor: "abc" });
+    expect(query?.limit).toBe(10);
+    expect(query?.cursor).toBe("abc");
+  });
+});
+
+describe("parseInvoiceListQuery", () => {
+  const ORDER = "22222222-2222-2222-2222-222222222222";
+
+  it("defaults to newest-first, no filters", () => {
+    const { query, errors } = parseInvoiceListQuery({});
+    expect(errors).toEqual([]);
+    expect(query).toEqual({ sort: { field: "createdAt", dir: "desc" } });
+  });
+
+  it("accepts a uuid orderId filter and rejects a malformed one", () => {
+    expect(parseInvoiceListQuery({ orderId: ORDER }).query?.orderId).toBe(ORDER);
+    expect(parseInvoiceListQuery({ orderId: "nope" }).errors[0]?.field).toBe("orderId");
+  });
+
+  it("accepts ISO date-time range filters and rejects malformed ones", () => {
+    const good = parseInvoiceListQuery({
+      dateFrom: "2026-01-01T00:00:00.000Z",
+      dateTo: "2026-02-01T00:00:00.000Z",
+    });
+    expect(good.query?.dateFrom).toBe("2026-01-01T00:00:00.000Z");
+    expect(good.query?.dateTo).toBe("2026-02-01T00:00:00.000Z");
+    const bad = parseInvoiceListQuery({ dateTo: "not-a-date" });
+    expect(bad.errors[0]?.field).toBe("dateTo");
+  });
+
+  it("passes limit and cursor through", () => {
+    const { query } = parseInvoiceListQuery({ limit: "10", cursor: "abc" });
+    expect(query?.limit).toBe(10);
+    expect(query?.cursor).toBe("abc");
+  });
+});
+
+describe("parseRefundListQuery", () => {
+  const INVOICE = "33333333-3333-3333-3333-333333333333";
+  const ORDER = "44444444-4444-4444-4444-444444444444";
+
+  it("defaults to newest-first, no filters", () => {
+    const { query, errors } = parseRefundListQuery({});
+    expect(errors).toEqual([]);
+    expect(query).toEqual({ sort: { field: "createdAt", dir: "desc" } });
+  });
+
+  it("accepts uuid invoiceId/orderId filters and rejects malformed ones", () => {
+    expect(parseRefundListQuery({ invoiceId: INVOICE }).query?.invoiceId).toBe(INVOICE);
+    expect(parseRefundListQuery({ orderId: ORDER }).query?.orderId).toBe(ORDER);
+    expect(parseRefundListQuery({ invoiceId: "nope" }).errors[0]?.field).toBe("invoiceId");
+    expect(parseRefundListQuery({ orderId: "nope" }).errors[0]?.field).toBe("orderId");
+  });
+
+  it("accepts ISO date-time range filters and rejects malformed ones", () => {
+    const good = parseRefundListQuery({
+      dateFrom: "2026-01-01T00:00:00.000Z",
+      dateTo: "2026-02-01T00:00:00.000Z",
+    });
+    expect(good.query?.dateFrom).toBe("2026-01-01T00:00:00.000Z");
+    expect(good.query?.dateTo).toBe("2026-02-01T00:00:00.000Z");
+    const bad = parseRefundListQuery({ dateFrom: "not-a-date" });
+    expect(bad.errors[0]?.field).toBe("dateFrom");
+  });
+
+  it("passes limit and cursor through", () => {
+    const { query } = parseRefundListQuery({ limit: "10", cursor: "abc" });
     expect(query?.limit).toBe(10);
     expect(query?.cursor).toBe("abc");
   });

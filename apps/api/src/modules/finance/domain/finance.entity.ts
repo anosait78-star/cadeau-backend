@@ -135,3 +135,67 @@ export interface TaxSettingsView {
   readonly vatRegistrationNumber: string | null;
   readonly updatedAt: string;
 }
+
+// ---- Invoices (M13.4) --------------------------------------------------------
+
+/** A line item on an invoice (append-only). */
+export interface InvoiceLineView {
+  readonly id: string;
+  readonly description: string;
+  readonly quantity: number;
+  readonly unitPriceMinor: number;
+  readonly lineTotalMinor: number;
+}
+
+/** An invoice without its lines (list rendering). */
+export interface InvoiceListView {
+  readonly id: string;
+  readonly number: number;
+  readonly orderId: string | null;
+  readonly subtotalMinor: number;
+  readonly vatMinor: number;
+  readonly totalMinor: number;
+  readonly vatRateBpsSnapshot: number;
+  readonly pdfGeneratedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** An invoice with its lines (detail rendering). */
+export interface InvoiceView extends InvoiceListView {
+  readonly lines: readonly InvoiceLineView[];
+}
+
+/** The outcome of issuing an invoice: the row plus replay status. */
+export interface InvoiceWriteResult {
+  readonly invoice: InvoiceView;
+  readonly replayed: boolean;
+}
+
+/** Everything the PDF renderer needs to draw one invoice, gathered read-only. */
+export interface InvoicePdfData {
+  readonly invoice: InvoiceView;
+  readonly companyName: string | null;
+  readonly vatRegistrationNumber: string | null;
+  /** The order's customer name, when the invoice is order-based. */
+  readonly billToName: string | null;
+}
+
+// ---- Refunds (M13.4) ---------------------------------------------------------
+
+/** Money out against a prior invoice and/or order. `Idempotency-Key` is mandatory. */
+export interface RefundView {
+  readonly id: string;
+  readonly invoiceId: string | null;
+  readonly orderId: string | null;
+  readonly amountMinor: number;
+  readonly reason: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** The outcome of issuing a refund: the row plus replay status. */
+export interface RefundWriteResult {
+  readonly refund: RefundView;
+  readonly replayed: boolean;
+}
