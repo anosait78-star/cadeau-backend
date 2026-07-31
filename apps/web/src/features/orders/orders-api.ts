@@ -1,0 +1,233 @@
+import { apiFetch } from "@/lib/api-client";
+
+/**
+ * Client for `/v1/orders` (contract: docs/api/orders.md). Money is always integer
+ * minor units. A list row is an {@link OrderListItem} (no items); the items and
+ * notes arrive with the {@link OrderDetail} single-order read.
+ */
+
+/** The 12 lifecycle states, in lifecycle order (docs/epic-11-design.md §6). */
+export const ORDER_STATUSES = [
+  "new",
+  "confirming",
+  "processing",
+  "incomplete",
+  "ready",
+  "shipped",
+  "delivered",
+  "completed",
+  "postponed",
+  "cancelled",
+  "returned",
+  "exchanged",
+] as const;
+
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+export const FOLLOW_UP_STATES = ["none", "pending", "contacted", "scheduled", "no_answer"] as const;
+export type FollowUpState = (typeof FOLLOW_UP_STATES)[number];
+
+export type PaymentStatus = "unpaid" | "partial" | "paid";
+
+/** The money block, all integer minor units. */
+export interface OrderMoney {
+  readonly subtotal: number;
+  readonly shippingFee: number;
+  readonly discount: number;
+  readonly total: number;
+  readonly collectedAmount: number;
+  readonly paymentStatus: PaymentStatus;
+}
+
+/** An order line. */
+export interface OrderItem {
+  readonly id: string;
+  readonly variantId: string;
+  readonly nameSnapshot: string;
+  readonly quantity: number;
+  readonly price: number;
+  readonly costSnapshot: number;
+}
+
+/** An order as a list row (no items). */
+export interface OrderListItem extends OrderMoney {
+  readonly id: string;
+  readonly orderNumber: number;
+  readonly customerId: string;
+  readonly customerName: string;
+  readonly assigneeId: string | null;
+  readonly status: OrderStatus;
+  readonly followUpState: FollowUpState;
+  readonly labelId: string | null;
+  readonly reasonId: string | null;
+  readonly governorateId: string | null;
+  readonly itemCount: number;
+  readonly statusChangedAt: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** A single order read: the header plus its items and notes. */
+export interface OrderDetail extends OrderListItem {
+  readonly notes: string | null;
+  readonly items: OrderItem[];
+}
+
+/** One row of the activity log. */
+export interface OrderActivity {
+  readonly id: string;
+  readonly kind: string;
+  readonly fromValue: string | null;
+  readonly toValue: string | null;
+  readonly note: string | null;
+  readonly actorId: string | null;
+  readonly createdAt: string;
+}
+
+interface Page<T> {
+  readonly data: T[];
+  readonly page: {
+    readonly limit: number;
+    readonly nextCursor: string | null;
+    readonly hasMore: boolean;
+  };
+}
+
+export type OrderPage = Page<OrderListItem>;
+export type OrderActivityPage = Page<OrderActivity>;
+
+/** Query options for the orders list. */
+export interface ListOptions {
+  readonly cursor?: string;
+  readonly q?: string;
+  readonly status?: OrderStatus;
+  readonly followUpState?: FollowUpState;
+  readonly assigneeId?: string;
+  readonly customerId?: string;
+  readonly labelId?: string;
+  readonly reasonId?: string;
+  readonly governorateId?: string;
+  readonly sort?: "-createdAt" | "-updatedAt";
+}
+
+function buildQuery(options: ListOptions): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined && String(value).length > 0) params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs.length > 0 ? `?${qs}` : "";
+}
+
+/** A line to send when creating/updating an order. */
+export interface OrderItemInput {
+  readonly variantId: string;
+  readonly quantity: number;
+  readonly price: number;
+}
+
+/** Create-order body. */
+export interface CreateOrderInput {
+  readonly customerId: string;
+  readonly assigneeId?: string | null;
+  readonly labelId?: string | null;
+  readonly reasonId?: string | null;
+  readonly governorateId?: string | null;
+  readonly followUpState?: FollowUpState;
+  readonly shippingFee?: number;
+  readonly discount?: number;
+  readonly notes?: string | null;
+  readonly items: OrderItemInput[];
+}
+
+/** Update-order body (partial). Items, when present, replace the set. */
+export interface UpdateOrderInput {
+  readonly assigneeId?: string | null;
+  readonly labelId?: string | null;
+  readonly reasonId?: string | null;
+  readonly governorateId?: string | null;
+  readonly followUpState?: FollowUpState;
+  readonly shippingFee?: number;
+  readonly discount?: number;
+  readonly collectedAmount?: number;
+  readonly notes?: string | null;
+  readonly items?: OrderItemInput[];
+}
+
+/** One item's outcome in a bulk operation. */
+export interface BulkResultItem {
+  readonly orderId: string;
+  readonly ok: boolean;
+  readonly error?: { readonly code: string; readonly message: string };
+}
+
+/** `GET /v1/orders` — keyset-paginated orders. */
+export function listOrders(options: ListOptions = {}): Promise<OrderPage> {
+  return apiFetch<OrderPage>(`/orders${buildQuery(options)}`);
+}
+
+/** `GET /v1/orders/status-counts` — per-status counts for the tabs. */
+export function orderStatusCounts(
+  options: ListOptions = {},
+): Promise<{ counts: Record<string, number> }> {
+  return apiFetch<{ counts: Record<string, number> }>(
+    `/orders/status-counts${buildQuery(options)}`,
+  );
+}
+
+/** `GET /v1/orders/{id}` — order detail (items + money). */
+export function getOrder(id: string): Promise<OrderDetail> {
+  return apiFetch<OrderDetail>(`/orders/${id}`);
+}
+
+/** `POST /v1/orders` — create an order. */
+export function createOrder(body: CreateOrderInput): Promise<OrderDetail> {
+  return apiFetch<OrderDetail>("/orders", { method: "POST", body });
+}
+
+/** `PATCH /v1/orders/{id}` — edit order fields. */
+export function updateOrder(id: string, body: UpdateOrderInput): Promise<OrderDetail> {
+  return apiFetch<OrderDetail>(`/orders/${id}`, { method: "PATCH", body });
+}
+
+/** `POST /v1/orders/{id}/status` — transition status. */
+export function transitionOrder(
+  id: string,
+  body: { toStatus: OrderStatus; reasonId?: string | null; note?: string | null },
+): Promise<OrderDetail> {
+  return apiFetch<OrderDetail>(`/orders/${id}/status`, { method: "POST", body });
+}
+
+/** `POST /v1/orders/{id}/assign` — assign (or unassign) an order. */
+export function assignOrder(id: string, assigneeId: string | null): Promise<OrderDetail> {
+  return apiFetch<OrderDetail>(`/orders/${id}/assign`, { method: "POST", body: { assigneeId } });
+}
+
+/** `POST /v1/orders/bulk/status` — bulk status change. */
+export function bulkStatus(
+  orderIds: string[],
+  toStatus: OrderStatus,
+  reasonId?: string | null,
+): Promise<{ results: BulkResultItem[] }> {
+  return apiFetch<{ results: BulkResultItem[] }>("/orders/bulk/status", {
+    method: "POST",
+    body: { orderIds, toStatus, ...(reasonId !== undefined ? { reasonId } : {}) },
+  });
+}
+
+/** `POST /v1/orders/bulk/assign` — bulk assignment. */
+export function bulkAssign(
+  orderIds: string[],
+  assigneeId: string | null,
+): Promise<{ results: BulkResultItem[] }> {
+  return apiFetch<{ results: BulkResultItem[] }>("/orders/bulk/assign", {
+    method: "POST",
+    body: { orderIds, assigneeId },
+  });
+}
+
+/** `GET /v1/orders/{id}/activity` — the order's activity log (keyset). */
+export function listOrderActivity(id: string, cursor?: string): Promise<OrderActivityPage> {
+  const qs = cursor !== undefined ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return apiFetch<OrderActivityPage>(`/orders/${id}/activity${qs}`);
+}
