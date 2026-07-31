@@ -17,8 +17,12 @@
  *     `product.archived`, emitted by the products service.
  *   - **Live now (EPIC-9 inventory):** `stock.changed` and `stock.low`, emitted
  *     by each atomic inventory write (reserve/release/transfer/adjust).
+ *   - **Live now (EPIC-10 customers):** `customer.created`/`customer.updated`/
+ *     `customer.exported`. Their payloads carry ids and field *names* only —
+ *     never personal data (docs/privacy-model.md §6).
  *   - **Forward-declared** for the domain epics that will emit them
- *     (`order.*` → EPIC-11, `payment.collected` → EPIC-13). Their payloads are
+ *     (`customer.merged` → EPIC-11 per decision D3, `order.*` → EPIC-11,
+ *     `payment.collected` → EPIC-13). Their payloads are
  *     intentionally minimal; the owning epic
  *     finalizes each shape when it wires the emission. They are listed now so the
  *     catalog is the one place the vocabulary is declared and so notification
@@ -113,7 +117,43 @@ export interface EventPayloads {
     readonly reorderPoint: number;
   };
 
+  /**
+   * A customer was added to the base (EPIC-10). An idempotent replay of an
+   * earlier create emits nothing — it wrote nothing.
+   *
+   * The payload carries the id and nothing else: name, phone, email and address
+   * are personal data, and an event payload may be logged or queued
+   * (docs/privacy-model.md §6). A subscriber that needs the person reads the
+   * customer back under RLS with its own permissions.
+   */
+  "customer.created": {
+    readonly customerId: string;
+  };
+  /** A customer's profile fields changed (EPIC-10). Ids and field names only. */
+  "customer.updated": {
+    readonly customerId: string;
+    /** Which fields changed — never their values. */
+    readonly fields: readonly string[];
+  };
+  /**
+   * Customer records were exported (EPIC-10). Emitted alongside the durable
+   * audit row so bulk PII egress is observable, never silent.
+   */
+  "customer.exported": {
+    /** How many records left the system. */
+    readonly count: number;
+  };
+
   // ---- Forward-declared (owning epic finalizes the payload) --------------
+  /**
+   * Two customers were merged into one. Reserved for **EPIC-11** (owner decision
+   * D3): merge is written once, against the complete set of customer-owned
+   * tables, when orders exist.
+   */
+  "customer.merged": {
+    readonly survivingCustomerId: string;
+    readonly mergedCustomerId: string;
+  };
   /** An order was created. Shape finalized in EPIC-11. */
   "order.created": {
     readonly orderId: string;

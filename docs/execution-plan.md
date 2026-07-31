@@ -446,6 +446,25 @@ _Depends on:_ 7 (governorates), 5, 6.
 
 Milestones M10.1–M10.5 are listed in [epic-10-design.md](epic-10-design.md) §6.
 
+- **M10.1 Data + migration** ✅ — `PII_HASH_KEY` in `@cadeau/config` (required,
+  must differ from `ENCRYPTION_KEY`) and `blindIndex()` in `@cadeau/crypto`;
+  migration `20260805000000_customers` with `customers` + `customer_addresses`,
+  `FORCE` RLS, `touch_updated_at`, `UNIQUE (company_id, phone_hash)`, one-default
+  address partial index, idempotency index, derived KPI columns with no write
+  path, and an encrypted address line. [privacy-model.md](privacy-model.md) is
+  the binding reference.
+- **M10.2 Backend module** ✅ — `modules/customers` (domain/application/
+  infrastructure, **no controllers yet**): E.164 normalization as the single gate
+  in front of the blind index; tenant-scoped CRUD + addresses; keyset list with
+  `q` routed to _either_ an exact blind-index phone lookup _or_ a name/email
+  search; governorate reference check (`422`); one-default-address demotion
+  inside the write transaction; `Idempotency-Key` replay on the EPIC-9 pattern
+  (including the concurrent race); audit-then-emit with **ids and field names
+  only** — no PII in an audit row, an event payload, or a cursor. `customer.*`
+  added to the closed event catalog (`customer.merged` reserved for EPIC-11).
+- **M10.3 Presentation** ⬜ — the 6 routes, DTOs, three-layer gating, module
+  registration in `app.module`.
+
 ### EPIC-11 — Orders
 
 Contract: [api/orders.md](api/orders.md). 12-state lifecycle + separate follow-up
