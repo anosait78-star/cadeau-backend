@@ -64,3 +64,23 @@ export class InvalidListCursorError extends Error {
     this.name = "InvalidListCursorError";
   }
 }
+
+/**
+ * A money-moving write was dated inside an already-closed
+ * `accounting_periods` row (D4). Reusable across every later money-moving
+ * milestone (invoices, refunds, PO payments) — not just expenses.
+ */
+export class PeriodClosedError extends Error {
+  constructor(readonly periodKey: string) {
+    super(`Accounting period ${periodKey} is closed; this date cannot be written to.`);
+    this.name = "PeriodClosedError";
+  }
+}
+
+/** `tax_settings.vatRateBps` was outside the valid 0-10000 (0%-100%) range. */
+export class InvalidVatRateError extends Error {
+  constructor() {
+    super("vatRateBps must be between 0 and 10000.");
+    this.name = "InvalidVatRateError";
+  }
+}

@@ -8,31 +8,40 @@ import type { FinanceAuditPort, FinanceAuditRecord } from "../domain/finance-aud
 import { FINANCE_AUDIT } from "../domain/finance-audit.port";
 import {
   FINANCE_REPOSITORY,
+  type CreateExpenseInput,
   type CreatePaymentInput,
   type CreatePurchaseOrderInput,
   type CreateReceiptInput,
   type CreateSupplierInput,
   type FinanceRepositoryPort,
+  type UpdateExpenseInput,
   type UpdateSupplierInput,
+  type UpdateTaxSettingsInput,
 } from "../domain/finance-repository.port";
 import type {
+  ExpenseView,
   PurchaseOrderListView,
   PurchaseOrderPaymentView,
   PurchaseOrderReceiptView,
   PurchaseOrderView,
   SupplierView,
+  TaxSettingsView,
 } from "../domain/finance.entity";
 import {
   EmptyPurchaseOrderError,
   IllegalPurchaseOrderStateError,
   InvalidAmountError,
   InvalidListCursorError,
+  InvalidVatRateError,
   OverReceiptError,
+  PeriodClosedError,
   ReferenceNotFoundError,
 } from "../domain/finance.errors";
 import {
+  parseExpenseListQuery,
   parsePurchaseOrderListQuery,
   parseSupplierListQuery,
+  type RawExpenseListQuery,
   type RawPurchaseOrderListQuery,
   type RawSupplierListQuery,
 } from "../domain/list-query";
@@ -234,6 +243,97 @@ export class FinanceService {
     return result.payment;
   }
 
+  // ---- Expenses (M13.3) --------------------------------------------------------
+
+  async listExpenses(
+    principal: RequestPrincipal,
+    rawQuery: RawExpenseListQuery,
+  ): Promise<KeysetPage<ExpenseView>> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseExpenseListQuery(rawQuery);
+    if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
+    try {
+      return await this.repo.listExpenses(companyId, query);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+  }
+
+  async getExpense(principal: RequestPrincipal, id: string): Promise<ExpenseView> {
+    const companyId = this.requireTenant(principal);
+    const row = await this.repo.findExpense(companyId, id);
+    if (row === null) throw AppErrors.notFound("Expense not found.");
+    return row;
+  }
+
+  async createExpense(principal: RequestPrincipal, data: CreateExpenseInput): Promise<ExpenseView> {
+    const companyId = this.requireTenant(principal);
+    let result;
+    try {
+      result = await this.repo.createExpense({ companyId, actorId: principal.userId }, data);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    if (!result.replayed) {
+      await this.record(companyId, principal.userId, {
+        action: "expense.created",
+        entityType: "expense",
+        entityId: result.expense.id,
+        changes: result.expense,
+      });
+    }
+    return result.expense;
+  }
+
+  async updateExpense(
+    principal: RequestPrincipal,
+    id: string,
+    data: UpdateExpenseInput,
+  ): Promise<ExpenseView> {
+    const companyId = this.requireTenant(principal);
+    let row: ExpenseView | null;
+    try {
+      row = await this.repo.updateExpense({ companyId, actorId: principal.userId }, id, data);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    if (row === null) throw AppErrors.notFound("Expense not found.");
+    await this.record(companyId, principal.userId, {
+      action: "expense.updated",
+      entityType: "expense",
+      entityId: row.id,
+      changes: row,
+    });
+    return row;
+  }
+
+  // ---- Tax settings (M13.3, D3) ------------------------------------------------
+
+  async getTaxSettings(principal: RequestPrincipal): Promise<TaxSettingsView> {
+    const companyId = this.requireTenant(principal);
+    return this.repo.getTaxSettings(companyId);
+  }
+
+  async updateTaxSettings(
+    principal: RequestPrincipal,
+    data: UpdateTaxSettingsInput,
+  ): Promise<TaxSettingsView> {
+    const companyId = this.requireTenant(principal);
+    let row: TaxSettingsView;
+    try {
+      row = await this.repo.updateTaxSettings({ companyId, actorId: principal.userId }, data);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    await this.record(companyId, principal.userId, {
+      action: "tax_settings.updated",
+      entityType: "tax_settings",
+      entityId: row.companyId,
+      changes: row,
+    });
+    return row;
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private async record(
@@ -286,6 +386,16 @@ export class FinanceService {
     }
     if (error instanceof InvalidListCursorError) {
       return AppErrors.badRequest(error.message);
+    }
+    if (error instanceof PeriodClosedError) {
+      return AppErrors.conflict(error.message, [
+        { field: "incurredAt", messages: [error.message] },
+      ]);
+    }
+    if (error instanceof InvalidVatRateError) {
+      return AppErrors.validation(error.message, [
+        { field: "vatRateBps", messages: [error.message] },
+      ]);
     }
     return error;
   }

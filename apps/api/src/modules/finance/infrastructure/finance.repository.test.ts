@@ -77,6 +77,30 @@ function paymentRow(extra: Record<string, unknown> = {}) {
   return { id: "pay1", poId: PO, amountMinor: 5000n, method: "cash", paidAt: NOW, ...extra };
 }
 
+function expenseRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: "exp1",
+    category: "office_supplies",
+    amountMinor: 12500n,
+    incurredAt: NOW,
+    notes: null,
+    supplierId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...extra,
+  };
+}
+
+function taxSettingsRow(extra: Record<string, unknown> = {}) {
+  return {
+    companyId: COMPANY,
+    vatRateBps: 0,
+    vatRegistrationNumber: null,
+    updatedAt: NOW,
+    ...extra,
+  };
+}
+
 function delegate() {
   return {
     findMany: vi.fn().mockResolvedValue([]),
@@ -100,6 +124,8 @@ function makeRepo() {
     productVariant: delegate(),
     warehouse: delegate(),
     stockAdjustment: delegate(),
+    expense: delegate(),
+    taxSettings: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -331,5 +357,152 @@ describe("FinanceRepository — payments", () => {
       method: "cash",
     });
     expect(result).toBeNull();
+  });
+});
+
+describe("FinanceRepository — expenses", () => {
+  it("creates an expense (period open, no accounting_periods row)", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen: no row -> open
+    models.expense.create.mockResolvedValue(expenseRow());
+    const result = await repo.createExpense(ACTOR_CTX, {
+      category: "office_supplies",
+      amountMinor: 12500,
+      incurredAt: "2026-01-02T00:00:00.000Z",
+    });
+    expect(result.replayed).toBe(false);
+    expect(result.expense.amountMinor).toBe(12500);
+  });
+
+  it("rejects an expense dated inside a closed accounting period", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([{ status: "closed" }]); // assertPeriodOpen
+    await expect(
+      repo.createExpense(ACTOR_CTX, {
+        category: "office_supplies",
+        amountMinor: 12500,
+        incurredAt: "2026-01-02T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ name: "PeriodClosedError" });
+  });
+
+  it("rejects a non-positive amount", async () => {
+    const { repo } = makeRepo();
+    await expect(
+      repo.createExpense(ACTOR_CTX, {
+        category: "office_supplies",
+        amountMinor: 0,
+        incurredAt: "2026-01-02T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ name: "InvalidAmountError" });
+  });
+
+  it("rejects an unknown supplier", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.supplier.findFirst.mockResolvedValue(null);
+    await expect(
+      repo.createExpense(ACTOR_CTX, {
+        category: "office_supplies",
+        amountMinor: 12500,
+        incurredAt: "2026-01-02T00:00:00.000Z",
+        supplierId: SUPPLIER,
+      }),
+    ).rejects.toMatchObject({ name: "ReferenceNotFoundError" });
+  });
+
+  it("lists expenses", async () => {
+    const { repo, models } = makeRepo();
+    models.expense.findMany.mockResolvedValue([expenseRow()]);
+    const page = await repo.listExpenses(COMPANY, {
+      sort: { field: "incurredAt", dir: "desc" },
+    });
+    expect(page.data).toHaveLength(1);
+  });
+
+  it("filters expenses by category, supplier, and date range", async () => {
+    const { repo, models } = makeRepo();
+    models.expense.findMany.mockResolvedValue([]);
+    await repo.listExpenses(COMPANY, {
+      sort: { field: "incurredAt", dir: "desc" },
+      category: "travel",
+      supplierId: SUPPLIER,
+      dateFrom: "2026-01-01T00:00:00.000Z",
+      dateTo: "2026-01-31T00:00:00.000Z",
+    });
+    const args = models.expense.findMany.mock.calls[0]?.[0] as { where: Record<string, unknown> };
+    expect(args.where).toMatchObject({ category: "travel", supplierId: SUPPLIER });
+    expect(args.where["incurredAt"]).toBeDefined();
+  });
+
+  it("finds an expense by id", async () => {
+    const { repo, models } = makeRepo();
+    models.expense.findFirst.mockResolvedValue(expenseRow());
+    expect(await repo.findExpense(COMPANY, "exp1")).not.toBeNull();
+  });
+
+  it("updates only the provided fields", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    models.expense.findFirst
+      .mockResolvedValueOnce(expenseRow())
+      .mockResolvedValueOnce(expenseRow({ category: "travel" }));
+    const row = await repo.updateExpense(ACTOR_CTX, "exp1", { category: "travel" });
+    expect(row?.category).toBe("travel");
+    const args = models.expense.updateMany.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(args.data).toMatchObject({ category: "travel" });
+    expect(args.data).not.toHaveProperty("amountMinor");
+  });
+
+  it("returns null when the expense to update is not in this tenant", async () => {
+    const { repo, models } = makeRepo();
+    models.expense.findFirst.mockResolvedValue(null);
+    expect(await repo.updateExpense(ACTOR_CTX, "nope", { category: "travel" })).toBeNull();
+  });
+
+  it("rejects updating an expense whose current date is in a closed period", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    models.expense.findFirst.mockResolvedValue(expenseRow());
+    queryRaw.mockResolvedValueOnce([{ status: "closed" }]); // assertPeriodOpen (existing date)
+    await expect(
+      repo.updateExpense(ACTOR_CTX, "exp1", { category: "travel" }),
+    ).rejects.toMatchObject({ name: "PeriodClosedError" });
+  });
+});
+
+describe("FinanceRepository — tax settings", () => {
+  it("lazily creates a default zero-rate row on first read", async () => {
+    const { repo, models } = makeRepo();
+    models.taxSettings.upsert.mockResolvedValue(taxSettingsRow());
+    const row = await repo.getTaxSettings(COMPANY);
+    expect(row.vatRateBps).toBe(0);
+    expect(row.vatRegistrationNumber).toBeNull();
+  });
+
+  it("updates the VAT rate and registration number", async () => {
+    const { repo, models } = makeRepo();
+    models.taxSettings.upsert.mockResolvedValue(
+      taxSettingsRow({ vatRateBps: 1400, vatRegistrationNumber: "VAT-1" }),
+    );
+    const row = await repo.updateTaxSettings(ACTOR_CTX, {
+      vatRateBps: 1400,
+      vatRegistrationNumber: "VAT-1",
+    });
+    expect(row.vatRateBps).toBe(1400);
+    expect(row.vatRegistrationNumber).toBe("VAT-1");
+  });
+
+  it("rejects a vatRateBps outside 0-10000", async () => {
+    const { repo } = makeRepo();
+    await expect(repo.updateTaxSettings(ACTOR_CTX, { vatRateBps: 10001 })).rejects.toMatchObject({
+      name: "InvalidVatRateError",
+    });
+    await expect(repo.updateTaxSettings(ACTOR_CTX, { vatRateBps: -1 })).rejects.toMatchObject({
+      name: "InvalidVatRateError",
+    });
   });
 });

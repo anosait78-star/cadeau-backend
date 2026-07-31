@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   MinLength,
   ValidateNested,
@@ -17,6 +18,7 @@ import { Type } from "class-transformer";
 import type { KeysetPage } from "@cadeau/database";
 import {
   PURCHASE_ORDER_STATUSES,
+  type ExpenseView,
   type PurchaseOrderLineView,
   type PurchaseOrderListView,
   type PurchaseOrderPaymentView,
@@ -24,6 +26,7 @@ import {
   type PurchaseOrderStatus,
   type PurchaseOrderView,
   type SupplierView,
+  type TaxSettingsView,
 } from "../../domain/finance.entity";
 
 // ---- Request DTOs ------------------------------------------------------------
@@ -178,6 +181,83 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsDateString()
   paidAt?: string;
+}
+
+/** Create-expense payload. */
+export class CreateExpenseDto {
+  @ApiProperty({ example: "office_supplies", maxLength: 100 })
+  @IsString()
+  @MinLength(1)
+  category!: string;
+
+  @ApiProperty({ example: 12500, minimum: 1, description: "Integer minor units." })
+  @IsInt()
+  @Min(1)
+  amountMinor!: number;
+
+  @ApiProperty({ format: "date-time" })
+  @IsDateString()
+  incurredAt!: string;
+
+  @ApiPropertyOptional({ nullable: true, maxLength: 2000 })
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+
+  @ApiPropertyOptional({ format: "uuid", nullable: true })
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string | null;
+}
+
+/** Update-expense payload (partial). Omit a field to leave it unchanged. */
+export class UpdateExpenseDto {
+  @ApiPropertyOptional({ maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  category?: string;
+
+  @ApiPropertyOptional({ example: 12500, minimum: 1, description: "Integer minor units." })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  amountMinor?: number;
+
+  @ApiPropertyOptional({ format: "date-time" })
+  @IsOptional()
+  @IsDateString()
+  incurredAt?: string;
+
+  @ApiPropertyOptional({ nullable: true, maxLength: 2000 })
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+
+  @ApiPropertyOptional({ format: "uuid", nullable: true })
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string | null;
+}
+
+/** Update-tax-settings payload (partial). Omit a field to leave it unchanged. */
+export class UpdateTaxSettingsDto {
+  @ApiPropertyOptional({
+    example: 1400,
+    minimum: 0,
+    maximum: 10000,
+    description: "Basis points, e.g. 1400 = 14%.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10000)
+  vatRateBps?: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  vatRegistrationNumber?: string | null;
 }
 
 // ---- Response DTOs -----------------------------------------------------------
@@ -423,6 +503,90 @@ export class PurchaseOrderListDtoPage {
       nextCursor: page.page.nextCursor,
       hasMore: page.page.hasMore,
     };
+    return dto;
+  }
+}
+
+/** A unified, categorized, dated expense. */
+export class ExpenseDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ example: "office_supplies" })
+  category!: string;
+
+  @ApiProperty({ example: 12500, description: "Integer minor units." })
+  amountMinor!: number;
+
+  @ApiProperty({ format: "date-time" })
+  incurredAt!: string;
+
+  @ApiProperty({ nullable: true })
+  notes!: string | null;
+
+  @ApiProperty({ format: "uuid", nullable: true })
+  supplierId!: string | null;
+
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  @ApiProperty({ format: "date-time" })
+  updatedAt!: string;
+
+  static from(view: ExpenseView): ExpenseDto {
+    const dto = new ExpenseDto();
+    dto.id = view.id;
+    dto.category = view.category;
+    dto.amountMinor = view.amountMinor;
+    dto.incurredAt = view.incurredAt;
+    dto.notes = view.notes;
+    dto.supplierId = view.supplierId;
+    dto.createdAt = view.createdAt;
+    dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+/** Keyset-paginated expenses envelope. */
+export class ExpenseListDto {
+  @ApiProperty({ type: [ExpenseDto] })
+  data!: ExpenseDto[];
+
+  @ApiProperty({ type: FinancePageDto })
+  page!: FinancePageDto;
+
+  static from(page: KeysetPage<ExpenseView>): ExpenseListDto {
+    const dto = new ExpenseListDto();
+    dto.data = page.data.map((e) => ExpenseDto.from(e));
+    dto.page = {
+      limit: page.page.limit,
+      nextCursor: page.page.nextCursor,
+      hasMore: page.page.hasMore,
+    };
+    return dto;
+  }
+}
+
+/** The company's one configured VAT rate + registration number (D3). */
+export class TaxSettingsDto {
+  @ApiProperty({ format: "uuid" })
+  companyId!: string;
+
+  @ApiProperty({ example: 1400, description: "Basis points, e.g. 1400 = 14%." })
+  vatRateBps!: number;
+
+  @ApiProperty({ nullable: true })
+  vatRegistrationNumber!: string | null;
+
+  @ApiProperty({ format: "date-time" })
+  updatedAt!: string;
+
+  static from(view: TaxSettingsView): TaxSettingsDto {
+    const dto = new TaxSettingsDto();
+    dto.companyId = view.companyId;
+    dto.vatRateBps = view.vatRateBps;
+    dto.vatRegistrationNumber = view.vatRegistrationNumber;
+    dto.updatedAt = view.updatedAt;
     return dto;
   }
 }

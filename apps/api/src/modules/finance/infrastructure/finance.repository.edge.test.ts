@@ -63,6 +63,20 @@ function paymentRow(extra: Record<string, unknown> = {}) {
   return { id: "pay1", poId: PO, amountMinor: 5000n, method: "cash", paidAt: NOW, ...extra };
 }
 
+function expenseRow(extra: Record<string, unknown> = {}) {
+  return {
+    id: "exp1",
+    category: "office_supplies",
+    amountMinor: 12500n,
+    incurredAt: NOW,
+    notes: null,
+    supplierId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...extra,
+  };
+}
+
 function delegate() {
   return {
     findMany: vi.fn().mockResolvedValue([]),
@@ -86,6 +100,8 @@ function makeRepo() {
     productVariant: delegate(),
     warehouse: delegate(),
     stockAdjustment: delegate(),
+    expense: delegate(),
+    taxSettings: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -375,5 +391,54 @@ describe("FinanceRepository — payment idempotency", () => {
         idempotencyKey: "k1",
       }),
     ).rejects.toMatchObject({ code: "P2002" });
+  });
+});
+
+describe("FinanceRepository — expense idempotency", () => {
+  it("replays a stored expense for a repeated key without a period check", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.expense.findFirst.mockResolvedValue(expenseRow());
+    const result = await repo.createExpense(ACTOR_CTX, {
+      category: "office_supplies",
+      amountMinor: 12500,
+      incurredAt: "2026-01-02T00:00:00.000Z",
+      idempotencyKey: "k1",
+    });
+    expect(result.replayed).toBe(true);
+    expect(result.expense.id).toBe("exp1");
+    expect(models.expense.create).not.toHaveBeenCalled();
+    // Only setTenantContext ran; the replay short-circuits before the
+    // period-open guard's raw query.
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays an expense whose key lost the insert race", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.expense.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(expenseRow());
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.expense.create.mockRejectedValue(uniqueViolation("expenses_idempotency_key"));
+
+    const result = await repo.createExpense(ACTOR_CTX, {
+      category: "office_supplies",
+      amountMinor: 12500,
+      incurredAt: "2026-01-02T00:00:00.000Z",
+      idempotencyKey: "k1",
+    });
+    expect(result.replayed).toBe(true);
+  });
+
+  it("rethrows a create failure that is not a unique violation", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    queryRaw.mockResolvedValueOnce([]); // assertPeriodOpen
+    models.expense.create.mockRejectedValue(new Error("connection lost"));
+    await expect(
+      repo.createExpense(ACTOR_CTX, {
+        category: "office_supplies",
+        amountMinor: 12500,
+        incurredAt: "2026-01-02T00:00:00.000Z",
+      }),
+    ).rejects.toThrow("connection lost");
   });
 });

@@ -105,3 +105,33 @@ export interface PurchaseOrderPaymentResult {
   readonly payment: PurchaseOrderPaymentView;
   readonly replayed: boolean;
 }
+
+// ---- Expenses (M13.3) -------------------------------------------------------
+
+/** A unified, categorized, dated money-out record. */
+export interface ExpenseView {
+  readonly id: string;
+  readonly category: string;
+  readonly amountMinor: number;
+  readonly incurredAt: string;
+  readonly notes: string | null;
+  readonly supplierId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** The outcome of creating an expense: the row plus replay status. */
+export interface ExpenseWriteResult {
+  readonly expense: ExpenseView;
+  readonly replayed: boolean;
+}
+
+// ---- Tax settings (M13.3, D3) ------------------------------------------------
+
+/** The company's one configured VAT rate + registration number. */
+export interface TaxSettingsView {
+  readonly companyId: string;
+  readonly vatRateBps: number;
+  readonly vatRegistrationNumber: string | null;
+  readonly updatedAt: string;
+}

@@ -12,15 +12,20 @@ import {
   stampForUpdate,
 } from "@cadeau/database";
 import type {
+  CreateExpenseInput,
   CreatePaymentInput,
   CreatePurchaseOrderInput,
   CreateReceiptInput,
   CreateSupplierInput,
   FinanceRepositoryPort,
+  UpdateExpenseInput,
   UpdateSupplierInput,
+  UpdateTaxSettingsInput,
   WriteActor,
 } from "../domain/finance-repository.port";
 import type {
+  ExpenseView,
+  ExpenseWriteResult,
   PurchaseOrderListView,
   PurchaseOrderLineView,
   PurchaseOrderPaymentResult,
@@ -31,16 +36,23 @@ import type {
   PurchaseOrderView,
   PurchaseOrderWriteResult,
   SupplierView,
+  TaxSettingsView,
 } from "../domain/finance.entity";
 import {
   EmptyPurchaseOrderError,
   IllegalPurchaseOrderStateError,
   InvalidAmountError,
   InvalidListCursorError,
+  InvalidVatRateError,
   OverReceiptError,
+  PeriodClosedError,
   ReferenceNotFoundError,
 } from "../domain/finance.errors";
-import type { ParsedPurchaseOrderListQuery, ParsedSupplierListQuery } from "../domain/list-query";
+import type {
+  ParsedExpenseListQuery,
+  ParsedPurchaseOrderListQuery,
+  ParsedSupplierListQuery,
+} from "../domain/list-query";
 import { FINANCE_PRISMA_CLIENT } from "./prisma-client.provider";
 
 /** A Prisma client or transaction client. */
@@ -106,9 +118,29 @@ const PAYMENT_SELECT = {
   paidAt: true,
 } as const;
 
+const EXPENSE_SELECT = {
+  id: true,
+  category: true,
+  amountMinor: true,
+  incurredAt: true,
+  notes: true,
+  supplierId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const TAX_SETTINGS_SELECT = {
+  companyId: true,
+  vatRateBps: true,
+  vatRegistrationNumber: true,
+  updatedAt: true,
+} as const;
+
 type PoListRow = Prisma.PurchaseOrderGetPayload<{ select: typeof PO_LIST_SELECT }>;
 type PoDetailRow = Prisma.PurchaseOrderGetPayload<{ select: typeof PO_DETAIL_SELECT }>;
 type ReceiptRow = Prisma.PurchaseOrderReceiptGetPayload<{ select: typeof RECEIPT_SELECT }>;
+type ExpenseRow = Prisma.ExpenseGetPayload<{ select: typeof EXPENSE_SELECT }>;
+type TaxSettingsRow = Prisma.TaxSettingsGetPayload<{ select: typeof TAX_SETTINGS_SELECT }>;
 
 /** A stock level row locked `FOR UPDATE` inside the current transaction. */
 interface LockedStockLevel {
@@ -563,6 +595,192 @@ export class FinanceRepository implements FinanceRepositoryPort {
     });
   }
 
+  // ---- Expenses (M13.3) --------------------------------------------------------
+
+  async listExpenses(
+    companyId: string,
+    query: ParsedExpenseListQuery,
+  ): Promise<KeysetPage<ExpenseView>> {
+    const limit = clampLimit(query.limit);
+    const cursor = this.decodeGeneric("incurredAt", query.cursor);
+    const where: Prisma.ExpenseWhereInput = { companyId };
+    if (query.category !== undefined) where.category = query.category;
+    if (query.supplierId !== undefined) where.supplierId = query.supplierId;
+    if (query.dateFrom !== undefined || query.dateTo !== undefined) {
+      where.incurredAt = {
+        ...(query.dateFrom !== undefined ? { gte: new Date(query.dateFrom) } : {}),
+        ...(query.dateTo !== undefined ? { lte: new Date(query.dateTo) } : {}),
+      };
+    }
+    if (cursor !== null) {
+      where.AND = [this.stringKeysetPredicate(query.sort, cursor) as Prisma.ExpenseWhereInput];
+    }
+    const rows = await this.tenantTx(companyId, (tx) =>
+      tx.expense.findMany({
+        where,
+        orderBy: [{ [query.sort.field]: query.sort.dir }, { id: query.sort.dir }],
+        take: limit + 1,
+        select: EXPENSE_SELECT,
+      }),
+    );
+    const views = rows.map((r) => this.toExpenseView(r));
+    return buildKeysetPage(views, limit, (view) => ({ p: view.incurredAt, t: view.id }));
+  }
+
+  async findExpense(companyId: string, id: string): Promise<ExpenseView | null> {
+    const row = await this.tenantTx(companyId, (tx) =>
+      tx.expense.findFirst({ where: { id, companyId }, select: EXPENSE_SELECT }),
+    );
+    return row === null ? null : this.toExpenseView(row);
+  }
+
+  async createExpense(actor: WriteActor, data: CreateExpenseInput): Promise<ExpenseWriteResult> {
+    if (data.amountMinor <= 0) throw new InvalidAmountError("amountMinor");
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const replay = await this.findExpenseByIdempotencyKey(
+        tx,
+        actor.companyId,
+        data.idempotencyKey,
+      );
+      if (replay !== null) return { expense: this.toExpenseView(replay), replayed: true };
+
+      const incurredAt = new Date(data.incurredAt);
+      await this.assertPeriodOpen(tx, actor.companyId, incurredAt);
+      if (data.supplierId !== undefined && data.supplierId !== null) {
+        await this.assertSupplier(tx, data.supplierId);
+      }
+
+      let row: ExpenseRow;
+      try {
+        row = await tx.expense.create({
+          data: stampForCreate(actor, {
+            category: data.category,
+            amountMinor: BigInt(data.amountMinor),
+            incurredAt,
+            notes: data.notes ?? null,
+            supplierId: data.supplierId ?? null,
+            idempotencyKey: data.idempotencyKey ?? null,
+          }) as Prisma.ExpenseUncheckedCreateInput,
+          select: EXPENSE_SELECT,
+        });
+      } catch (error) {
+        const raced = await this.replayOnKeyConflict(
+          tx,
+          actor.companyId,
+          data.idempotencyKey,
+          error,
+          (key) => this.findExpenseByIdempotencyKey(tx, actor.companyId, key),
+        );
+        if (raced !== null) return { expense: this.toExpenseView(raced), replayed: true };
+        throw error;
+      }
+      return { expense: this.toExpenseView(row), replayed: false };
+    });
+  }
+
+  async updateExpense(
+    actor: WriteActor,
+    id: string,
+    data: UpdateExpenseInput,
+  ): Promise<ExpenseView | null> {
+    if (data.amountMinor !== undefined && data.amountMinor <= 0) {
+      throw new InvalidAmountError("amountMinor");
+    }
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const where = { id, companyId: actor.companyId };
+      const existing = await tx.expense.findFirst({ where, select: EXPENSE_SELECT });
+      if (existing === null) return null;
+
+      // The row's current date must not be inside a closed period (that is
+      // the point of closing a period); a requested new date is checked too.
+      await this.assertPeriodOpen(tx, actor.companyId, existing.incurredAt);
+
+      const patch: Record<string, unknown> = {};
+      if (data.category !== undefined) patch["category"] = data.category;
+      if (data.amountMinor !== undefined) patch["amountMinor"] = BigInt(data.amountMinor);
+      if (data.notes !== undefined) patch["notes"] = data.notes;
+      if (data.supplierId !== undefined) {
+        if (data.supplierId !== null) await this.assertSupplier(tx, data.supplierId);
+        patch["supplierId"] = data.supplierId;
+      }
+      if (data.incurredAt !== undefined) {
+        const newIncurredAt = new Date(data.incurredAt);
+        await this.assertPeriodOpen(tx, actor.companyId, newIncurredAt);
+        patch["incurredAt"] = newIncurredAt;
+      }
+
+      const { count } = await tx.expense.updateMany({
+        where,
+        data: stampForUpdate(actor, patch) as Prisma.ExpenseUncheckedUpdateManyInput,
+      });
+      if (count === 0) return null;
+      const row = await tx.expense.findFirst({ where, select: EXPENSE_SELECT });
+      return row === null ? null : this.toExpenseView(row);
+    });
+  }
+
+  // ---- Tax settings (M13.3, D3) ------------------------------------------------
+
+  async getTaxSettings(companyId: string): Promise<TaxSettingsView> {
+    return this.tenantTx(companyId, async (tx) => {
+      const row = await tx.taxSettings.upsert({
+        where: { companyId },
+        create: { companyId, vatRateBps: 0, vatRegistrationNumber: null },
+        update: {},
+        select: TAX_SETTINGS_SELECT,
+      });
+      return this.toTaxSettingsView(row);
+    });
+  }
+
+  async updateTaxSettings(
+    actor: WriteActor,
+    data: UpdateTaxSettingsInput,
+  ): Promise<TaxSettingsView> {
+    if (data.vatRateBps !== undefined && (data.vatRateBps < 0 || data.vatRateBps > 10000)) {
+      throw new InvalidVatRateError();
+    }
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const patch: Record<string, unknown> = { updatedBy: actor.actorId };
+      if (data.vatRateBps !== undefined) patch["vatRateBps"] = data.vatRateBps;
+      if (data.vatRegistrationNumber !== undefined) {
+        patch["vatRegistrationNumber"] = data.vatRegistrationNumber;
+      }
+      const row = await tx.taxSettings.upsert({
+        where: { companyId: actor.companyId },
+        create: {
+          companyId: actor.companyId,
+          vatRateBps: data.vatRateBps ?? 0,
+          vatRegistrationNumber: data.vatRegistrationNumber ?? null,
+          updatedBy: actor.actorId,
+        },
+        update: patch,
+        select: TAX_SETTINGS_SELECT,
+      });
+      return this.toTaxSettingsView(row);
+    });
+  }
+
+  // ---- internals: period-close guard (D4) -------------------------------------
+
+  /**
+   * Reject a money-moving write dated inside an already-closed accounting
+   * period. No row for the period means it is open by default (no milestone
+   * has built close/M13.5 yet, but this guard is written forward-compatibly
+   * so every later money-moving service can reuse it as-is).
+   */
+  private async assertPeriodOpen(tx: Tx, companyId: string, date: Date): Promise<void> {
+    const periodKey = date.toISOString().slice(0, 7);
+    const rows = await tx.$queryRaw<{ status: string }[]>`
+      SELECT status FROM public.accounting_periods
+       WHERE company_id = ${companyId}::uuid AND period_key = ${periodKey}
+       LIMIT 1`;
+    const row = rows[0];
+    if (row !== undefined && row.status === "closed") {
+      throw new PeriodClosedError(periodKey);
+    }
+  }
+
   // ---- internals: receipt stock effect --------------------------------------
 
   /**
@@ -738,6 +956,18 @@ export class FinanceRepository implements FinanceRepositoryPort {
     });
   }
 
+  private async findExpenseByIdempotencyKey(
+    tx: Tx,
+    companyId: string,
+    key: string | undefined,
+  ): Promise<ExpenseRow | null> {
+    if (key === undefined) return null;
+    return tx.expense.findFirst({
+      where: { companyId, idempotencyKey: key },
+      select: EXPENSE_SELECT,
+    });
+  }
+
   /** Turn a racing idempotency-key unique violation into the stored result. */
   private async replayOnKeyConflict<T>(
     _tx: Tx,
@@ -760,7 +990,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
     cursor: DecodedCursor,
   ): object {
     const op = sort.dir === "asc" ? "gt" : "lt";
-    const isTime = sort.field === "createdAt";
+    const isTime = sort.field === "createdAt" || sort.field === "incurredAt";
     const primaryValue: string | Date = isTime ? new Date(cursor.p) : cursor.p;
     return {
       OR: [
@@ -777,7 +1007,9 @@ export class FinanceRepository implements FinanceRepositoryPort {
       const p = decoded["p"];
       const t = decoded["t"];
       if (typeof p !== "string" || typeof t !== "string") throw new InvalidListCursorError();
-      if (field === "createdAt" && Number.isNaN(Date.parse(p))) throw new InvalidListCursorError();
+      if ((field === "createdAt" || field === "incurredAt") && Number.isNaN(Date.parse(p))) {
+        throw new InvalidListCursorError();
+      }
       return { p, t };
     } catch (error) {
       if (error instanceof InvalidCursorError) throw new InvalidListCursorError();
@@ -875,6 +1107,28 @@ export class FinanceRepository implements FinanceRepositoryPort {
       amountMinor: Number(row.amountMinor),
       method: row.method,
       paidAt: row.paidAt.toISOString(),
+    };
+  }
+
+  private toExpenseView(row: ExpenseRow): ExpenseView {
+    return {
+      id: row.id,
+      category: row.category,
+      amountMinor: Number(row.amountMinor),
+      incurredAt: row.incurredAt.toISOString(),
+      notes: row.notes,
+      supplierId: row.supplierId,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toTaxSettingsView(row: TaxSettingsRow): TaxSettingsView {
+    return {
+      companyId: row.companyId,
+      vatRateBps: row.vatRateBps,
+      vatRegistrationNumber: row.vatRegistrationNumber,
+      updatedAt: row.updatedAt.toISOString(),
     };
   }
 }

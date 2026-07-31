@@ -7,15 +7,19 @@ import type { Clock } from "../../../shared/time/clock";
 import type { FinanceAuditPort } from "../domain/finance-audit.port";
 import type { FinanceRepositoryPort } from "../domain/finance-repository.port";
 import type {
+  ExpenseView,
   PurchaseOrderPaymentView,
   PurchaseOrderReceiptView,
   PurchaseOrderView,
   SupplierView,
+  TaxSettingsView,
 } from "../domain/finance.entity";
 import {
   EmptyPurchaseOrderError,
   IllegalPurchaseOrderStateError,
+  InvalidVatRateError,
   OverReceiptError,
+  PeriodClosedError,
   ReferenceNotFoundError,
 } from "../domain/finance.errors";
 import { FinanceService } from "./finance.service";
@@ -85,6 +89,30 @@ function emptyPage<T>(): KeysetPage<T> {
   return { data: [], page: { limit: 25, nextCursor: null, hasMore: false } };
 }
 
+function expense(extra: Partial<ExpenseView> = {}): ExpenseView {
+  return {
+    id: "e1",
+    category: "office_supplies",
+    amountMinor: 12500,
+    incurredAt: "2026-01-01T00:00:00.000Z",
+    notes: null,
+    supplierId: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...extra,
+  };
+}
+
+function taxSettings(extra: Partial<TaxSettingsView> = {}): TaxSettingsView {
+  return {
+    companyId: COMPANY,
+    vatRateBps: 0,
+    vatRegistrationNumber: null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...extra,
+  };
+}
+
 function makeService() {
   const repo: FinanceRepositoryPort = {
     listSuppliers: vi.fn().mockResolvedValue(emptyPage()),
@@ -97,6 +125,12 @@ function makeService() {
     createPurchaseOrder: vi.fn(),
     receivePurchaseOrder: vi.fn(),
     payPurchaseOrder: vi.fn(),
+    listExpenses: vi.fn().mockResolvedValue(emptyPage()),
+    findExpense: vi.fn().mockResolvedValue(null),
+    createExpense: vi.fn(),
+    updateExpense: vi.fn().mockResolvedValue(null),
+    getTaxSettings: vi.fn().mockResolvedValue(taxSettings()),
+    updateTaxSettings: vi.fn().mockResolvedValue(taxSettings()),
   };
   const audit: FinanceAuditPort = { record: vi.fn().mockResolvedValue(undefined) };
   const events: EventBusPort = {
@@ -265,6 +299,94 @@ describe("FinanceService — purchase orders", () => {
     vi.mocked(repo.payPurchaseOrder).mockResolvedValue(null);
     await expect(
       service.payPurchaseOrder(principal(), "nope", { amountMinor: 100, method: "cash" }),
+    ).rejects.toBeInstanceOf(AppException);
+  });
+});
+
+describe("FinanceService — expenses", () => {
+  it("creates an expense and audits once, but not on replay", async () => {
+    const { service, repo, audit } = makeService();
+    vi.mocked(repo.createExpense).mockResolvedValue({ expense: expense(), replayed: false });
+    await service.createExpense(principal(), {
+      category: "office_supplies",
+      amountMinor: 12500,
+      incurredAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "expense.created", entityId: "e1" }),
+    );
+
+    vi.mocked(audit.record).mockClear();
+    vi.mocked(repo.createExpense).mockResolvedValue({ expense: expense(), replayed: true });
+    await service.createExpense(principal(), {
+      category: "office_supplies",
+      amountMinor: 12500,
+      incurredAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("maps a period-closed error to 409", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.createExpense).mockRejectedValue(new PeriodClosedError("2026-01"));
+    await expect(
+      service.createExpense(principal(), {
+        category: "office_supplies",
+        amountMinor: 12500,
+        incurredAt: "2026-01-01T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ getStatus: expect.any(Function) });
+  });
+
+  it("updates an expense and audits", async () => {
+    const { service, repo, audit } = makeService();
+    vi.mocked(repo.updateExpense).mockResolvedValue(expense({ category: "travel" }));
+    const row = await service.updateExpense(principal(), "e1", { category: "travel" });
+    expect(row.category).toBe("travel");
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "expense.updated" }),
+    );
+  });
+
+  it("404s when the expense to update is not found", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.updateExpense).mockResolvedValue(null);
+    await expect(
+      service.updateExpense(principal(), "nope", { category: "travel" }),
+    ).rejects.toBeInstanceOf(AppException);
+  });
+
+  it("404s when the expense to read is not found", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.findExpense).mockResolvedValue(null);
+    await expect(service.getExpense(principal(), "nope")).rejects.toBeInstanceOf(AppException);
+  });
+});
+
+describe("FinanceService — tax settings", () => {
+  it("reads the company's tax settings", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.getTaxSettings).mockResolvedValue(taxSettings({ vatRateBps: 1400 }));
+    const row = await service.getTaxSettings(principal());
+    expect(row.vatRateBps).toBe(1400);
+    expect(repo.getTaxSettings).toHaveBeenCalledWith(COMPANY);
+  });
+
+  it("updates the VAT rate and audits", async () => {
+    const { service, repo, audit } = makeService();
+    vi.mocked(repo.updateTaxSettings).mockResolvedValue(taxSettings({ vatRateBps: 1400 }));
+    const row = await service.updateTaxSettings(principal(), { vatRateBps: 1400 });
+    expect(row.vatRateBps).toBe(1400);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "tax_settings.updated" }),
+    );
+  });
+
+  it("maps an invalid VAT rate to 400 validation", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.updateTaxSettings).mockRejectedValue(new InvalidVatRateError());
+    await expect(
+      service.updateTaxSettings(principal(), { vatRateBps: 20000 }),
     ).rejects.toBeInstanceOf(AppException);
   });
 });

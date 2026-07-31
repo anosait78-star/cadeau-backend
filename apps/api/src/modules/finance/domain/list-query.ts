@@ -70,6 +70,35 @@ export interface ParsedPurchaseOrderListQuery {
 
 const PURCHASE_ORDER_SORTS: readonly PurchaseOrderSortField[] = ["createdAt"];
 
+// ---- Expenses (M13.3) --------------------------------------------------------
+
+/** Sortable expense fields (whitelist). `incurredAt` is the default (descending). */
+export type ExpenseSortField = "incurredAt";
+
+/** Raw expense query params as they arrive (all strings). */
+export interface RawExpenseListQuery {
+  readonly limit?: string;
+  readonly cursor?: string;
+  readonly sort?: string;
+  readonly category?: string;
+  readonly supplierId?: string;
+  readonly dateFrom?: string;
+  readonly dateTo?: string;
+}
+
+/** A normalized, validated expense list query. */
+export interface ParsedExpenseListQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly sort: { readonly field: ExpenseSortField; readonly dir: "asc" | "desc" };
+  readonly category?: string;
+  readonly supplierId?: string;
+  readonly dateFrom?: string;
+  readonly dateTo?: string;
+}
+
+const EXPENSE_SORTS: readonly ExpenseSortField[] = ["incurredAt"];
+
 // ---- Shared parsing --------------------------------------------------------
 
 /** Parse `?sort=` (a leading `-` means descending) against a whitelist. */
@@ -174,6 +203,39 @@ export function parsePurchaseOrderListQuery(raw: RawPurchaseOrderListQuery): {
     ...(raw.cursor !== undefined ? { cursor: raw.cursor } : {}),
     sort,
     ...(raw.status !== undefined ? { status: raw.status as PurchaseOrderStatus } : {}),
+    ...(raw.supplierId !== undefined ? { supplierId: raw.supplierId } : {}),
+    ...(raw.dateFrom !== undefined ? { dateFrom: raw.dateFrom } : {}),
+    ...(raw.dateTo !== undefined ? { dateTo: raw.dateTo } : {}),
+  };
+  return { query, errors };
+}
+
+/**
+ * Validate + normalize the expense list query. The caller renders the
+ * returned errors into a `400 VALIDATION_FAILED`.
+ */
+export function parseExpenseListQuery(raw: RawExpenseListQuery): {
+  query?: ParsedExpenseListQuery;
+  errors: FieldError[];
+} {
+  const errors: FieldError[] = [];
+
+  const { sort, error: sortError } = parseSort(raw.sort, EXPENSE_SORTS, "-incurredAt");
+  if (sortError !== undefined) errors.push(sortError);
+
+  checkUuid("supplierId", raw.supplierId, errors);
+  checkDate("dateFrom", raw.dateFrom, errors);
+  checkDate("dateTo", raw.dateTo, errors);
+
+  if (errors.length > 0 || sort === undefined) return { errors };
+
+  const query: ParsedExpenseListQuery = {
+    ...(raw.limit !== undefined ? { limit: Number(raw.limit) } : {}),
+    ...(raw.cursor !== undefined ? { cursor: raw.cursor } : {}),
+    sort,
+    ...(raw.category !== undefined && raw.category.trim().length > 0
+      ? { category: raw.category.trim() }
+      : {}),
     ...(raw.supplierId !== undefined ? { supplierId: raw.supplierId } : {}),
     ...(raw.dateFrom !== undefined ? { dateFrom: raw.dateFrom } : {}),
     ...(raw.dateTo !== undefined ? { dateTo: raw.dateTo } : {}),

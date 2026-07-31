@@ -1,13 +1,20 @@
 import type { KeysetPage } from "@cadeau/database";
 import type {
+  ExpenseView,
+  ExpenseWriteResult,
   PurchaseOrderListView,
   PurchaseOrderPaymentResult,
   PurchaseOrderReceiptResult,
   PurchaseOrderView,
   PurchaseOrderWriteResult,
   SupplierView,
+  TaxSettingsView,
 } from "./finance.entity";
-import type { ParsedPurchaseOrderListQuery, ParsedSupplierListQuery } from "./list-query";
+import type {
+  ParsedExpenseListQuery,
+  ParsedPurchaseOrderListQuery,
+  ParsedSupplierListQuery,
+} from "./list-query";
 
 /** The tenant + acting member for a write. */
 export interface WriteActor {
@@ -70,6 +77,31 @@ export interface CreatePaymentInput {
   readonly method: string;
   readonly paidAt?: string | undefined;
   readonly idempotencyKey?: string | undefined;
+}
+
+/** Fields accepted when creating an expense (M13.3). */
+export interface CreateExpenseInput {
+  readonly category: string;
+  readonly amountMinor: number;
+  readonly incurredAt: string;
+  readonly notes?: string | null;
+  readonly supplierId?: string | null;
+  readonly idempotencyKey?: string | undefined;
+}
+
+/** Partial update for an expense; omitted keys are left unchanged. */
+export interface UpdateExpenseInput {
+  readonly category?: string;
+  readonly amountMinor?: number;
+  readonly incurredAt?: string;
+  readonly notes?: string | null;
+  readonly supplierId?: string | null;
+}
+
+/** Partial update for the company's tax settings; omitted keys are left unchanged. */
+export interface UpdateTaxSettingsInput {
+  readonly vatRateBps?: number;
+  readonly vatRegistrationNumber?: string | null;
 }
 
 /**
@@ -140,6 +172,38 @@ export interface FinanceRepositoryPort {
     poId: string,
     data: CreatePaymentInput,
   ): Promise<PurchaseOrderPaymentResult | null>;
+
+  // ---- Expenses (M13.3) -------------------------------------------------------
+
+  listExpenses(companyId: string, query: ParsedExpenseListQuery): Promise<KeysetPage<ExpenseView>>;
+
+  findExpense(companyId: string, id: string): Promise<ExpenseView | null>;
+
+  /**
+   * Create an expense. Rejects a date inside an already-closed accounting
+   * period ({@link PeriodClosedError}, D4) and a positive-amount violation
+   * ({@link InvalidAmountError}).
+   */
+  createExpense(actor: WriteActor, data: CreateExpenseInput): Promise<ExpenseWriteResult>;
+
+  /**
+   * Update an expense's mutable fields. Rejects when either the expense's
+   * current `incurredAt` or a newly-requested one falls inside a closed
+   * accounting period. Returns `null` when unknown in this tenant.
+   */
+  updateExpense(
+    actor: WriteActor,
+    id: string,
+    data: UpdateExpenseInput,
+  ): Promise<ExpenseView | null>;
+
+  // ---- Tax settings (M13.3, D3) ------------------------------------------------
+
+  /** Read the company's tax settings, lazily creating a default zero-rate row. */
+  getTaxSettings(companyId: string): Promise<TaxSettingsView>;
+
+  /** Update the company's tax settings (upsert semantics). */
+  updateTaxSettings(actor: WriteActor, data: UpdateTaxSettingsInput): Promise<TaxSettingsView>;
 }
 
 /** DI token for {@link FinanceRepositoryPort}. */
