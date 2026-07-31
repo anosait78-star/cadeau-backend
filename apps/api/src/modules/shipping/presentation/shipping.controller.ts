@@ -119,6 +119,20 @@ export class ShippingController {
     return ShipmentDto.from(await this.service.getOne(principal, shipmentId));
   }
 
+  @Get("orders/:orderId/shipment")
+  @RequireCapability({ feature: SHIPPING_FEATURE, permission: "shipping.read" })
+  @ApiOperation({
+    summary: "The most recent shipment for an order (M12.5 order-detail tracking)",
+    operationId: "getShipmentForOrder",
+  })
+  @ApiOkResponse({ type: ShipmentDto })
+  async getByOrder(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("orderId", ParseUUIDPipe) orderId: string,
+  ): Promise<ShipmentDto> {
+    return ShipmentDto.from(await this.service.getByOrder(principal, orderId));
+  }
+
   @Post("shipments/:shipmentId/status")
   @HttpCode(HttpStatus.OK)
   @RequireCapability({ feature: SHIPPING_FEATURE, permission: "shipping.manage" })

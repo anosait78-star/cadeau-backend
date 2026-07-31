@@ -122,11 +122,22 @@ function makeRepo(
   return { repo, models, queryRaw, carrier, state };
 }
 
-describe("ShippingRepository — findById / findByTrackingNumber", () => {
+describe("ShippingRepository — findById / findByTrackingNumber / findLatestByOrderId", () => {
   it("returns null when absent", async () => {
     const { repo } = makeRepo();
     expect(await repo.findById(COMPANY, "missing")).toBeNull();
     expect(await repo.findByTrackingNumber(COMPANY, "manual", "MAN-XXX")).toBeNull();
+    expect(await repo.findLatestByOrderId(COMPANY, ORDER)).toBeNull();
+  });
+
+  it("finds the most recent shipment for an order", async () => {
+    const { repo, models } = makeRepo();
+    models.shipment.findFirst.mockResolvedValueOnce(shipmentRow());
+    const view = await repo.findLatestByOrderId(COMPANY, ORDER);
+    expect(view?.orderId).toBe(ORDER);
+    expect(models.shipment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { companyId: COMPANY, orderId: ORDER } }),
+    );
   });
 
   it("maps a found row to a view", async () => {

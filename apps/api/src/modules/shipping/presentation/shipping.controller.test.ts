@@ -43,6 +43,7 @@ function makeHarness(): Harness {
   const service = {
     listCarriers: vi.fn().mockReturnValue([{ key: "manual" }]),
     getOne: vi.fn().mockResolvedValue(shipment()),
+    getByOrder: vi.fn().mockResolvedValue(shipment()),
     create: vi.fn().mockResolvedValue({ shipment: shipment(), replayed: false }),
     bulkCreate: vi.fn().mockResolvedValue([{ orderId: ORDER, ok: true, shipmentId: SHIPMENT }]),
     transition: vi.fn().mockResolvedValue(shipment({ status: "picked_up" })),
@@ -95,6 +96,12 @@ describe("ShippingController", () => {
   it("gets a shipment by id", async () => {
     const dto = await h.controller.getOne(principal, SHIPMENT);
     expect(h.service.getOne).toHaveBeenCalledWith(principal, SHIPMENT);
+    expect(dto.id).toBe(SHIPMENT);
+  });
+
+  it("gets the most recent shipment for an order", async () => {
+    const dto = await h.controller.getByOrder(principal, ORDER);
+    expect(h.service.getByOrder).toHaveBeenCalledWith(principal, ORDER);
     expect(dto.id).toBe(SHIPMENT);
   });
 

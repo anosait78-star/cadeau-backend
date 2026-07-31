@@ -49,6 +49,13 @@ export interface ShippingRepositoryPort {
     trackingNumber: string,
   ): Promise<ShipmentView | null>;
 
+  /**
+   * The most recent shipment for an order, or `null` if none exists yet
+   * (M12.5 — lets the order detail show tracking without a general list
+   * endpoint, which doesn't exist yet).
+   */
+  findLatestByOrderId(companyId: string, orderId: string): Promise<ShipmentView | null>;
+
   create(actor: WriteActor, data: CreateShipmentInput): Promise<ShipmentWriteResult>;
 
   /** Bulk-create; atomic per order, one result per requested order id. */

@@ -71,6 +71,17 @@ export class ShippingService {
     return this.repo.findByTrackingNumber(companyId, carrier, trackingNumber);
   }
 
+  /**
+   * The most recent shipment for an order (M12.5 — the order detail's
+   * tracking section; no general list endpoint exists yet).
+   */
+  async getByOrder(principal: RequestPrincipal, orderId: string): Promise<ShipmentView> {
+    const companyId = this.requireTenant(principal);
+    const shipment = await this.repo.findLatestByOrderId(companyId, orderId);
+    if (shipment === null) throw AppErrors.notFound("No shipment for this order.");
+    return shipment;
+  }
+
   async create(
     principal: RequestPrincipal,
     data: CreateShipmentInput,

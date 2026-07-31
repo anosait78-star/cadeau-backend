@@ -75,6 +75,18 @@ const ORDER_DETAIL = {
 
 const ORDERS_PAGE = { data: [ORDER_ROW], page: { limit: 25, nextCursor: null, hasMore: false } };
 const COUNTS = { counts: { new: 1, processing: 0 } };
+const SHIPMENT = {
+  id: "s1",
+  orderId: "o1",
+  carrier: "manual",
+  trackingNumber: "MAN-ABC123",
+  status: "created",
+  fee: 0,
+  waybillIssued: false,
+  deliveredAt: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
 const ACTIVITY = {
   data: [
     {
@@ -92,14 +104,42 @@ const ACTIVITY = {
 
 describe("OrdersPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
+  /** Mutable per-test shipment fixture for GET /shipping/orders/o1/shipment. */
+  let shipment: typeof SHIPMENT | null;
 
   beforeEach(() => {
     localStorage.setItem("cadeau.locale", "en");
+    shipment = null;
     fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
       if (url.includes("/orders/status-counts")) return Promise.resolve(json(200, COUNTS));
       if (url.match(/\/orders\/o1\/activity/)) return Promise.resolve(json(200, ACTIVITY));
+      if (url.match(/\/shipping\/orders\/o1\/shipment$/) && method === "GET") {
+        return Promise.resolve(
+          shipment === null
+            ? json(404, { error: { code: "NOT_FOUND", statusCode: 404 } })
+            : json(200, shipment),
+        );
+      }
+      if (url.match(/\/shipping\/shipments$/) && method === "POST") {
+        shipment = { ...SHIPMENT };
+        return Promise.resolve(json(201, shipment));
+      }
+      if (url.match(/\/shipping\/shipments\/s1\/status$/) && method === "POST") {
+        const body =
+          init?.body !== undefined
+            ? (JSON.parse(String(init.body)) as { toStatus: string })
+            : { toStatus: "created" };
+        shipment = { ...SHIPMENT, status: body.toStatus };
+        return Promise.resolve(json(200, shipment));
+      }
+      if (url.match(/\/shipping\/shipments\/s1\/waybill$/) && method === "POST") {
+        if (shipment !== null) shipment = { ...shipment, waybillIssued: true };
+        return Promise.resolve(
+          json(200, { shipmentId: "s1", carrier: "manual", trackingNumber: "MAN-ABC123" }),
+        );
+      }
       if (url.match(/\/orders\/o1\/status$/) && method === "POST") {
         return Promise.resolve(json(200, { ...ORDER_DETAIL, status: "processing" }));
       }
@@ -266,6 +306,82 @@ describe("OrdersPage", () => {
   it("shows the forbidden fallback without the orders feature", () => {
     renderPage([], []);
     expect(screen.getByText("You do not have access to orders.")).toBeInTheDocument();
+  });
+
+  describe("shipment section (EPIC-12 M12.5)", () => {
+    const SHIPPING_FEATURES = ["orders", "shipping"];
+    const SHIPPING_PERMISSIONS = [
+      "orders.read",
+      "orders.manage",
+      "shipping.read",
+      "shipping.manage",
+    ];
+
+    it("hides the whole section without the shipping feature", async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("#1042");
+      await user.click(screen.getByRole("button", { name: "Details" }));
+      await screen.findByText(/T — L × 2/);
+      expect(screen.queryByText("Shipment")).not.toBeInTheDocument();
+    });
+
+    it("shows 'no shipment yet' and creates one", async () => {
+      const user = userEvent.setup();
+      renderPage(SHIPPING_FEATURES, SHIPPING_PERMISSIONS);
+      await screen.findByText("#1042");
+      await user.click(screen.getByRole("button", { name: "Details" }));
+      expect(await screen.findByText("No shipment yet.")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Create shipment" }));
+      expect(await screen.findByText("MAN-ABC123")).toBeInTheDocument();
+      expect(screen.getByText("manual")).toBeInTheDocument();
+    });
+
+    it("advances shipment status through the manual select", async () => {
+      const user = userEvent.setup();
+      shipment = { ...SHIPMENT };
+      renderPage(SHIPPING_FEATURES, SHIPPING_PERMISSIONS);
+      await screen.findByText("#1042");
+      await user.click(screen.getByRole("button", { name: "Details" }));
+      await screen.findByText("MAN-ABC123");
+
+      const selects = screen.getAllByRole("combobox");
+      const advance = selects[selects.length - 1]!;
+      await user.selectOptions(advance, "picked_up");
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringMatching(/\/shipping\/shipments\/s1\/status$/),
+          expect.objectContaining({ method: "POST" }),
+        ),
+      );
+    });
+
+    it("issues a waybill", async () => {
+      const user = userEvent.setup();
+      shipment = { ...SHIPMENT };
+      renderPage(SHIPPING_FEATURES, SHIPPING_PERMISSIONS);
+      await screen.findByText("#1042");
+      await user.click(screen.getByRole("button", { name: "Details" }));
+      await screen.findByText("MAN-ABC123");
+
+      await user.click(screen.getByRole("button", { name: "Waybill" }));
+      // Both the flash notice and the detail-panel status label say the same
+      // thing once the waybill flag flips.
+      await waitFor(() => expect(screen.getAllByText("Waybill issued").length).toBeGreaterThan(0));
+      expect(screen.queryByRole("button", { name: "Waybill" })).not.toBeInTheDocument();
+    });
+
+    it("hides manage actions without shipping.manage, but still shows tracking", async () => {
+      const user = userEvent.setup();
+      shipment = { ...SHIPMENT };
+      renderPage(["orders", "shipping"], ["orders.read", "orders.manage", "shipping.read"]);
+      await screen.findByText("#1042");
+      await user.click(screen.getByRole("button", { name: "Details" }));
+      await screen.findByText("MAN-ABC123");
+      expect(screen.queryByRole("button", { name: "Waybill" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Create shipment" })).not.toBeInTheDocument();
+    });
   });
 });
 

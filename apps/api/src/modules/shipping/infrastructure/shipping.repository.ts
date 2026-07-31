@@ -99,6 +99,17 @@ export class ShippingRepository implements ShippingRepositoryPort {
     return row === null ? null : this.toView(row);
   }
 
+  async findLatestByOrderId(companyId: string, orderId: string): Promise<ShipmentView | null> {
+    const row = await this.tenantTx(companyId, (tx) =>
+      tx.shipment.findFirst({
+        where: { companyId, orderId },
+        orderBy: { createdAt: "desc" },
+        select: SHIPMENT_SELECT,
+      }),
+    );
+    return row === null ? null : this.toView(row);
+  }
+
   async create(actor: WriteActor, data: CreateShipmentInput): Promise<ShipmentWriteResult> {
     return this.tenantTx(actor.companyId, async (tx) => {
       const replay = await this.findByIdempotencyKey(tx, actor.companyId, data.idempotencyKey);

@@ -49,6 +49,7 @@ function makeHarness(): Harness {
   const repo = {
     findById: vi.fn().mockResolvedValue(shipment()),
     findByTrackingNumber: vi.fn().mockResolvedValue(shipment()),
+    findLatestByOrderId: vi.fn().mockResolvedValue(shipment()),
     create: vi.fn().mockResolvedValue({ shipment: shipment(), replayed: false }),
     bulkCreate: vi.fn().mockResolvedValue({
       results: [{ orderId: ORDER, ok: true, shipmentId: SHIPMENT }],
@@ -103,6 +104,21 @@ describe("ShippingService", () => {
     const result = await h.service.findShipmentByTracking(COMPANY, "manual", "MAN-ABC123");
     expect(h.repo.findByTrackingNumber).toHaveBeenCalledWith(COMPANY, "manual", "MAN-ABC123");
     expect(result?.id).toBe(SHIPMENT);
+  });
+
+  describe("getByOrder", () => {
+    it("returns the most recent shipment for an order", async () => {
+      const result = await h.service.getByOrder(principal(), ORDER);
+      expect(h.repo.findLatestByOrderId).toHaveBeenCalledWith(COMPANY, ORDER);
+      expect(result.id).toBe(SHIPMENT);
+    });
+
+    it("throws not-found when the order has no shipment yet", async () => {
+      h.repo.findLatestByOrderId.mockResolvedValueOnce(null);
+      await expect(h.service.getByOrder(principal(), ORDER)).rejects.toMatchObject({
+        status: 404,
+      });
+    });
   });
 
   describe("create", () => {
