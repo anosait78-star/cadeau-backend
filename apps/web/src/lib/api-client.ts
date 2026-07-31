@@ -62,6 +62,8 @@ interface RequestOptions {
   /** Attach the bearer access token and refresh-and-retry on a 401. Default true. */
   auth?: boolean;
   signal?: AbortSignal;
+  /** Extra request headers (e.g. `Idempotency-Key`), merged over the defaults. */
+  headers?: Record<string, string>;
 }
 
 /** A single shared refresh so concurrent 401s trigger only one rotation. */
@@ -74,10 +76,10 @@ let refreshInFlight: Promise<string | null> | null = null;
  * rotates the refresh token once and retries transparently.
  */
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, auth = true, signal } = options;
+  const { method = "GET", body, auth = true, signal, headers: extraHeaders } = options;
 
   const send = async (accessToken: string | null): Promise<Response> => {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...extraHeaders };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (accessToken !== null) headers["Authorization"] = `Bearer ${accessToken}`;
     const init: RequestInit = { method, headers };
@@ -110,6 +112,40 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     return undefined as T;
   }
   return (await response.json()) as T;
+}
+
+/**
+ * Fetch a binary response (e.g. a generated PDF) with the same bearer-token +
+ * refresh-and-retry behavior as {@link apiFetch}, but returning a `Blob`
+ * instead of decoding JSON. Used for authenticated file downloads.
+ */
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const send = async (accessToken: string | null): Promise<Response> => {
+    const headers: Record<string, string> = {};
+    if (accessToken !== null) headers["Authorization"] = `Bearer ${accessToken}`;
+    return fetch(`${BASE_URL}${path}`, { method: "GET", headers });
+  };
+
+  const initialToken = readTokens()?.accessToken ?? null;
+  let response = await send(initialToken);
+
+  if (response.status === 401) {
+    const decoded = await peekError(response);
+    if (decoded !== null && isTwoFactorChallenge(decoded)) {
+      throw toApiError(decoded, response.status);
+    }
+    const rotated = await refreshAccessToken();
+    if (rotated !== null) {
+      response = await send(rotated);
+    } else if (decoded !== null) {
+      throw toApiError(decoded, response.status);
+    }
+  }
+
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return response.blob();
 }
 
 /** Rotate the access token using the stored refresh token; `null` on failure. */
