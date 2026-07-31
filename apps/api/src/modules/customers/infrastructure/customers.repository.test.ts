@@ -7,7 +7,7 @@ import {
   InvalidListCursorError,
   ReferenceNotFoundError,
 } from "../domain/customers.errors";
-import { CustomersRepository } from "./customers.repository";
+import { CustomersRepository, EXPORT_MAX_ROWS } from "./customers.repository";
 
 const COMPANY = "11111111-1111-1111-1111-111111111111";
 const ACTOR = "22222222-2222-2222-2222-222222222222";
@@ -203,6 +203,31 @@ describe("CustomersRepository — reads", () => {
     models.customer.findMany.mockResolvedValue([customerRow({ totalSpent: 125000n })]);
     const page = await repo.list(COMPANY, listQuery);
     expect(page.data[0]?.totalSpent).toBe(125000);
+  });
+});
+
+describe("CustomersRepository — export", () => {
+  it("returns full phones, unpaginated, capped at the server maximum", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.customer.findMany.mockResolvedValue([customerRow()]);
+
+    const rows = await repo.exportAll(COMPANY, listQuery);
+
+    expect(queryRaw).toHaveBeenCalled(); // setTenantContext ran
+    expect(rows[0]?.phone).toBe(PHONE);
+    expect(models.customer.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: EXPORT_MAX_ROWS }),
+    );
+  });
+
+  it("honours a smaller caller limit but never a larger one", async () => {
+    const { repo, models } = makeRepo();
+
+    await repo.exportAll(COMPANY, { ...listQuery, limit: 10 });
+    expect(models.customer.findMany.mock.calls[0]?.[0]?.take).toBe(10);
+
+    await repo.exportAll(COMPANY, { ...listQuery, limit: EXPORT_MAX_ROWS * 10 });
+    expect(models.customer.findMany.mock.calls[1]?.[0]?.take).toBe(EXPORT_MAX_ROWS);
   });
 });
 

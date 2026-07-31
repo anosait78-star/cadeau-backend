@@ -85,6 +85,48 @@ export class CustomersService {
     }
   }
 
+  /**
+   * Bulk-read the customer base with **full** phone numbers, for `POST
+   * /v1/customers/export`. The controller gates it with `customers.manage`
+   * (decision D2); this method makes the second half of criterion 5 true — the
+   * audit row and the `customer.exported` event are written *before the rows are
+   * returned*, so there is no path to bulk PII that leaves no trace.
+   */
+  async export(
+    principal: RequestPrincipal,
+    rawQuery: RawCustomerListQuery,
+  ): Promise<readonly CustomerView[]> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseCustomerListQuery(rawQuery);
+    if (query === undefined) {
+      throw AppErrors.validation("Request validation failed", errors);
+    }
+
+    let rows: readonly CustomerView[];
+    try {
+      rows = await this.repo.exportAll(companyId, query);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+
+    await this.record(companyId, principal.userId, {
+      action: "customer.exported",
+      entityType: "customer",
+      // An export spans rows rather than touching one, so the affected entity is
+      // the tenant's customer base itself; the count lives in `changes`.
+      entityId: companyId,
+      changes: { count: rows.length },
+    });
+    await this.events.publish({
+      type: "customer.exported",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: { count: rows.length },
+    });
+    return rows;
+  }
+
   async getOne(principal: RequestPrincipal, id: string): Promise<CustomerWithAddresses> {
     const companyId = this.requireTenant(principal);
     const customer = await this.repo.findById(companyId, id);
@@ -277,6 +319,7 @@ export class CustomersService {
         | "customer.created"
         | "customer.updated"
         | "customer.archived"
+        | "customer.exported"
         | "customer.address_created"
         | "customer.address_updated";
       entityType: "customer" | "customer_address";

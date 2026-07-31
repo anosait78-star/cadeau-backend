@@ -4,6 +4,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { TenancyModule } from "./modules/tenancy/tenancy.module";
 import { AccessModule } from "./modules/access/access.module";
+import { CustomersModule } from "./modules/customers/customers.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
 import { ProductsModule } from "./modules/products/products.module";
@@ -31,6 +32,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     MasterDataModule,
     ProductsModule,
     InventoryModule,
+    CustomersModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

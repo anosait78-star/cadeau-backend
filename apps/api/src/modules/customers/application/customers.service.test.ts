@@ -75,6 +75,7 @@ function makeHarness(): Harness {
     create: vi.fn().mockResolvedValue({ customer: customer(), replayed: false }),
     update: vi.fn().mockResolvedValue(customer()),
     archive: vi.fn().mockResolvedValue(customer({ active: false })),
+    exportAll: vi.fn().mockResolvedValue([customer()]),
     listAddresses: vi.fn(),
     createAddress: vi.fn().mockResolvedValue(address()),
     updateAddress: vi.fn().mockResolvedValue(address()),
@@ -105,7 +106,44 @@ describe("CustomersService — tenant enforcement", () => {
       h.service.create(noTenant, { name: "A", phone: "+201001234567" }),
     ).rejects.toBeInstanceOf(AppException);
     await expect(h.service.archive(noTenant, CUSTOMER)).rejects.toBeInstanceOf(AppException);
+    await expect(h.service.export(noTenant, {})).rejects.toBeInstanceOf(AppException);
     expect(h.repo.create).not.toHaveBeenCalled();
+    expect(h.repo.exportAll).not.toHaveBeenCalled();
+  });
+});
+
+describe("CustomersService — export", () => {
+  it("audits and emits before returning the rows", async () => {
+    const rows = await h.service.export(principal(), { active: "all" });
+
+    expect(rows).toHaveLength(1);
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "customer.exported",
+        entityType: "customer",
+        entityId: COMPANY,
+        changes: { count: 1 },
+      }),
+    );
+    expect(h.events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "customer.exported", payload: { count: 1 } }),
+    );
+  });
+
+  it("neither audits nor exports when the filters are invalid", async () => {
+    await expect(h.service.export(principal(), { sort: "phone" })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(h.repo.exportAll).not.toHaveBeenCalled();
+    expect(h.audit.record).not.toHaveBeenCalled();
+  });
+
+  it("passes the parsed filters through to the repository", async () => {
+    await h.service.export(principal(), { q: "+20 100 123 4567" });
+    expect(h.repo.exportAll).toHaveBeenCalledWith(
+      COMPANY,
+      expect.objectContaining({ search: { kind: "phone", e164: "+201001234567" } }),
+    );
   });
 });
 

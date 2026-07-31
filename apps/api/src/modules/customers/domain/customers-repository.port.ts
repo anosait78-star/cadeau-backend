@@ -76,6 +76,15 @@ export interface CustomersRepositoryPort {
   /** A page of customers. Rows carry a **masked** phone — never the full value. */
   list(companyId: string, query: ParsedCustomerListQuery): Promise<KeysetPage<CustomerListView>>;
 
+  /**
+   * Every customer matching the filters, with the **full** phone — the bulk-PII
+   * read behind `POST /v1/customers/export`. It takes the same parsed query as
+   * {@link list} minus the cursor, and is capped by `limit` so a single call can
+   * never stream the whole base unbounded. Callers must have gated and audited
+   * it (docs/epic-10-design.md §7 criterion 5).
+   */
+  exportAll(companyId: string, query: ParsedCustomerListQuery): Promise<readonly CustomerView[]>;
+
   /** A customer with its addresses, or `null` if absent in this tenant. */
   findById(companyId: string, id: string): Promise<CustomerWithAddresses | null>;
 

@@ -47,6 +47,12 @@ interface DecodedCursor {
   readonly t: string;
 }
 
+/**
+ * The hard ceiling on one export. Bulk PII egress is gated and audited, but it
+ * is also *bounded*: no single request can walk the whole customer base.
+ */
+export const EXPORT_MAX_ROWS = 5_000;
+
 const CUSTOMER_SELECT = {
   id: true,
   name: true,
@@ -139,6 +145,23 @@ export class CustomersRepository implements CustomersRepositoryPort {
     );
     const views = rows.map((r) => this.toListView(r));
     return buildKeysetPage(views, limit, (view) => this.toCursor(query, view));
+  }
+
+  async exportAll(
+    companyId: string,
+    query: ParsedCustomerListQuery,
+  ): Promise<readonly CustomerView[]> {
+    const take = Math.min(query.limit ?? EXPORT_MAX_ROWS, EXPORT_MAX_ROWS);
+    const where = this.buildWhere(companyId, query, null);
+    const rows = await this.tenantTx(companyId, (tx) =>
+      tx.customer.findMany({
+        where,
+        orderBy: [{ [query.sort.field]: query.sort.dir }, { id: query.sort.dir }],
+        take,
+        select: CUSTOMER_SELECT,
+      }),
+    );
+    return rows.map((r) => this.toDetailView(r));
   }
 
   async findById(companyId: string, id: string): Promise<CustomerWithAddresses | null> {

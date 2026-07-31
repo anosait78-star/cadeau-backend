@@ -6,6 +6,7 @@ import { CUSTOMERS_REPOSITORY } from "./domain/customers-repository.port";
 import { CustomersAuditLogAdapter } from "./infrastructure/audit-log.adapter";
 import { CustomersRepository } from "./infrastructure/customers.repository";
 import { customersPrismaClientProvider } from "./infrastructure/prisma-client.provider";
+import { CustomersController } from "./presentation/customers.controller";
 
 /**
  * Customers feature module (composition root, EPIC-10). Wires the service to the
@@ -14,11 +15,11 @@ import { customersPrismaClientProvider } from "./infrastructure/prisma-client.pr
  * {@link AccessCoreModule}; the event bus from {@link EventBusModule} — both
  * injected without an explicit import here.
  *
- * **No controllers yet.** M10.2 delivers domain + application + infrastructure;
- * the `/v1/customers` surface and this module's registration in the app module
- * land in M10.3.
+ * M10.3 adds the `/v1/customers` presentation surface: six customer routes plus
+ * the three nested address routes, all three-layer gated.
  */
 @Module({
+  controllers: [CustomersController],
   providers: [
     CustomersService,
     systemClockProvider,
