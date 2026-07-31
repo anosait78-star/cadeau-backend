@@ -50,6 +50,9 @@ export interface ShippingRepositoryPort {
     id: string,
     data: TransitionInput,
   ): Promise<ShipmentStatusChangeResult | null>;
+
+  /** Flip the metadata-only `waybillIssued` flag (decision D3 — no PDF body). */
+  issueWaybill(actor: WriteActor, id: string): Promise<ShipmentView | null>;
 }
 
 /** DI token for {@link ShippingRepositoryPort}. */

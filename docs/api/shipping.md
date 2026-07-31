@@ -1,12 +1,15 @@
 # Shipping API Contract
 
-**Status:** ⬜ Draft — planned in **EPIC-12** · **Base path:** `/v1/shipping` ·
-**Feature key:** `SHIPPING` · **Access:** authenticated + gated
+**Status:** 🟡 **M12.3 delivered** on `feat/epic-12-shipping`: carriers/
+shipments/bulk/detail/status/waybill routes are live
+([shipping.controller.ts](../../apps/api/src/modules/shipping/presentation/shipping.controller.ts)).
+**Base path:** `/v1/shipping` · **Feature key:** `shipping` · **Access:**
+authenticated + three-layer gated. The inbound webhook route lands in M12.4.
 
 A **carrier-abstraction layer** over Egyptian carriers (Bosta and others), bulk
 shipping + waybill printing, configurable zones, reliable inbound webhooks
 (queued + retried), in-order tracking, and shipping-fee deduction from collected.
-Draft — follows [../api-conventions.md](../api-conventions.md).
+Follows [../api-conventions.md](../api-conventions.md).
 
 ## Resources
 
@@ -14,20 +17,25 @@ Draft — follows [../api-conventions.md](../api-conventions.md).
 - `Shipment` — a dispatched order with tracking + status.
 - `Waybill` — a printable label for a shipment.
 
-## Planned endpoints
+## Endpoints
 
-| Method | Path                                          | Purpose                                                                   | Permission        |
-| ------ | --------------------------------------------- | ------------------------------------------------------------------------- | ----------------- |
-| GET    | `/v1/shipping/carriers`                       | Available carriers.                                                       | `shipping.read`   |
-| POST   | `/v1/shipping/shipments`                      | Create a shipment for an order. Idempotency-Key.                          | `shipping.manage` |
-| POST   | `/v1/shipping/shipments/bulk`                 | Bulk-create shipments. Idempotency-Key.                                   | `shipping.manage` |
-| GET    | `/v1/shipping/shipments/{shipmentId}`         | Shipment + tracking.                                                      | `shipping.read`   |
-| POST   | `/v1/shipping/shipments/{shipmentId}/waybill` | Waybill metadata (tracking/label fields; no PDF in this epic, see below). | `shipping.manage` |
-| POST   | `/v1/shipping/webhooks/{carrier}/{companyId}` | Inbound carrier callback (queued, verified).                              | webhook signature |
+| Method | Path                                          | Purpose                                                                                                                                                                              | Permission        |
+| ------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| GET    | `/v1/shipping/carriers`                       | Available carriers (today: `manual` only, D1).                                                                                                                                       | `shipping.read`   |
+| POST   | `/v1/shipping/shipments`                      | Create a shipment for an order. Idempotency-Key.                                                                                                                                     | `shipping.manage` |
+| POST   | `/v1/shipping/shipments/bulk`                 | Bulk-create shipments from a list of order ids (per-item results).                                                                                                                   | `shipping.manage` |
+| GET    | `/v1/shipping/shipments/{shipmentId}`         | Shipment + tracking.                                                                                                                                                                 | `shipping.read`   |
+| POST   | `/v1/shipping/shipments/{shipmentId}/status`  | Transition status (also used to cancel: `toStatus: "cancelled"`) — the "authenticated internal endpoint for manual status entry" a real carrier's webhook will otherwise drive (D1). | `shipping.manage` |
+| POST   | `/v1/shipping/shipments/{shipmentId}/waybill` | Waybill metadata (tracking/label fields; no PDF in this epic, see below).                                                                                                            | `shipping.manage` |
+| POST   | `/v1/shipping/webhooks/{carrier}/{companyId}` | Inbound carrier callback (queued, verified). **M12.4.**                                                                                                                              | webhook signature |
 
 ## List parameters
 
-- `shipments` — filter: `carrier`, `status`, `orderId`, `createdAtFrom/To`; sort (whitelist): `-createdAt,id`.
+- `shipments` — filter: `carrier`, `status`, `orderId`, `createdAtFrom/To`; sort
+  (whitelist): `-createdAt,id`. **Not yet wired to a `GET /v1/shipping/shipments`
+  list route** — M12.3 shipped detail-by-id only; a keyset list endpoint is a
+  straightforward follow-up (same idiom as `GET /v1/orders`), tracked as debt
+  rather than blocking this milestone.
 
 ## Events emitted (ADR-004)
 

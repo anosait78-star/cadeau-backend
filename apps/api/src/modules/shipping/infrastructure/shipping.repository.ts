@@ -198,6 +198,24 @@ export class ShippingRepository implements ShippingRepositoryPort {
     });
   }
 
+  async issueWaybill(actor: WriteActor, id: string): Promise<ShipmentView | null> {
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const current = await tx.shipment.findFirst({
+        where: { id, companyId: actor.companyId },
+        select: { id: true },
+      });
+      if (current === null) return null;
+      await tx.shipment.updateMany({
+        where: { id, companyId: actor.companyId },
+        data: stampForUpdate(actor, {
+          waybillIssued: true,
+        }) as Prisma.ShipmentUncheckedUpdateManyInput,
+      });
+      const full = await tx.shipment.findFirstOrThrow({ where: { id }, select: SHIPMENT_SELECT });
+      return this.toView(full);
+    });
+  }
+
   // ---- internals: tenant tx + views -----------------------------------------
 
   private tenantTx<T>(companyId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {

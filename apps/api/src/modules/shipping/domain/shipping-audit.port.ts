@@ -8,7 +8,11 @@
 export interface ShippingAuditRecord {
   readonly companyId: string;
   readonly actorId: string;
-  readonly action: "shipment.created" | "shipment.status_changed" | "shipment.cancelled";
+  readonly action:
+    | "shipment.created"
+    | "shipment.status_changed"
+    | "shipment.cancelled"
+    | "shipment.waybill_issued";
   readonly entityType: "shipment";
   /** The affected shipment's id. */
   readonly entityId: string;

@@ -541,7 +541,7 @@ full activity log, configurable state machine (P1). _Depends on:_ 8, 9, 10.
 See [customers-domain.md](customers-domain.md) §8 and
 [epic-10-retrospective.md](epic-10-retrospective.md) §6.
 
-### EPIC-12 — Shipping (design in progress) — `feat/epic-12-shipping`
+### EPIC-12 — Shipping (in progress, M12.1–M12.3 delivered) — `feat/epic-12-shipping`
 
 Contract: [api/shipping.md](api/shipping.md). Design:
 [epic-12-design.md](epic-12-design.md) — decisions D1–D4 answered by the owner

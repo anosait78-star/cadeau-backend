@@ -58,15 +58,24 @@ function makeHarness(): Harness {
       toStatus: "picked_up",
       feeDeducted: 0,
     } satisfies ShipmentStatusChangeResult),
+    issueWaybill: vi.fn().mockResolvedValue(shipment({ waybillIssued: true })),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
   const clock = { now: (): number => 1_700_000_000_000 };
+  const carrier = {
+    name: "manual",
+    createShipment: vi.fn(),
+    getTracking: vi.fn(),
+    generateWaybill: vi.fn().mockResolvedValue({ trackingNumber: "MAN-ABC123", carrier: "manual" }),
+    cancelShipment: vi.fn(),
+  };
   const service = new ShippingService(
     repo as unknown as ShippingRepositoryPort,
     audit as unknown as ShippingAuditPort,
     events,
     clock,
+    carrier,
   );
   return { service, repo, audit, events };
 }
@@ -182,6 +191,28 @@ describe("ShippingService", () => {
       await expect(
         h.service.transition(principal(), SHIPMENT, { toStatus: "delivered" }),
       ).rejects.toMatchObject({ status: 422 });
+    });
+  });
+
+  it("lists the manual carrier (D1)", () => {
+    expect(h.service.listCarriers(principal())).toEqual([{ key: "manual" }]);
+  });
+
+  describe("generateWaybill", () => {
+    it("flips the metadata flag and audits shipment.waybill_issued", async () => {
+      const result = await h.service.generateWaybill(principal(), SHIPMENT);
+      expect(result.trackingNumber).toBe("MAN-ABC123");
+      expect(h.repo.issueWaybill).toHaveBeenCalled();
+      expect(h.audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "shipment.waybill_issued" }),
+      );
+    });
+
+    it("throws not-found for a missing shipment", async () => {
+      h.repo.issueWaybill.mockResolvedValueOnce(null);
+      await expect(h.service.generateWaybill(principal(), SHIPMENT)).rejects.toMatchObject({
+        status: 404,
+      });
     });
   });
 });

@@ -3,6 +3,7 @@ import type { RequestPrincipal } from "../../../shared/auth/authenticated-reques
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
+import { CARRIER_PORT, type CarrierPort } from "../domain/carrier.port";
 import type {
   BulkShipmentResult,
   ShipmentStatusChangeResult,
@@ -46,7 +47,14 @@ export class ShippingService {
     @Inject(SHIPPING_AUDIT) private readonly audit: ShippingAuditPort,
     @Inject(EVENT_BUS) private readonly events: EventBusPort,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(CARRIER_PORT) private readonly carrier: CarrierPort,
   ) {}
+
+  /** The carriers available behind the abstraction (today: `manual` only, D1). */
+  listCarriers(principal: RequestPrincipal): readonly { key: string }[] {
+    this.requireTenant(principal);
+    return [{ key: this.carrier.name }];
+  }
 
   async getOne(principal: RequestPrincipal, id: string): Promise<ShipmentView> {
     const companyId = this.requireTenant(principal);
@@ -158,6 +166,31 @@ export class ShippingService {
       toStatus: "cancelled",
       ...(note !== undefined ? { note } : {}),
     });
+  }
+
+  /**
+   * Issue the waybill: flips the metadata-only `waybillIssued` flag and asks
+   * the carrier for the label metadata (decision D3 — no PDF body in this
+   * epic; rendering reuses EPIC-13's shared PDF work).
+   */
+  async generateWaybill(
+    principal: RequestPrincipal,
+    id: string,
+  ): Promise<{ shipment: ShipmentView; trackingNumber: string; carrier: string }> {
+    const companyId = this.requireTenant(principal);
+    const shipment = await this.repo.issueWaybill({ companyId, actorId: principal.userId }, id);
+    if (shipment === null) throw AppErrors.notFound("Shipment not found.");
+
+    const waybill = await this.carrier.generateWaybill(shipment.trackingNumber);
+    await this.audit.record({
+      companyId,
+      actorId: principal.userId,
+      action: "shipment.waybill_issued",
+      entityType: "shipment",
+      entityId: shipment.id,
+      changes: { carrier: waybill.carrier },
+    });
+    return { shipment, trackingNumber: waybill.trackingNumber, carrier: waybill.carrier };
   }
 
   // ---- internals -------------------------------------------------------------
