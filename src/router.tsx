@@ -7,6 +7,7 @@ import { CustomersPage } from "@/pages/customers/customers-page";
 import { HomePage } from "@/pages/home-page";
 import { InventoryPage } from "@/pages/inventory/inventory-page";
 import { MasterDataPage } from "@/pages/master-data/master-data-page";
+import { OrdersPage } from "@/pages/orders/orders-page";
 import { ProductsPage } from "@/pages/products/products-page";
 import { LoginPage } from "@/pages/auth/login-page";
 import { RegisterPage } from "@/pages/auth/register-page";
@@ -29,7 +30,7 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <HomePage /> },
-          { path: "orders", element: <PlaceholderPage titleKey="nav.orders" /> },
+          { path: "orders", element: <OrdersPage /> },
           { path: "customers", element: <CustomersPage /> },
           { path: "products", element: <ProductsPage /> },
           { path: "inventory", element: <InventoryPage /> },
