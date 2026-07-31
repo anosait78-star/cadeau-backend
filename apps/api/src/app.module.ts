@@ -5,6 +5,7 @@ import { HealthModule } from "./modules/health/health.module";
 import { TenancyModule } from "./modules/tenancy/tenancy.module";
 import { AccessModule } from "./modules/access/access.module";
 import { CustomersModule } from "./modules/customers/customers.module";
+import { FinanceModule } from "./modules/finance/finance.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
 import { OrdersModule } from "./modules/orders/orders.module";
@@ -37,6 +38,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     CustomersModule,
     OrdersModule,
     ShippingModule,
+    FinanceModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

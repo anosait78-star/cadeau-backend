@@ -26,6 +26,15 @@
 -- epic. Forward-only. Rollback guidance: ../../../../docs/runbooks/rollback.md
 
 -- ---------------------------------------------------------------------------
+-- 0. Widen stock_adjustments.reason (EPIC-9) to accept the PO-receipt reason
+--    code this epic writes (D7). Forward-only: a new constraint, not an edit
+--    to the EPIC-9 migration file.
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.stock_adjustments DROP CONSTRAINT stock_adjustments_reason_check;
+ALTER TABLE public.stock_adjustments ADD CONSTRAINT stock_adjustments_reason_check
+  CHECK (reason IN ('count', 'damage', 'loss', 'return', 'other', 'purchase_receipt'));
+
+-- ---------------------------------------------------------------------------
 -- 1. suppliers — reference entity (tenant-editable).
 -- ---------------------------------------------------------------------------
 CREATE TABLE public.suppliers (
