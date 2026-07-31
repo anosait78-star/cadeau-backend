@@ -80,10 +80,11 @@ logged and, later, queued for delivery.
 | `customer.created`           | `CustomersService` (EPIC-10)    | `customerId`                                                                                              | **Live** (EPIC-10)  |
 | `customer.updated`           | `CustomersService` (EPIC-10)    | `customerId`, `fields`                                                                                    | **Live** (EPIC-10)  |
 | `customer.exported`          | `CustomersService` (EPIC-10)    | `count`                                                                                                   | **Live** (EPIC-10)  |
-| `customer.merged`            | Customers merge (EPIC-11)       | `survivingCustomerId`, `mergedCustomerId`                                                                 | Forward-declared    |
-| `order.created`              | Orders (EPIC-11)                | `orderId`                                                                                                 | Forward-declared    |
-| `order.status_changed`       | Orders (EPIC-11)                | `orderId`, `fromStatus`, `toStatus`                                                                       | Forward-declared    |
-| `payment.collected`          | Finance (EPIC-13)               | `orderId`, `amountMinor`                                                                                  | Forward-declared    |
+| `customer.merged`            | `CustomersService` (EPIC-11)    | `survivingCustomerId`, `mergedCustomerId`                                                                 | **Live** (EPIC-11)  |
+| `order.created`              | `OrdersService` (EPIC-11)       | `orderId`                                                                                                 | **Live** (EPIC-11)  |
+| `order.status_changed`       | `OrdersService` (EPIC-11)       | `orderId`, `fromStatus`, `toStatus`                                                                       | **Live** (EPIC-11)  |
+| `order.assigned`             | `OrdersService` (EPIC-11)       | `orderId`, `assigneeId`                                                                                   | **Live** (EPIC-11)  |
+| `payment.collected`          | `OrdersService` (EPIC-11)       | `orderId`, `amountMinor`                                                                                  | **Live** (EPIC-11)  |
 
 `stock.changed` is emitted **once per affected level** — a transfer emits two,
 one per side — and only when stock actually moved: an idempotent replay
@@ -96,8 +97,13 @@ email, name or address. An event payload may be logged and, later, queued, so
 personal data must not ride on one; a subscriber that needs the person reads the
 customer back under RLS with its own permissions
 ([privacy-model.md](privacy-model.md) §6). As with inventory, an idempotent
-replay of a create emits **nothing** — it wrote nothing. `customer.merged` is
-forward-declared for EPIC-11 (owner decision D3).
+replay of a create emits **nothing** — it wrote nothing.
+
+The `order.*` and `payment.collected` payloads follow the same rule — ids only.
+`order.status_changed` carries the `from`/`to` state; `payment.collected` fires
+on a COD collection with the positive `amountMinor` delta (EPIC-11 emits it, and
+finance EPIC-13 reads it). `customer.merged` fires once per merge, alongside the
+durable audit row (owner decision D5).
 
 **Forward-declared** events are listed so the vocabulary lives in one place and
 notification subscribers can be typed against it now. Their payloads are minimal

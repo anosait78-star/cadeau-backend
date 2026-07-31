@@ -64,12 +64,30 @@ owner sign-off on 2026-07-31
 ([epic-8-quality-gate.md](epic-8-quality-gate.md),
 [epic-9-quality-gate.md](epic-9-quality-gate.md),
 [epic-10-quality-gate.md](epic-10-quality-gate.md)). EPIC-7 still has no formal gate
-doc. **Now open: EPIC-11 (Orders)**, which also inherits the EPIC-10 deferrals —
-the customer KPI computation, customer merge, and the customer order-history read
-([customers-domain.md](customers-domain.md) §8). See
-[domain-map.md](domain-map.md) for how
-the delivered modules fit together and [project-metrics.md](project-metrics.md) for
-the numbers.
+doc. **EPIC-11 (Orders) delivered** on `feat/epic-11-orders`: the
+[orders module](../apps/api/src/modules/orders/) (`/v1/orders` — 12 routes) with
+migration `20260806000000_orders` (`orders`, `order_items`, `order_activities`
+and the per-company `order_sequences` counter), the fixed default **12-state
+machine** (illegal transitions `422`, cancel needs a reason), **feature-gated
+stock coupling** (reserve on `processing`, ship decrements on-hand, pre-ship
+cancel/return releases — reusing the EPIC-9 `FOR UPDATE` path,
+`stock_reservations.order_id` now a real FK), **in-transaction customer-KPI
+recompute** (decisions D2/D3), race-safe order numbering, `Idempotency-Key`
+replay, bulk status/assign (atomic per item), the live
+`order.created`/`.status_changed`/`.assigned` and `payment.collected` events,
+**deterministic smart-paste** (`/parse`) and **CSV import** (`/import`) — Regex/
+heuristics only, `no-ai-imports` green — and the Orders screen in the Dual Shell
+(status tabs + counts, detail panel, inline/bulk actions, create form, smart-paste
+box). It also **discharged the EPIC-10 deferrals**: `POST /v1/customers/merge`
+(re-parents every customer-owned table + a completeness guard test, emits
+`customer.merged`), `GET /v1/customers/{id}/orders`, and the `hasOrders` filter
+plus the `-ordersCount`/`-totalSpent` sorts. **EPIC-11 §2.5 gate green; awaiting
+owner sign-off** ([epic-11-quality-gate.md](epic-11-quality-gate.md)); domain +
+retrospective in [orders-domain.md](orders-domain.md) and
+[epic-11-retrospective.md](epic-11-retrospective.md). **Next: EPIC-12
+(Shipping)** — starts after the owner signs the EPIC-11 gate. See
+[domain-map.md](domain-map.md) for how the delivered modules fit together and
+[project-metrics.md](project-metrics.md) for the numbers.
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -83,8 +101,8 @@ the numbers.
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 795 unit/integration after EPIC-10 (config 40 · web 111 ·
-crypto 35 · database 71 · api 538). Keep it growing; never let a gate regress.
+**Test count baseline:** 925 unit/integration after EPIC-11 (config 40 · web 122 ·
+crypto 35 · database 71 · api 657). Keep it growing; never let a gate regress.
 
 ---
 
@@ -496,7 +514,7 @@ _Deviations from the contract draft:_ permissions use `read`/`manage` (D2 — no
 (D3); `hasOrders` and the `-ordersCount`/`-totalSpent` sorts arrive with EPIC-11
 because the KPIs they filter and sort on are `0`/`null` until then.
 
-### EPIC-11 — Orders 🟡 open (next)
+### EPIC-11 — Orders ✅ delivered — `feat/epic-11-orders`
 
 Contract: [api/orders.md](api/orders.md). 12-state lifecycle + separate follow-up
 state, **deterministic smart-paste (Regex/Heuristics — no AI)**, dual view + saved

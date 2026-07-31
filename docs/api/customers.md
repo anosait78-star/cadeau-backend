@@ -3,8 +3,9 @@
 **Status:** ✅ **Delivered — EPIC-10** (2026-07-31) · **Base path:** `/v1/customers` ·
 **Feature key:** `CUSTOMERS` · **Access:** authenticated + gated
 
-Delivered surface: **9 routes** — the 6 customer routes below plus the 3 nested
-address routes. Merge and the order-history read stay deferred to EPIC-11 (D3).
+Delivered surface: **11 routes** — the 6 customer routes below, the 3 nested
+address routes, plus the 2 EPIC-11 routes (merge + order history) that closed the
+D3 deferral.
 
 Customer base with profile, addresses, and derived KPIs. Phone numbers are E.164
 and **unique per company** (no duplicates). Follows
@@ -53,18 +54,27 @@ returned.
 a third action would be a core change to the ADR-0003 permission model and is out
 of scope for this epic.
 
-**Deferred to EPIC-11 (decision D3):**
+**Delivered in EPIC-11 (closing the D3 deferral):**
 
-- `POST /v1/customers/merge` — merge is written once, against the complete set of
-  customer-owned tables, when orders exist.
-- `GET /v1/customers/{customerId}/orders` — needs orders.
+| Method | Path                                | Purpose                                          | Permission         |
+| ------ | ----------------------------------- | ------------------------------------------------ | ------------------ |
+| POST   | `/v1/customers/merge`               | Merge two customers (atomic, audited).           | `customers.manage` |
+| GET    | `/v1/customers/{customerId}/orders` | The customer's order history (keyset summaries). | `customers.read`   |
+
+Merge re-parents **every** customer-owned table (`customer_addresses`, `orders` —
+the `CUSTOMER_OWNED_TABLES` list, protected by a completeness guard test), clears
+the merged addresses' default flag, archives the losing customer (never deletes),
+recomputes the survivor's KPIs in the same transaction, and emits
+`customer.merged`. Merging a customer into itself → `422`; either id missing →
+`404`. The order-history rows are lightweight summaries (id, number, status,
+total, collected, createdAt); the full order stays behind `/v1/orders/{orderId}`.
 
 ## List parameters
 
-- Filter: `active`, `governorateId`, `createdAtFrom/To`.
-  (`hasOrders` arrives with EPIC-11 — the KPI it filters on is `0` until then.)
-- Sort (whitelist): `-createdAt,id` (default), `name,id`.
-  (`-ordersCount` / `-totalSpent` arrive with EPIC-11.)
+- Filter: `active`, `governorateId`, `hasOrders` (EPIC-11), `createdAtFrom/To`.
+- Sort (whitelist): `-createdAt,id` (default), `name,id`, `-ordersCount,id`,
+  `-totalSpent,id` (the KPI sorts arrived with EPIC-11, once the columns were
+  actually maintained).
 - Search `q`: **if the term normalizes to a valid E.164 number**, it is an exact
   blind-index lookup on the phone; **otherwise** it is a `contains` search over
   name and email. Partial-phone search is not supported — see
@@ -101,7 +111,8 @@ and emits no event. A first create answers `201` with a `Location` header; a
 ## Events emitted (ADR-004)
 
 - `customer.created`, `customer.updated`, `customer.exported`.
-- `customer.merged` stays **reserved** in the closed catalog for EPIC-11.
+- `customer.merged` — **live since EPIC-11**, emitted once per merge alongside the
+  durable audit row.
 
 Payloads carry ids only — never phone, email, name or address
 ([../privacy-model.md](../privacy-model.md) §6).
@@ -113,5 +124,6 @@ Payloads carry ids only — never phone, email, name or address
 - Exports are permission-gated **and** audited **and** emit an event; there is no
   unaudited path to bulk PII (ADR-001).
 - `ordersCount` / `totalSpent` / `lastOrderAt` are **derived and read-only** — no
-  DTO field, no write path — and stay `0`/`null` until EPIC-11 computes them.
+  DTO field, no client write path. Since EPIC-11 they are recomputed inside every
+  order write transaction (decision D3), so they always equal the order rows.
 - Money KPIs use integer minor units in a consistent tenant currency.

@@ -136,37 +136,48 @@ master-data (governorates)
     customers ── customer_addresses (one default)
         │
         ├─ phone: ciphertext (source of truth) + blind index (unique, exact lookup)
-        └─ ordersCount / totalSpent / lastOrderAt ◀── EPIC-11 (derived, no write path)
+        └─ ordersCount / totalSpent / lastOrderAt ◀── orders (recomputed in the write txn)
 ```
 
-Everything still to be built hangs off the right-hand side of those diagrams:
-orders consume reservations **and** a customer, finance posts cost into
-`averageCost`, analytics reads the levels, notifications listen to `stock.low`.
+```
+customers ──────────────┐ pinned by
+products ── variants ───┤ snapshotted into (name + averageCost → COGS)
+inventory reservations ─┤ feature-gated: reserve on processing · ship · release
+labels/reasons/gov ─────┘ classify
+        ▼
+     orders ── order_items ── order_activities   (12-state machine + follow-up)
+        │ emits
+        ▼
+order.created / order.status_changed / order.assigned / payment.collected
+```
+
+Everything still to be built hangs off the right-hand side: shipping consumes the
+order + address, finance posts cost into `averageCost` and reads
+`payment.collected`, analytics reads across all of it, notifications subscribe.
 
 ## 6. Planned modules and where they attach
 
-| Epic | Module          | Attaches to                                                                     | New tables (planned)                       |
-| ---- | --------------- | ------------------------------------------------------------------------------- | ------------------------------------------ |
-| 11   | `orders`        | customers, products, **inventory (reservations)**, master-data (labels/reasons) | orders, order lines, order activity        |
-| 12   | `shipping`      | orders, master-data (shipping zones)                                            | carriers, shipments, webhook events        |
-| 13   | `finance`       | products (`averageCost`), inventory (receipts raise stock), orders, shipping    | suppliers, POs, expenses, invoices, cash   |
-| 14   | `analytics`     | reads across orders / products / inventory / finance                            | cached aggregates                          |
-| 15   | `notifications` | the event bus (`stock.low`, order events)                                       | notifications, preferences, delivery queue |
-| 16   | —               | launch gate over everything                                                     | —                                          |
+| Epic | Module          | Attaches to                                                                  | New tables (planned)                       |
+| ---- | --------------- | ---------------------------------------------------------------------------- | ------------------------------------------ |
+| 12   | `shipping`      | orders, master-data (shipping zones)                                         | carriers, shipments, webhook events        |
+| 13   | `finance`       | products (`averageCost`), inventory (receipts raise stock), orders, shipping | suppliers, POs, expenses, invoices, cash   |
+| 14   | `analytics`     | reads across orders / products / inventory / finance                         | cached aggregates                          |
+| 15   | `notifications` | the event bus (`stock.low`, order events)                                    | notifications, preferences, delivery queue |
+| 16   | —               | launch gate over everything                                                  | —                                          |
 
 ## 7. Forward references already in the schema
 
 Deliberate, documented, and unenforced until their epic lands:
 
-| Reference                                                    | Waiting on | Note                                                           |
-| ------------------------------------------------------------ | ---------- | -------------------------------------------------------------- |
-| `stock_reservations.order_id`                                | EPIC-11    | No FK until `orders` exists.                                   |
-| `customers.orders_count` / `.total_spent` / `.last_order_at` | EPIC-11    | Derived, read-only, no write path yet.                         |
-| Customer merge (`POST /v1/customers/merge`)                  | EPIC-11    | Deferred by D3 — written once, over all customer-owned tables. |
-| `product_variants.average_cost`                              | EPIC-13    | Derived, read-only, no write path yet.                         |
-| `order_labels`, `order_reasons`                              | EPIC-11    | Seeded master data with no consumer yet.                       |
-| `shipping_zones`                                             | EPIC-12    | Same.                                                          |
-| `ai` feature (inactive)                                      | never      | ADR-0004 — kept inactive by design.                            |
+| Reference                                                        | Waiting on | Note                                                                  |
+| ---------------------------------------------------------------- | ---------- | --------------------------------------------------------------------- |
+| ~~`stock_reservations.order_id`~~                                | ✅ EPIC-11 | Now a real FK (`ON DELETE SET NULL`).                                 |
+| ~~`customers.orders_count` / `.total_spent` / `.last_order_at`~~ | ✅ EPIC-11 | Recomputed in the order write transaction (decision D3).              |
+| ~~Customer merge (`POST /v1/customers/merge`)~~                  | ✅ EPIC-11 | Delivered over all customer-owned tables + a completeness guard test. |
+| `product_variants.average_cost`                                  | EPIC-13    | Derived, read-only, no write path yet.                                |
+| ~~`order_labels`, `order_reasons`~~                              | ✅ EPIC-11 | Consumed by orders (labels, cancel reasons).                          |
+| `shipping_zones`                                                 | EPIC-12    | Seeded master data with no consumer yet.                              |
+| `ai` feature (inactive)                                          | never      | ADR-0004 — kept inactive by design.                                   |
 
 ## 8. Where to read more
 

@@ -136,17 +136,19 @@ under RLS with its own permissions.
 - **Is consumed by** EPIC-11 (orders reference a customer and will compute the
   KPIs), EPIC-12 (shipping reads the delivery address), EPIC-14 (analytics).
 
-## 8. What EPIC-11 inherits
+## 8. What EPIC-11 inherited — ✅ all delivered
 
-| Item                                                     | Why it waits                                                                  |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `ordersCount` / `totalSpent` / `lastOrderAt` computation | Nothing to count until orders exist.                                          |
-| `hasOrders` filter, `-ordersCount` / `-totalSpent` sorts | They sort and filter on the above.                                            |
-| `GET /v1/customers/{id}/orders`                          | Needs orders.                                                                 |
-| `POST /v1/customers/merge`                               | Decision D3 — written once against the complete set of customer-owned tables. |
+| Item                                                     | Delivered in EPIC-11                                                                                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ordersCount` / `totalSpent` / `lastOrderAt` computation | Recomputed **in the order write transaction** (decision D3) — never drifts.                                                                 |
+| `hasOrders` filter, `-ordersCount` / `-totalSpent` sorts | Live on the customers list, now the KPI columns are maintained.                                                                             |
+| `GET /v1/customers/{id}/orders`                          | Keyset order-history summary (the full order stays behind `/v1/orders/{id}`).                                                               |
+| `POST /v1/customers/merge`                               | One atomic, audited transaction re-parenting every customer-owned table + a completeness guard test; emits `customer.merged` (decision D5). |
 
-Until then the columns exist, default correctly, and **no code writes them** — the
-same discipline `product_variants.average_cost` follows for EPIC-13.
+The KPI columns followed the same discipline `product_variants.average_cost`
+follows: they shipped with no write path in EPIC-10, and EPIC-11 began maintaining
+them once orders existed. Merge's `CUSTOMER_OWNED_TABLES` is the single source of
+truth, and a test fails if a new model gains a `customerId` FK without being added.
 
 ## 9. Layering
 

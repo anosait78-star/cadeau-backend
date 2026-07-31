@@ -1,6 +1,7 @@
 # EPIC-11 Design — Orders
 
-**Status:** 🟡 **In progress on `feat/epic-11-orders`.** · Decisions D1–D6 answered
+**Status:** ✅ **Delivered on `feat/epic-11-orders`** — gate:
+[epic-11-quality-gate.md](epic-11-quality-gate.md). · Decisions D1–D6 answered
 by the owner on **2026-07-31** (before code). · **Drafted:** 2026-07-31.
 
 This document fixes the **scope, boundaries, decisions and acceptance criteria** of
