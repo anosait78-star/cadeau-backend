@@ -1,6 +1,6 @@
 # Shipping API Contract
 
-**Status:** 🟡 **M12.1–M12.4 delivered** on `feat/epic-12-shipping`: carriers/
+**Status:** ✅ **M12.1–M12.6 delivered** on `feat/epic-12-shipping`: carriers/
 shipments/bulk/detail/status/waybill routes
 ([shipping.controller.ts](../../apps/api/src/modules/shipping/presentation/shipping.controller.ts))
 plus the signature-verified inbound webhook + retry worker

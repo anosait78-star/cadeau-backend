@@ -18,7 +18,7 @@ one. Every contract follows [../api-conventions.md](../api-conventions.md).
 | Inventory & Warehouses              | `/v1/warehouses`, `/v1/inventory` | EPIC-9  | ✅     | [inventory.md](inventory.md)         |
 | Customers                           | `/v1/customers`                   | EPIC-10 | ✅     | [customers.md](customers.md)         |
 | Orders                              | `/v1/orders`                      | EPIC-11 | ✅     | [orders.md](orders.md)               |
-| Shipping                            | `/v1/shipping`                    | EPIC-12 | ⬜     | [shipping.md](shipping.md)           |
+| Shipping                            | `/v1/shipping`                    | EPIC-12 | ✅     | [shipping.md](shipping.md)           |
 | Finance                             | `/v1/finance`                     | EPIC-13 | ⬜     | [finance.md](finance.md)             |
 | Analytics                           | `/v1/analytics`                   | EPIC-14 | ⬜     | [analytics.md](analytics.md)         |
 | Notifications                       | `/v1/notifications`               | EPIC-15 | ⬜     | [notifications.md](notifications.md) |

@@ -64,7 +64,9 @@ with owner sign-off on 2026-07-31
 ([epic-8-quality-gate.md](epic-8-quality-gate.md),
 [epic-9-quality-gate.md](epic-9-quality-gate.md),
 [epic-10-quality-gate.md](epic-10-quality-gate.md),
-[epic-11-quality-gate.md](epic-11-quality-gate.md)). EPIC-7 still has no formal gate
+[epic-11-quality-gate.md](epic-11-quality-gate.md)). **EPIC-12 §2.5 quality gate
+is green and CLOSED, owner sign-off on 2026-08-01**
+([epic-12-quality-gate.md](epic-12-quality-gate.md)). EPIC-7 still has no formal gate
 doc. **EPIC-11 (Orders) delivered** on `feat/epic-11-orders`: the
 [orders module](../apps/api/src/modules/orders/) (`/v1/orders` — 12 routes) with
 migration `20260806000000_orders` (`orders`, `order_items`, `order_activities`
@@ -86,12 +88,27 @@ plus the `-ordersCount`/`-totalSpent` sorts. **EPIC-11 §2.5 gate green and
 CLOSED, owner sign-off 2026-07-31**
 ([epic-11-quality-gate.md](epic-11-quality-gate.md)); domain + retrospective in
 [orders-domain.md](orders-domain.md) and
-[epic-11-retrospective.md](epic-11-retrospective.md). **Next: EPIC-12
-(Shipping)** — design phase started 2026-07-31, see
-[epic-12-design.md](epic-12-design.md) for the open decisions awaiting owner
-input before code (M12.0). See [domain-map.md](domain-map.md) for how the
-delivered modules fit together and [project-metrics.md](project-metrics.md) for
-the numbers.
+[epic-11-retrospective.md](epic-11-retrospective.md). **EPIC-12 (Shipping)
+delivered** on `feat/epic-12-shipping`: the
+[shipping module](../apps/api/src/modules/shipping/) (`/v1/shipping` — 8 routes,
+7 authenticated + 1 signature-verified webhook) with migrations
+`20260807000000_shipping` (`shipments`, `shipping_webhook_events`) and
+`20260808000000_shipping_webhook_worker_rls`; a **`CarrierPort` abstraction**
+with `ManualCarrierAdapter` as the only implementation (D1), single + bulk
+shipment creation, a **6-state shipment machine** independent of the order's
+own, a **DB-backed webhook inbox** (no new queue dependency, D2) that is
+signature-verified, written durably, and processed by an exponential-backoff
+retry worker claiming across tenants with `FOR UPDATE SKIP LOCKED`,
+**shipping-fee deduction** from `collectedAmount` at delivery (simple
+subtraction, D4), waybill **metadata only** (no PDF, D3), the live
+`shipment.created`/`.status_changed`/`.delivered` events, and the shipping
+surface (tracking, manual status-advance, waybill) on the order detail in the
+Dual Shell. **EPIC-12 §2.5 gate green and CLOSED, owner sign-off 2026-08-01**
+([epic-12-quality-gate.md](epic-12-quality-gate.md)); domain + retrospective in
+[shipping-domain.md](shipping-domain.md) and
+[epic-12-retrospective.md](epic-12-retrospective.md). **Next: EPIC-13
+(Finance)**. See [domain-map.md](domain-map.md) for how the delivered modules
+fit together and [project-metrics.md](project-metrics.md) for the numbers.
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -105,8 +122,8 @@ the numbers.
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 925 unit/integration after EPIC-11 (config 40 · web 122 ·
-crypto 35 · database 71 · api 657). Keep it growing; never let a gate regress.
+**Test count baseline:** 1058 unit/integration after EPIC-12 (config 43 · web 127
+· crypto 47 · database 71 · api 770). Keep it growing; never let a gate regress.
 
 ---
 
@@ -541,7 +558,7 @@ full activity log, configurable state machine (P1). _Depends on:_ 8, 9, 10.
 See [customers-domain.md](customers-domain.md) §8 and
 [epic-10-retrospective.md](epic-10-retrospective.md) §6.
 
-### EPIC-12 — Shipping (in progress, M12.1–M12.5 delivered) — `feat/epic-12-shipping`
+### EPIC-12 — Shipping ✅ delivered, gate CLOSED — `feat/epic-12-shipping`
 
 Contract: [api/shipping.md](api/shipping.md). Design:
 [epic-12-design.md](epic-12-design.md) — decisions D1–D4 answered by the owner
@@ -551,7 +568,11 @@ deferred to EPIC-13's shared PDF work), reuse of the EPIC-7 `shipping_zones`
 master data, a **DB-backed webhook inbox** with retry/backoff (no new queue
 infra) idempotent on `(carrier, carrierEventId)`, in-order tracking,
 shipping-fee deduction from collected (simple deduction; full reconciliation is
-EPIC-13). _Depends on:_ 11.
+EPIC-13). All milestones M12.0–M12.6 delivered; domain + retrospective in
+[shipping-domain.md](shipping-domain.md) and
+[epic-12-retrospective.md](epic-12-retrospective.md); §2.5 gate in
+[epic-12-quality-gate.md](epic-12-quality-gate.md) — green, owner sign-off
+2026-08-01. _Depends on:_ 11.
 
 ### EPIC-13 — Finance & Compliance
 
