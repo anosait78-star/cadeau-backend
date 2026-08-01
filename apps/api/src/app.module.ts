@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
+import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { TenancyModule } from "./modules/tenancy/tenancy.module";
@@ -39,6 +40,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     OrdersModule,
     ShippingModule,
     FinanceModule,
+    AnalyticsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })
