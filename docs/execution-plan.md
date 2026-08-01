@@ -106,9 +106,28 @@ surface (tracking, manual status-advance, waybill) on the order detail in the
 Dual Shell. **EPIC-12 §2.5 gate green and CLOSED, owner sign-off 2026-08-01**
 ([epic-12-quality-gate.md](epic-12-quality-gate.md)); domain + retrospective in
 [shipping-domain.md](shipping-domain.md) and
-[epic-12-retrospective.md](epic-12-retrospective.md). **Next: EPIC-13
-(Finance)**. See [domain-map.md](domain-map.md) for how the delivered modules
-fit together and [project-metrics.md](project-metrics.md) for the numbers.
+[epic-12-retrospective.md](epic-12-retrospective.md). **EPIC-13 (Finance &
+Compliance) delivered** on `feat/epic-13-finance`: the
+[finance module](../apps/api/src/modules/finance/) (`/v1/finance` — 30
+routes) with migration `20260809000000_finance` (16 tables); suppliers +
+purchase orders with an **atomic receipt** that raises stock and rolls
+`product_variants.averageCost` (moving average, D7); unified expenses;
+configurable VAT (`tax_settings`) and **official invoices rendered as real
+PDFs** (`pdfkit`, D1); refunds (**mandatory** `Idempotency-Key`); **working
+shipping reconciliation** matched by tracking number (D5); an **atomic
+sequential monthly close** (`accounting_periods`, D4) that every dated
+money-moving write checks before inserting; **computed** cash-center/P&L
+reports (no new ledger, D6); the live `purchase_order.received` /
+`payment.recorded` / `invoice.issued` / `refund.issued` / `period.closed`
+events; and the full finance surface (8 tabs) in the Dual Shell. Permissions
+are `finance.read`/`finance.manage` only (D2, no bespoke `.refund`/`.close`
+keys). **EPIC-13 §2.5 gate green and CLOSED, owner sign-off 2026-08-01**
+([epic-13-quality-gate.md](epic-13-quality-gate.md)); domain + retrospective in
+[finance-domain.md](finance-domain.md) and
+[epic-13-retrospective.md](epic-13-retrospective.md). **Next: EPIC-14
+(Analytics)**. See [domain-map.md](domain-map.md) for how the delivered
+modules fit together and [project-metrics.md](project-metrics.md) for the
+numbers.
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -122,8 +141,8 @@ fit together and [project-metrics.md](project-metrics.md) for the numbers.
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 1058 unit/integration after EPIC-12 (config 43 · web 127
-· crypto 47 · database 71 · api 770). Keep it growing; never let a gate regress.
+**Test count baseline:** 1405 unit/integration after EPIC-13 (config 43 · web 160
+· crypto 47 · database 71 · api 1084). Keep it growing; never let a gate regress.
 
 ---
 
@@ -574,13 +593,51 @@ EPIC-13). All milestones M12.0–M12.6 delivered; domain + retrospective in
 [epic-12-quality-gate.md](epic-12-quality-gate.md) — green, owner sign-off
 2026-08-01. _Depends on:_ 11.
 
-### EPIC-13 — Finance & Compliance
+### EPIC-13 — Finance & Compliance ✅ — `feat/epic-13-finance`
 
-Contract: [api/finance.md](api/finance.md). Suppliers + POs (partial pay/receive;
-**atomic receipt raises stock**), unified expenses, **official PDF invoices**,
-configurable VAT, refunds, **working shipping reconciliation**, cash center +
-**atomic sequential monthly close**, P&L + period comparison. Money = integer minor
-units. _Depends on:_ 8, 9, 11, 12.
+Contract: [api/finance.md](api/finance.md). Delivered M13.0–M13.8:
+
+- **M13.0 Design** ✅ — [epic-13-design.md](epic-13-design.md), decisions
+  D1–D7 (pdfkit for PDFs; `finance.read`/`finance.manage` only, no bespoke
+  `.refund`/`.close`; a finance-owned `tax_settings` table; sequential
+  period-close; header+line reconciliation; computed cash-center/P&L, no new
+  ledger; PO receipt is the `averageCost` write path).
+- **M13.1 Data model** ✅ — `20260809000000_finance`: 16 tables (suppliers,
+  PO + lines/receipts/receipt-lines/payments, expenses, tax_settings,
+  invoices + lines, refunds, shipping_reconciliations + lines,
+  accounting_periods), RLS, triggers, keyset indexes, checks; 5 events added
+  to the closed catalog.
+- **M13.2 Suppliers + POs** ✅ — CRUD, atomic receipt (`SELECT … FOR UPDATE`
+  reusing the EPIC-9 lock discipline — raises stock, rolls
+  `product_variants.averageCost` by the moving average, D7), partial
+  payments, `Idempotency-Key` replay.
+- **M13.3 Expenses + tax settings** ✅ — CRUD + `assertPeriodOpen`, the D4
+  write guard every later money-moving milestone reuses.
+- **M13.4 Invoices + refunds** ✅ — real PDF invoices (`pdfkit`, D1), VAT
+  round-half-up, refunds with **mandatory** `Idempotency-Key`.
+- **M13.5 Reconciliation + periods + reports** ✅ — atomic all-or-nothing
+  statement-line match by tracking number (D5); atomic sequential period
+  close (D4); computed cash-center/P&L reads (D6).
+- **M13.6 Presentation** ✅ — shipped incrementally with M13.2–M13.5 (30
+  routes total, all three-layer gated, OpenAPI-decorated).
+- **M13.7 Frontend** ✅ — the finance surface (8 tabs: suppliers, purchase
+  orders, expenses, invoices, refunds, reconciliations, periods, reports) in
+  the Dual Shell.
+- **M13.8 Docs + gates** ✅ — contract, [finance-domain.md](finance-domain.md),
+  [epic-13-retrospective.md](epic-13-retrospective.md),
+  [epic-13-quality-gate.md](epic-13-quality-gate.md); domain-map/metrics
+  refreshed. A mid-build `arch:check` violation (PDF renderer reached
+  directly instead of through a port) and two coverage-threshold gaps
+  (`apps/api` branches, `apps/web` functions) were found and fixed before
+  sign-off — see the gate doc §2/§4 and the retrospective §4.
+
+_Acceptance met:_ atomic PO receipt; every money-moving write integer minor
+units and audit-then-emit; mandatory-idempotency refunds; atomic sequential
+close rejecting a gap; computed cash-center/P&L verified against fixtures;
+every route three-layer gated. _Deviations:_ `finance.refund`/`finance.close`
+permissions never added (D2); cash-center/P&L date-column choices are
+documented approximations (D6); PO-receive UI simplifies to
+full-remaining-quantity-into-one-warehouse. _Depends on:_ 8, 9, 11, 12.
 
 ### EPIC-14 — Analytics
 

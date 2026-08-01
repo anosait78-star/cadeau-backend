@@ -85,6 +85,14 @@ logged and, later, queued for delivery.
 | `order.status_changed`       | `OrdersService` (EPIC-11)       | `orderId`, `fromStatus`, `toStatus`                                                                       | **Live** (EPIC-11)  |
 | `order.assigned`             | `OrdersService` (EPIC-11)       | `orderId`, `assigneeId`                                                                                   | **Live** (EPIC-11)  |
 | `payment.collected`          | `OrdersService` (EPIC-11)       | `orderId`, `amountMinor`                                                                                  | **Live** (EPIC-11)  |
+| `shipment.created`           | `ShippingService` (EPIC-12)     | `shipmentId`, `orderId`, `carrier`                                                                        | **Live** (EPIC-12)  |
+| `shipment.status_changed`    | `ShippingService` (EPIC-12)     | `shipmentId`, `orderId`, `fromStatus`, `toStatus`                                                         | **Live** (EPIC-12)  |
+| `shipment.delivered`         | `ShippingService` (EPIC-12)     | `shipmentId`, `orderId`, `feeMinor`                                                                       | **Live** (EPIC-12)  |
+| `purchase_order.received`    | `FinanceService` (EPIC-13)      | `purchaseOrderId`, `receiptId`                                                                            | **Live** (EPIC-13)  |
+| `payment.recorded`           | `FinanceService` (EPIC-13)      | `purchaseOrderId`, `amountMinor`                                                                          | **Live** (EPIC-13)  |
+| `invoice.issued`             | `FinanceService` (EPIC-13)      | `invoiceId`, `orderId`                                                                                    | **Live** (EPIC-13)  |
+| `refund.issued`              | `FinanceService` (EPIC-13)      | `refundId`, `amountMinor`                                                                                 | **Live** (EPIC-13)  |
+| `period.closed`              | `FinanceService` (EPIC-13)      | `periodKey`                                                                                               | **Live** (EPIC-13)  |
 
 `stock.changed` is emitted **once per affected level** — a transfer emits two,
 one per side — and only when stock actually moved: an idempotent replay
