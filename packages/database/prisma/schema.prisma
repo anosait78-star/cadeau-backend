@@ -964,6 +964,7 @@ model Order {
   @@index([companyId, status], map: "orders_status_idx")
   @@index([customerId, createdAt(sort: Desc), id(sort: Desc)], map: "orders_customer_idx")
   @@index([assigneeId], map: "orders_assignee_idx")
+  @@index([companyId, assigneeId, createdAt], map: "orders_assignee_analytics_idx")
   @@map("orders")
 }
 
