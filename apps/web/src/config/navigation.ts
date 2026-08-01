@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Database,
   LayoutDashboard,
   Package,
@@ -42,6 +43,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/products", labelKey: "nav.products", icon: Package, feature: "products" },
   { to: "/inventory", labelKey: "nav.inventory", icon: Warehouse, feature: "inventory" },
   { to: "/finance", labelKey: "nav.finance", icon: Wallet, feature: "finance" },
+  {
+    to: "/analytics",
+    labelKey: "nav.analytics",
+    icon: BarChart3,
+    feature: "analytics",
+    permission: "analytics.read",
+  },
   {
     to: "/master-data",
     labelKey: "nav.masterData",

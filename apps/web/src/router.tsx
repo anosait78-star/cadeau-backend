@@ -3,6 +3,7 @@ import { RequireAuth } from "@/auth/require-auth";
 import { AppShell } from "@/components/shell/app-shell";
 import { RequireSuperAdmin } from "@/features/access/require-super-admin";
 import { AdminPage } from "@/pages/admin/admin-page";
+import { AnalyticsPage } from "@/pages/analytics/analytics-page";
 import { CustomersPage } from "@/pages/customers/customers-page";
 import { FinancePage } from "@/pages/finance/finance-page";
 import { HomePage } from "@/pages/home-page";
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
           { path: "products", element: <ProductsPage /> },
           { path: "inventory", element: <InventoryPage /> },
           { path: "finance", element: <FinancePage /> },
+          { path: "analytics", element: <AnalyticsPage /> },
           { path: "master-data", element: <MasterDataPage /> },
           { path: "settings/roles", element: <RolesPage /> },
           { path: "settings", element: <PlaceholderPage titleKey="nav.settings" /> },
