@@ -5,6 +5,8 @@ import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type { FinanceAuditPort, FinanceAuditRecord } from "../domain/finance-audit.port";
+import type { InvoicePdfRendererPort } from "../domain/invoice-pdf.port";
+import { INVOICE_PDF_RENDERER } from "../domain/invoice-pdf.port";
 import { FINANCE_AUDIT } from "../domain/finance-audit.port";
 import {
   FINANCE_REPOSITORY,
@@ -91,6 +93,7 @@ export class FinanceService {
     @Inject(FINANCE_AUDIT) private readonly audit: FinanceAuditPort,
     @Inject(EVENT_BUS) private readonly events: EventBusPort,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(INVOICE_PDF_RENDERER) private readonly pdfRenderer: InvoicePdfRendererPort,
   ) {}
 
   // ---- Suppliers ---------------------------------------------------------------
@@ -421,6 +424,20 @@ export class FinanceService {
     const data = await this.repo.getInvoicePdfData(companyId, id);
     if (data === null) throw AppErrors.notFound("Invoice not found.");
     return data;
+  }
+
+  /**
+   * Render the invoice PDF (pdfkit, D1). Kept in the application layer — not
+   * the presentation layer — so `presentation` never imports `infrastructure`
+   * directly (architecture rule: dependencies point inward only).
+   */
+  async renderInvoicePdf(
+    principal: RequestPrincipal,
+    id: string,
+  ): Promise<{ buffer: Buffer; invoiceNumber: string }> {
+    const data = await this.getInvoicePdfData(principal, id);
+    const buffer = await this.pdfRenderer.render(data);
+    return { buffer, invoiceNumber: String(data.invoice.number) };
   }
 
   // ---- Refunds (M13.4) ---------------------------------------------------------

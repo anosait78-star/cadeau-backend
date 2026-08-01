@@ -76,6 +76,9 @@ function makeService(): ServiceMock {
     getInvoice: vi.fn().mockResolvedValue(invoice()),
     createInvoice: vi.fn().mockResolvedValue(invoice()),
     getInvoicePdfData: vi.fn().mockResolvedValue(pdfData()),
+    renderInvoicePdf: vi
+      .fn()
+      .mockResolvedValue({ buffer: Buffer.from("%PDF-fake"), invoiceNumber: "1" }),
   } as unknown as ServiceMock;
 }
 
@@ -129,7 +132,7 @@ describe("InvoicesController", () => {
     const controller = new InvoicesController(service as unknown as FinanceService);
     const res = makeResponse();
     await controller.getPdf(principal, "inv1", res);
-    expect(service.getInvoicePdfData).toHaveBeenCalledWith(principal, "inv1");
+    expect(service.renderInvoicePdf).toHaveBeenCalledWith(principal, "inv1");
     expect(res.setHeader).toHaveBeenCalledWith("Content-Type", "application/pdf");
     expect(res.setHeader).toHaveBeenCalledWith(
       "Content-Disposition",

@@ -6,6 +6,7 @@ import type { EventBusPort } from "../../../shared/events/event-bus.port";
 import type { Clock } from "../../../shared/time/clock";
 import type { FinanceAuditPort } from "../domain/finance-audit.port";
 import type { FinanceRepositoryPort } from "../domain/finance-repository.port";
+import type { InvoicePdfRendererPort } from "../domain/invoice-pdf.port";
 import type {
   AccountingPeriodView,
   ExpenseView,
@@ -234,8 +235,11 @@ function makeService() {
     subscribe: vi.fn(),
   };
   const clock: Clock = { now: () => 1_700_000_000_000 };
-  const service = new FinanceService(repo, audit, events, clock);
-  return { service, repo, audit, events };
+  const pdfRenderer: InvoicePdfRendererPort = {
+    render: vi.fn().mockResolvedValue(Buffer.from("%PDF-fake")),
+  };
+  const service = new FinanceService(repo, audit, events, clock, pdfRenderer);
+  return { service, repo, audit, events, pdfRenderer };
 }
 
 describe("FinanceService — tenant guard", () => {

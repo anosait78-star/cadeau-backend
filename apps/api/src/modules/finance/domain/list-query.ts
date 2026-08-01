@@ -355,8 +355,10 @@ export function parseInvoiceListQuery(raw: RawInvoiceListQuery): {
 } {
   const errors: FieldError[] = [];
 
-  const { sort, error: sortError } = parseSort(undefined, INVOICE_SORTS, "-createdAt");
-  if (sortError !== undefined) errors.push(sortError);
+  // `parseSort` is called with a fixed `undefined` raw value and a fallback
+  // that is always a whitelist member, so it can never return an error here
+  // (invoices only ever sort by `-createdAt`, no `?sort=` param exists).
+  const { sort } = parseSort(undefined, INVOICE_SORTS, "-createdAt");
 
   checkUuid("orderId", raw.orderId, errors);
   checkDate("dateFrom", raw.dateFrom, errors);
@@ -385,8 +387,9 @@ export function parseRefundListQuery(raw: RawRefundListQuery): {
 } {
   const errors: FieldError[] = [];
 
-  const { sort, error: sortError } = parseSort(undefined, REFUND_SORTS, "-createdAt");
-  if (sortError !== undefined) errors.push(sortError);
+  // See parseInvoiceListQuery: `parseSort` cannot error with a fixed
+  // `undefined` raw value and a whitelisted fallback.
+  const { sort } = parseSort(undefined, REFUND_SORTS, "-createdAt");
 
   checkUuid("invoiceId", raw.invoiceId, errors);
   checkUuid("orderId", raw.orderId, errors);
@@ -417,8 +420,9 @@ export function parseReconciliationListQuery(raw: RawReconciliationListQuery): {
 } {
   const errors: FieldError[] = [];
 
-  const { sort, error: sortError } = parseSort(undefined, RECONCILIATION_SORTS, "-createdAt");
-  if (sortError !== undefined) errors.push(sortError);
+  // See parseInvoiceListQuery: `parseSort` cannot error with a fixed
+  // `undefined` raw value and a whitelisted fallback.
+  const { sort } = parseSort(undefined, RECONCILIATION_SORTS, "-createdAt");
 
   if (raw.periodKey !== undefined && !PERIOD_KEY_RE.test(raw.periodKey)) {
     errors.push({ field: "periodKey", messages: ["periodKey must be formatted YYYY-MM"] });

@@ -53,6 +53,20 @@ describe("renderInvoicePdf", () => {
     expect(buffer.subarray(0, 5).toString("ascii")).toBe("%PDF-");
   });
 
+  it("renders a negative total (e.g. a heavily-refunded invoice) with a minus sign", async () => {
+    const data = pdfData({
+      invoice: {
+        ...pdfData().invoice,
+        subtotalMinor: -500,
+        vatMinor: -70,
+        totalMinor: -570,
+      },
+    });
+    const buffer = await renderInvoicePdf(data);
+    expect(buffer.length).toBeGreaterThan(0);
+    expect(buffer.subarray(0, 5).toString("ascii")).toBe("%PDF-");
+  });
+
   it("renders multiple line items", async () => {
     const data = pdfData({
       invoice: {

@@ -150,6 +150,22 @@ describe("PurchaseOrdersController", () => {
     expect(dto.lines).toHaveLength(1);
   });
 
+  it("records a receipt without an idempotency key when the header is absent", async () => {
+    const service = makeService();
+    const controller = new PurchaseOrdersController(service as unknown as FinanceService);
+    await controller.receive(
+      principal,
+      "po1",
+      { warehouseId: "w1", lines: [{ poLineId: "l1", quantity: 5 }] },
+      undefined,
+      makeResponse(),
+    );
+    expect(service.receivePurchaseOrder).toHaveBeenCalledWith(principal, "po1", {
+      warehouseId: "w1",
+      lines: [{ poLineId: "l1", quantity: 5 }],
+    });
+  });
+
   it("records a payment and returns 201", async () => {
     const service = makeService();
     const controller = new PurchaseOrdersController(service as unknown as FinanceService);
@@ -168,5 +184,21 @@ describe("PurchaseOrdersController", () => {
     });
     expect(res.status).toHaveBeenCalledWith(201);
     expect(dto.amountMinor).toBe(5000);
+  });
+
+  it("records a payment without an idempotency key when the header is absent", async () => {
+    const service = makeService();
+    const controller = new PurchaseOrdersController(service as unknown as FinanceService);
+    await controller.pay(
+      principal,
+      "po1",
+      { amountMinor: 5000, method: "cash" },
+      undefined,
+      makeResponse(),
+    );
+    expect(service.payPurchaseOrder).toHaveBeenCalledWith(principal, "po1", {
+      amountMinor: 5000,
+      method: "cash",
+    });
   });
 });

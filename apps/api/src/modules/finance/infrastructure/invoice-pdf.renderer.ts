@@ -1,5 +1,7 @@
+import { Injectable } from "@nestjs/common";
 import PDFDocument from "pdfkit";
 import type { InvoicePdfData } from "../domain/finance.entity";
+import type { InvoicePdfRendererPort } from "../domain/invoice-pdf.port";
 
 /** Render one integer minor-units amount as a plain decimal string (no currency symbol, no locale). */
 function formatMinor(amountMinor: number): string {
@@ -83,4 +85,16 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     doc.end();
   });
+}
+
+/**
+ * The `pdfkit` adapter for {@link InvoicePdfRendererPort} — the only thing the
+ * application layer is allowed to depend on (via the port), never this class
+ * or `pdfkit` directly.
+ */
+@Injectable()
+export class PdfKitInvoiceRenderer implements InvoicePdfRendererPort {
+  render(data: InvoicePdfData): Promise<Buffer> {
+    return renderInvoicePdf(data);
+  }
 }

@@ -27,7 +27,6 @@ import { CurrentUser } from "../../../shared/auth/current-user.decorator";
 import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
 import { FinanceService } from "../application/finance.service";
 import type { RawInvoiceListQuery } from "../domain/list-query";
-import { renderInvoicePdf } from "../infrastructure/invoice-pdf.renderer";
 import { CreateInvoiceDto, InvoiceDto, InvoiceListDtoPage } from "./dto/finance.dto";
 import { FINANCE_FEATURE } from "./suppliers.controller";
 
@@ -42,10 +41,10 @@ const IDEMPOTENCY_HEADER = "Idempotency-Key";
  * from the token, never the payload (ADR-003).
  *
  * Issuing an invoice honours `Idempotency-Key` (optional, replayed on
- * match, same discipline as PO create). The PDF renderer
- * ({@link renderInvoicePdf}) is a pure function of the data the service
- * gathers — kept out of the repository/service so it stays unit-testable in
- * isolation; this controller is its only caller.
+ * match, same discipline as PO create). PDF rendering itself lives in the
+ * application layer (`FinanceService.renderInvoicePdf`), which wraps the
+ * `infrastructure/invoice-pdf.renderer.ts` pure function — this controller
+ * never imports `infrastructure` directly (dependencies point inward only).
  */
 @ApiTags("finance")
 @Controller("finance/invoices")
@@ -108,13 +107,9 @@ export class InvoicesController {
     @Param("invoiceId", ParseUUIDPipe) invoiceId: string,
     @Res() res: Response,
   ): Promise<void> {
-    const data = await this.service.getInvoicePdfData(principal, invoiceId);
-    const buffer = await renderInvoicePdf(data);
+    const { buffer, invoiceNumber } = await this.service.renderInvoicePdf(principal, invoiceId);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="invoice-${data.invoice.number}.pdf"`,
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="invoice-${invoiceNumber}.pdf"`);
     res.status(HttpStatus.OK).send(buffer);
   }
 }

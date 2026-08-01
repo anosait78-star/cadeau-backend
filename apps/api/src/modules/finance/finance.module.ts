@@ -3,8 +3,10 @@ import { systemClockProvider } from "../../shared/time/clock";
 import { FinanceService } from "./application/finance.service";
 import { FINANCE_AUDIT } from "./domain/finance-audit.port";
 import { FINANCE_REPOSITORY } from "./domain/finance-repository.port";
+import { INVOICE_PDF_RENDERER } from "./domain/invoice-pdf.port";
 import { FinanceAuditLogAdapter } from "./infrastructure/audit-log.adapter";
 import { FinanceRepository } from "./infrastructure/finance.repository";
+import { PdfKitInvoiceRenderer } from "./infrastructure/invoice-pdf.renderer";
 import { financePrismaClientProvider } from "./infrastructure/prisma-client.provider";
 import { ExpensesController } from "./presentation/expenses.controller";
 import { InvoicesController } from "./presentation/invoices.controller";
@@ -49,6 +51,7 @@ import { TaxSettingsController } from "./presentation/tax-settings.controller";
     financePrismaClientProvider,
     { provide: FINANCE_REPOSITORY, useClass: FinanceRepository },
     { provide: FINANCE_AUDIT, useClass: FinanceAuditLogAdapter },
+    { provide: INVOICE_PDF_RENDERER, useClass: PdfKitInvoiceRenderer },
   ],
 })
 export class FinanceModule {}
