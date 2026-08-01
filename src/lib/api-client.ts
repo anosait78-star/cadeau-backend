@@ -115,15 +115,24 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 }
 
 /**
- * Fetch a binary response (e.g. a generated PDF) with the same bearer-token +
- * refresh-and-retry behavior as {@link apiFetch}, but returning a `Blob`
- * instead of decoding JSON. Used for authenticated file downloads.
+ * Fetch a binary response (e.g. a generated PDF or CSV export) with the same
+ * bearer-token + refresh-and-retry behavior as {@link apiFetch}, but
+ * returning a `Blob` instead of decoding JSON. Used for authenticated file
+ * downloads. Defaults to `GET`; pass `{ method: "POST", body }` for an
+ * export endpoint that takes a request body (e.g. `/analytics/export`).
  */
-export async function apiFetchBlob(path: string): Promise<Blob> {
+export async function apiFetchBlob(
+  path: string,
+  options: { method?: "GET" | "POST"; body?: unknown } = {},
+): Promise<Blob> {
+  const { method = "GET", body } = options;
   const send = async (accessToken: string | null): Promise<Response> => {
     const headers: Record<string, string> = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     if (accessToken !== null) headers["Authorization"] = `Bearer ${accessToken}`;
-    return fetch(`${BASE_URL}${path}`, { method: "GET", headers });
+    const init: RequestInit = { method, headers };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    return fetch(`${BASE_URL}${path}`, init);
   };
 
   const initialToken = readTokens()?.accessToken ?? null;

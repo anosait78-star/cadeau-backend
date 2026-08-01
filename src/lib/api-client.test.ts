@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readTokens, writeTokens } from "@/auth/auth-storage";
-import { ApiError, apiFetch } from "./api-client";
+import { ApiError, apiFetch, apiFetchBlob } from "./api-client";
 
 /** Build a JSON Response with the given status. */
 function json(status: number, body: unknown): Response {
@@ -95,5 +95,44 @@ describe("apiFetch", () => {
 
     await expect(apiFetch("/me")).rejects.toBeInstanceOf(ApiError);
     expect(readTokens()).toBeNull();
+  });
+});
+
+describe("apiFetchBlob", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("defaults to a GET with no body", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(new Blob(["x"]), { status: 200 }));
+    await apiFetchBlob("/finance/invoices/inv1/pdf");
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("sends a POST with a JSON body when given one (analytics export)", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(new Blob(["a,b\r\n"]), { status: 200 }));
+    await apiFetchBlob("/analytics/export", { method: "POST", body: { axis: "business" } });
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ axis: "business" }));
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+  });
+
+  it("throws an ApiError on a non-2xx response", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(422, { error: { code: "VALIDATION_FAILED", message: "bad", statusCode: 422 } }),
+    );
+    await expect(
+      apiFetchBlob("/analytics/export", { method: "POST", body: {} }),
+    ).rejects.toBeInstanceOf(ApiError);
   });
 });
