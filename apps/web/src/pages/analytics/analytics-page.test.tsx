@@ -52,6 +52,42 @@ const STAFF = {
   rows: [{ assigneeId: "u1", assigneeName: "Amina", orderCount: 3, collectedMinor: 30000 }],
 };
 
+const PRODUCTS = {
+  top: [
+    {
+      variantId: "v1",
+      productName: "Widget",
+      variantName: "Red",
+      unitsSold: 5,
+      revenueMinor: 5000,
+    },
+  ],
+  bottom: [],
+};
+
+const INVENTORY = {
+  onHandValueMinor: 500000,
+  lowStockCount: 2,
+  outOfStockCount: 1,
+  turnoverSignal: 0.25,
+};
+
+const PROFITABILITY = {
+  current: {
+    collectedMinor: 100000,
+    cogsMinor: 40000,
+    expensesMinor: 20000,
+    netIncomeMinor: 40000,
+  },
+  previous: {
+    collectedMinor: 80000,
+    cogsMinor: 30000,
+    expensesMinor: 20000,
+    netIncomeMinor: 30000,
+  },
+  netIncomeDeltaPct: 33.33,
+};
+
 describe("AnalyticsPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -90,6 +126,45 @@ describe("AnalyticsPage", () => {
       ),
     );
     await waitFor(() => expect(screen.getByText("Amina")).toBeTruthy());
+  });
+
+  it("switches to the products tab and renders top performers", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/analytics/products") ? json(200, PRODUCTS) : json(200, BUSINESS),
+      ),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("10")).toBeTruthy());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Products" }));
+    await waitFor(() => expect(screen.getByText(/Widget/)).toBeTruthy());
+  });
+
+  it("switches to the inventory tab and renders stock health", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/analytics/inventory") ? json(200, INVENTORY) : json(200, BUSINESS),
+      ),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("10")).toBeTruthy());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Inventory" }));
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+  });
+
+  it("switches to the profitability tab and renders net income", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/analytics/profitability") ? json(200, PROFITABILITY) : json(200, BUSINESS),
+      ),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText("10")).toBeTruthy());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Profitability" }));
+    await waitFor(() => expect(screen.getAllByText("400.00").length).toBeGreaterThan(0));
   });
 
   it("triggers an export request when Export CSV is clicked", async () => {
