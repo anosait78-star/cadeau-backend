@@ -1,6 +1,6 @@
 # Domain Map — Cadeau CRM
 
-**As of:** end of EPIC-13 — 2026-08-01 · 11 delivered modules · 57 tables · 110 endpoints.
+**As of:** end of EPIC-14 — 2026-08-01 · 12 delivered modules · 57 tables · 116 endpoints.
 
 One page that answers "what exists, what owns what, and what depends on what."
 Read it before starting a new epic — it is how you find the seam to attach to
@@ -14,8 +14,8 @@ instead of inventing a new one. Per-module detail lives in
 ```
                      ┌──────────────────────────────────────────┐
    Domain modules    │ products · inventory · customers ·       │  EPIC-8, 9, 10,
-                     │ orders · shipping · finance               │  11, 12, 13
-                     │ (analytics · notifications)               │  EPIC-14..15
+                     │ orders · shipping · finance · analytics   │  11, 12, 13, 14
+                     │ (notifications)                           │  EPIC-15
                      │                                           │  (planned)
                      └───────────────────┬──────────────────────┘
                                          │ consumes
@@ -48,6 +48,7 @@ core; a platform module never imports a domain module.
 | `orders`      | 11   | `/v1/orders`                      | `orders`, `order_items`, `order_activities`, `order_sequences`                                                                                                                                                                                                                                                                                       | `order.created` / `.status_changed` / `.assigned`, `payment.collected`, `customer.merged`         |
 | `finance`     | 13   | `/v1/finance`                     | `suppliers`, `purchase_order_sequences`, `purchase_orders`, `purchase_order_lines`, `purchase_order_receipts`, `purchase_order_receipt_lines`, `purchase_order_payments`, `expenses`, `tax_settings`, `invoice_sequences`, `invoices`, `invoice_lines`, `refunds`, `shipping_reconciliations`, `shipping_reconciliation_lines`, `accounting_periods` | `purchase_order.received`, `payment.recorded`, `invoice.issued`, `refund.issued`, `period.closed` |
 | `shipping`    | 12   | `/v1/shipping`                    | `shipments`, `shipping_webhook_events`                                                                                                                                                                                                                                                                                                               | `shipment.created` / `.status_changed` / `.delivered`                                             |
+| `analytics`   | 14   | `/v1/analytics`                   | — (no owned tables, D3)                                                                                                                                                                                                                                                                                                                              | —                                                                                                 |
 | `health`      | 1    | `/health`                         | —                                                                                                                                                                                                                                                                                                                                                    | —                                                                                                 |
 
 Shared, owned by no feature module: `audit_log` (append-only, written by every
@@ -92,6 +93,12 @@ graph TD
   FIN --> ACC
   FIN --> BUS
 
+  ANA["analytics (E14)"] --> PROD
+  ANA --> INV
+  ANA --> ORD
+  ANA --> FIN
+  ANA --> ACC
+
   ACC --> AUDIT
   MD --> AUDIT
   PROD --> AUDIT
@@ -100,7 +107,12 @@ graph TD
   ORD --> AUDIT
   SHIP --> AUDIT
   FIN --> AUDIT
+  ANA --> AUDIT
 ```
+
+Note: `analytics` does not depend on the event bus (`BUS`) — it is read-only
+and emits no domain event, so it has no publisher edge into `BUS`. It still
+writes to `AUDIT` (the export's audit-then-nothing row, D7).
 
 Read an arrow as "depends on". Every module depends on `@cadeau/database` for the
 tenant context, keyset helpers, and audit write; the edges above show the
@@ -205,31 +217,32 @@ shipping fees ────┘
       cash-center / P&L reports ── accounting_periods (D4, sequential close)
 ```
 
-Everything still to be built hangs off the right-hand side: analytics reads
-across all of it; notifications subscribe to the event bus.
+Everything still to be built hangs off the right-hand side: analytics
+(EPIC-14, delivered) reads across all of it, no new seam, no owned table;
+notifications (EPIC-15) subscribe to the event bus next.
 
 ## 6. Planned modules and where they attach
 
-| Epic | Module          | Attaches to                                          | New tables (planned)                       |
-| ---- | --------------- | ---------------------------------------------------- | ------------------------------------------ |
-| 14   | `analytics`     | reads across orders / products / inventory / finance | cached aggregates                          |
-| 15   | `notifications` | the event bus (`stock.low`, order events)            | notifications, preferences, delivery queue |
-| 16   | —               | launch gate over everything                          | —                                          |
+| Epic | Module          | Attaches to                               | New tables (planned)                       |
+| ---- | --------------- | ----------------------------------------- | ------------------------------------------ |
+| 15   | `notifications` | the event bus (`stock.low`, order events) | notifications, preferences, delivery queue |
+| 16   | —               | launch gate over everything               | —                                          |
 
 ## 7. Forward references already in the schema
 
 Deliberate, documented, and unenforced until their epic lands:
 
-| Reference                                                        | Waiting on | Note                                                                                       |
-| ---------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------ |
-| ~~`stock_reservations.order_id`~~                                | ✅ EPIC-11 | Now a real FK (`ON DELETE SET NULL`).                                                      |
-| ~~`customers.orders_count` / `.total_spent` / `.last_order_at`~~ | ✅ EPIC-11 | Recomputed in the order write transaction (decision D3).                                   |
-| ~~Customer merge (`POST /v1/customers/merge`)~~                  | ✅ EPIC-11 | Delivered over all customer-owned tables + a completeness guard test.                      |
-| ~~`product_variants.average_cost`~~                              | ✅ EPIC-13 | Written by the PO-receipt moving-average roll (D7); still read-only to every other caller. |
-| ~~`order_labels`, `order_reasons`~~                              | ✅ EPIC-11 | Consumed by orders (labels, cancel reasons).                                               |
-| ~~`shipping_zones`~~                                             | ✅ EPIC-12 | Still no rate-card consumer (P1); a real carrier adapter is the next reference to resolve. |
-| Shipping-fee reconciliation vs. carrier remittance               | ✅ EPIC-13 | `shipping_reconciliations`/`_lines`, matched by tracking number (D5).                      |
-| `ai` feature (inactive)                                          | never      | ADR-0004 — kept inactive by design.                                                        |
+| Reference                                                                 | Waiting on | Note                                                                                                                                                       |
+| ------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~`stock_reservations.order_id`~~                                         | ✅ EPIC-11 | Now a real FK (`ON DELETE SET NULL`).                                                                                                                      |
+| ~~`customers.orders_count` / `.total_spent` / `.last_order_at`~~          | ✅ EPIC-11 | Recomputed in the order write transaction (decision D3).                                                                                                   |
+| ~~Customer merge (`POST /v1/customers/merge`)~~                           | ✅ EPIC-11 | Delivered over all customer-owned tables + a completeness guard test.                                                                                      |
+| ~~`product_variants.average_cost`~~                                       | ✅ EPIC-13 | Written by the PO-receipt moving-average roll (D7); still read-only to every other caller.                                                                 |
+| ~~`order_labels`, `order_reasons`~~                                       | ✅ EPIC-11 | Consumed by orders (labels, cancel reasons).                                                                                                               |
+| ~~`shipping_zones`~~                                                      | ✅ EPIC-12 | Still no rate-card consumer (P1); a real carrier adapter is the next reference to resolve.                                                                 |
+| Shipping-fee reconciliation vs. carrier remittance                        | ✅ EPIC-13 | `shipping_reconciliations`/`_lines`, matched by tracking number (D5).                                                                                      |
+| Precise per-event `collectedMinor`/`cogsMinor` timing (finance's D6 note) | ✅ EPIC-14 | Analytics computes its own window-scoped collected/COGS directly (D4) rather than adding a ledger; finance's cash-center/P&L approximations are unchanged. |
+| `ai` feature (inactive)                                                   | never      | ADR-0004 — kept inactive by design.                                                                                                                        |
 
 ## 8. Where to read more
 
@@ -239,6 +252,7 @@ Deliberate, documented, and unenforced until their epic lands:
   [orders-domain.md](orders-domain.md),
   [shipping-domain.md](shipping-domain.md),
   [finance-domain.md](finance-domain.md),
+  [analytics-domain.md](analytics-domain.md),
   [permission-matrix.md](permission-matrix.md)
 - Reviews: [access-review.md](access-review.md),
   [products-review.md](products-review.md),

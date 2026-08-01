@@ -124,8 +124,30 @@ are `finance.read`/`finance.manage` only (D2, no bespoke `.refund`/`.close`
 keys). **EPIC-13 §2.5 gate green and CLOSED, owner sign-off 2026-08-01**
 ([epic-13-quality-gate.md](epic-13-quality-gate.md)); domain + retrospective in
 [finance-domain.md](finance-domain.md) and
-[epic-13-retrospective.md](epic-13-retrospective.md). **Next: EPIC-14
-(Analytics)**. See [domain-map.md](domain-map.md) for how the delivered
+[epic-13-retrospective.md](epic-13-retrospective.md). **EPIC-14 (Analytics)
+delivered** on `feat/epic-14-analytics`: the
+[analytics module](../apps/api/src/modules/analytics/) (`/v1/analytics` — 6
+routes) with **no new tables** (D3) — a single supporting index migration
+(`20260810000000_analytics_index`, `orders(company_id, assignee_id,
+created_at)`) is the only schema change. Five computed, read-only axes
+(business, products, inventory, staff, profitability) read directly across
+orders/order_items/product_variants/inventory_stock/expenses; every
+delta/change-ratio is a real aggregate query, never a placeholder; net income
+is on **collected**, not invoiced (D4); a whitelisted `date_trunc` drives the
+business axis's sparkline (D6); a small in-process TTL cache
+(`AnalyticsCache`, 45s, keyed by `companyId:axis:from:to:granularity`)
+satisfies the contract's "one decomposed cached query per tab" requirement
+(D2) without a new infrastructure dependency. `POST /v1/analytics/export`
+renders CSV, gated behind `analytics.manage` (D1 — the draft contract's
+`analytics.export` key doesn't exist in the generated catalog) and durably
+audited before the file returns (D7, audit-then-nothing — no domain event,
+the contract specifies none). Plus the analytics Dual Shell frontend (5
+tabs, a hand-rolled inline-SVG sparkline, no new charting dependency).
+**EPIC-14 §2.5 gate green and CLOSED, owner sign-off 2026-08-01**
+([epic-14-quality-gate.md](epic-14-quality-gate.md)); domain + retrospective
+in [analytics-domain.md](analytics-domain.md) and
+[epic-14-retrospective.md](epic-14-retrospective.md). **Next: EPIC-15
+(Notifications)**. See [domain-map.md](domain-map.md) for how the delivered
 modules fit together and [project-metrics.md](project-metrics.md) for the
 numbers.
 
@@ -639,12 +661,40 @@ permissions never added (D2); cash-center/P&L date-column choices are
 documented approximations (D6); PO-receive UI simplifies to
 full-remaining-quantity-into-one-warehouse. _Depends on:_ 8, 9, 11, 12.
 
-### EPIC-14 — Analytics
+### EPIC-14 — Analytics ✅ — `feat/epic-14-analytics`
 
-Contract: [api/analytics.md](api/analytics.md). Five axes (business/products/
-inventory/staff/profitability), net income on collected − COGS, **actually-computed**
-deltas, restricted+audited export, time filter + sparklines, one decomposed cached
-query per tab. _Depends on:_ most domain epics.
+Contract: [api/analytics.md](api/analytics.md). Delivered M14.0–M14.5:
+
+- **M14.0 Design** ✅ — [epic-14-design.md](epic-14-design.md), decisions
+  D1–D8 (`analytics.manage` gates export, no bespoke `.export` key; a small
+  in-process TTL cache, D2; no new tables, D3; net income on collected, D4;
+  CSV export, D5; whitelisted `date_trunc` bucketing, D6; audit-then-nothing
+  on export, D7; `orders.assigneeId` is the staff-attribution field, D8).
+- **M14.1 Data model** ✅ — `20260810000000_analytics_index`: one supporting
+  index (`orders(company_id, assignee_id, created_at)`) — **no new tables**,
+  the only schema change this epic needed.
+- **M14.2/M14.3 Backend** ✅ — five read-only axes
+  (business/products/inventory/staff/profitability), each a pure domain
+  calculation fed by one repository read; `AnalyticsCache` (in-process, 45s
+  TTL, keyed by `companyId:axis:from:to:granularity`); `POST
+/v1/analytics/export` (CSV, `analytics.manage`-gated, audited before
+  returning, no domain event); 6 routes total, all three-layer gated,
+  OpenAPI-decorated.
+- **M14.4 Frontend** ✅ — the analytics surface (5 tabs: business, products,
+  inventory, staff, profitability) in the Dual Shell, with a hand-rolled
+  inline-SVG sparkline (no new charting dependency).
+- **M14.5 Docs + gates** ✅ — contract,
+  [analytics-domain.md](analytics-domain.md),
+  [epic-14-retrospective.md](epic-14-retrospective.md),
+  [epic-14-quality-gate.md](epic-14-quality-gate.md); domain-map/metrics
+  refreshed.
+
+_Acceptance met:_ every axis is a real computed summary (no placeholder
+deltas); export gated + audited before the file returns; no new tables; every
+route three-layer gated; web bundle stays under the 200KB gzip budget.
+_Deviations:_ `analytics.export` permission never added — `analytics.read`/
+`analytics.manage` only (D1); inventory's `turnoverSignal` is a documented
+approximation, not a real turnover ratio. _Depends on:_ 8, 9, 11, 13.
 
 ### EPIC-15 — Notifications
 
