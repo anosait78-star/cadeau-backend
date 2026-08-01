@@ -26,6 +26,9 @@ const SCHEMA_KEYS = [
   "ENCRYPTION_KEY",
   "PII_HASH_KEY",
   "SHIPPING_WEBHOOK_SIGNING_SECRET",
+  "VAPID_PUBLIC_KEY",
+  "VAPID_PRIVATE_KEY",
+  "VAPID_SUBJECT",
   "OAUTH_GOOGLE_CLIENT_ID",
   "OAUTH_GOOGLE_CLIENT_SECRET",
   "WHATSAPP_API_KEY",
@@ -44,6 +47,9 @@ const FILE_ENV = [
   `ENCRYPTION_KEY=${"0".repeat(64)}`,
   `PII_HASH_KEY=${"a".repeat(64)}`,
   `SHIPPING_WEBHOOK_SIGNING_SECRET=${"c".repeat(64)}`,
+  `VAPID_PUBLIC_KEY=${"A".repeat(86)}B`,
+  `VAPID_PRIVATE_KEY=${"A".repeat(42)}B`,
+  "VAPID_SUBJECT=mailto:dev@cadeau.test",
 ].join("\n");
 
 let originalEnv: Record<string, string | undefined>;
@@ -99,6 +105,9 @@ describe("loadConfig — dotenv file loading", () => {
     process.env["ENCRYPTION_KEY"] = "0".repeat(64);
     process.env["PII_HASH_KEY"] = "a".repeat(64);
     process.env["SHIPPING_WEBHOOK_SIGNING_SECRET"] = "c".repeat(64);
+    process.env["VAPID_PUBLIC_KEY"] = "A".repeat(86) + "B";
+    process.env["VAPID_PRIVATE_KEY"] = "A".repeat(42) + "B";
+    process.env["VAPID_SUBJECT"] = "mailto:dev@cadeau.test";
 
     const config = loadConfig({ cwd: tmpDir, skipDotenv: true });
     expect(config.isDevelopment).toBe(true);
@@ -124,6 +133,9 @@ describe("redactConfig — optional third-party secrets", () => {
         ENCRYPTION_KEY: "0".repeat(64),
         PII_HASH_KEY: "a".repeat(64),
         SHIPPING_WEBHOOK_SIGNING_SECRET: "c".repeat(64),
+        VAPID_PUBLIC_KEY: "A".repeat(86) + "B",
+        VAPID_PRIVATE_KEY: "A".repeat(42) + "B",
+        VAPID_SUBJECT: "mailto:dev@cadeau.test",
         SHIPPING_BOSTA_API_KEY: "bosta-key",
       },
     });

@@ -146,10 +146,27 @@ tabs, a hand-rolled inline-SVG sparkline, no new charting dependency).
 **EPIC-14 §2.5 gate green and CLOSED, owner sign-off 2026-08-01**
 ([epic-14-quality-gate.md](epic-14-quality-gate.md)); domain + retrospective
 in [analytics-domain.md](analytics-domain.md) and
-[epic-14-retrospective.md](epic-14-retrospective.md). **Next: EPIC-15
-(Notifications)**. See [domain-map.md](domain-map.md) for how the delivered
-modules fit together and [project-metrics.md](project-metrics.md) for the
-numbers.
+[epic-14-retrospective.md](epic-14-retrospective.md). **EPIC-15
+(Notifications) delivered** on `feat/epic-15-notifications`: the
+[notifications module](../apps/api/src/modules/notifications/)
+(`/v1/notifications` — 6 routes) with migration `20260811000000_notifications`
+(4 tables: `notifications`, `notification_preferences`, `push_subscriptions`,
+`notification_deliveries`); the **first real subscriber** on the EPIC-6 event
+bus (`order.status_changed`/`payment.collected` fan out to the order's
+assignee, D6/D9); every personal endpoint gated by the `notifications`
+**feature only**, no permission key (D1); a durable outbound Web Push delivery
+queue reusing the EPIC-12 `shipping_webhook_events`/`WebhookRetryWorker` shape
+verbatim (D2); VAPID-authenticated sends via `web-push` (D4, required
+self-generated config); a deferred-but-wired `CustomerMessagingPort` for
+end-customer WhatsApp/SMS (D5, mirrors EPIC-12's `CarrierPort` precedent); the
+live `notification.created`/`.delivered` events; and the Notifications bell +
+preferences screen in the Dual Shell. `stock.low` fan-out is explicitly
+deferred (D7 — no company-wide member-permission broadcast primitive exists
+yet). **EPIC-15 §2.5 gate technical dimensions all PASS, owner approval
+pending** ([epic-15-quality-gate.md](epic-15-quality-gate.md)); domain doc in
+[notifications-domain.md](notifications-domain.md). See
+[domain-map.md](domain-map.md) for how the delivered modules fit together and
+[project-metrics.md](project-metrics.md) for the numbers.
 
 | Package / app      | What it is                                                                        | Status          |
 | ------------------ | --------------------------------------------------------------------------------- | --------------- |
@@ -163,8 +180,8 @@ numbers.
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 1405 unit/integration after EPIC-13 (config 43 · web 160
-· crypto 47 · database 71 · api 1084). Keep it growing; never let a gate regress.
+**Test count baseline:** 1602 unit/integration after EPIC-15 (config 46 · web 200
+· crypto 47 · database 71 · api 1238). Keep it growing; never let a gate regress.
 
 ---
 
@@ -704,11 +721,57 @@ _Deviations:_ `analytics.export` permission never added — `analytics.read`/
 `analytics.manage` only (D1); inventory's `turnoverSignal` is a documented
 approximation, not a real turnover ratio. _Depends on:_ 8, 9, 11, 13.
 
-### EPIC-15 — Notifications
+### EPIC-15 — Notifications ✅ delivered — `feat/epic-15-notifications`
 
-Contract: [api/notifications.md](api/notifications.md). Notification center + Web
-Push, typed notifications, end-customer WhatsApp/SMS on status change, per-user
-preferences, reliable delivery queue. _Depends on:_ the event bus (EPIC-6) + orders.
+Contract: [api/notifications.md](api/notifications.md). Design:
+[epic-15-design.md](epic-15-design.md) — decisions D1–D9. Delivered M15.0–M15.5:
+
+- **M15.0 Design** ✅ — [epic-15-design.md](epic-15-design.md), D1–D9
+  (feature-only gating for personal endpoints; the outbound delivery queue
+  copies the EPIC-12 webhook-inbox shape; the event bus itself stays
+  synchronous; `web-push`/VAPID for sends; a deferred `CustomerMessagingPort`
+  stub for end-customer messaging; only `order.status_changed`/
+  `payment.collected` are consumed, `stock.low` deferred; idempotent mark-read
+  needs no `Idempotency-Key`; an unassigned order is a silent no-op).
+- **M15.1 Data model** ✅ — `20260811000000_notifications`: 4 tables
+  (`notifications`, `notification_preferences`, `push_subscriptions`,
+  `notification_deliveries`, the last with split INSERT/SELECT/UPDATE RLS
+  from the start); `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`
+  added to `@cadeau/config` as required, self-generated secrets.
+- **M15.2 Backend** ✅ — `modules/notifications`: `NotificationsService`
+  (personal list/markRead/preferences/subscriptions, feature-only gated),
+  `NotificationDispatchService` (the event bus's **first real subscriber**),
+  `DeliveryQueueRepository`/`DeliveryRetryWorker`/`DeliveryProcessorService`
+  (the EPIC-12 webhook pipeline shape reused for outbound Web Push),
+  `WebPushAdapter` (`web-push`, VAPID), `LoggingCustomerMessagingAdapter`
+  (D5 stub), `OrderFactsPort`/`OrderFactsAdapter` (keeps the application
+  layer from reaching into infrastructure directly); `notification.created`/
+  `.delivered` added to the closed event catalog; 6 routes, all gated by the
+  `notifications` feature only (no permission key, D1).
+- **M15.3 Tests** ✅ — unit tests across domain/application/infrastructure/
+  presentation (api 1149→1238); config +3 (VAPID validation).
+- **M15.4 Frontend** ✅ — `NotificationBell` (unread indicator + dropdown
+  panel + mark-read, both shells' top bars) and the notification preferences
+  screen (`/settings/notifications`) in the Dual Shell (web 184→200).
+- **M15.5 Docs + gates** ✅ — contract marked delivered,
+  [events.md](events.md) updated (`notification.*` live, the first-subscriber
+  note), [notifications-domain.md](notifications-domain.md),
+  [epic-15-quality-gate.md](epic-15-quality-gate.md) (all technical
+  dimensions PASS; owner approval pending); this plan refreshed.
+
+_Acceptance met:_ every personal endpoint feature-gated only, no cross-user
+read; the bus's first subscriber correctly no-ops on an unassigned order;
+the outbound delivery queue retries with backoff and parks after 10 attempts;
+a gone (404/410) subscription is deleted and its pending deliveries cascade
+away; web bundle stays under the 200KB gzip budget. _Deviations:_ `stock.low`
+fan-out deferred (D7, no broadcast primitive yet); real WhatsApp/SMS provider
+deferred (D5, mirrors EPIC-12's `CarrierPort`); no browser Web Push
+subscription flow in the frontend yet (no service-worker asset — a documented
+frontend-build follow-up, not a backend gap). One `arch:check` violation
+(application layer reaching into infrastructure) was introduced and fixed
+during the build via a new port/adapter pair — see
+[epic-15-quality-gate.md](epic-15-quality-gate.md) §2. _Depends on:_ the
+event bus (EPIC-6) + orders (EPIC-11).
 
 ### EPIC-16 — Launch Gate
 

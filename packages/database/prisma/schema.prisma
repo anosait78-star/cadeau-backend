@@ -60,12 +60,15 @@ model Profile {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  memberships     CompanyMember[]
-  sessions        Session[]
-  acceptedInvites Invitation[]    @relation("InvitationAcceptedBy")
-  platformAdmin   PlatformAdmin?
-  assignedOrders  Order[]         @relation("OrderAssignee")
-  orderActivities OrderActivity[] @relation("OrderActivityActor")
+  memberships             CompanyMember[]
+  sessions                Session[]
+  acceptedInvites         Invitation[]              @relation("InvitationAcceptedBy")
+  platformAdmin           PlatformAdmin?
+  assignedOrders          Order[]                   @relation("OrderAssignee")
+  orderActivities         OrderActivity[]            @relation("OrderActivityActor")
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  pushSubscriptions       PushSubscription[]
 
   @@map("profiles")
 }
@@ -125,6 +128,10 @@ model Company {
   shippingReconciliations     ShippingReconciliation[]
   shippingReconciliationLines ShippingReconciliationLine[]
   accountingPeriods           AccountingPeriod[]
+  notifications                Notification[]
+  notificationPreferences      NotificationPreference[]
+  pushSubscriptions            PushSubscription[]
+  notificationDeliveries       NotificationDelivery[]
 
   @@map("companies")
 }
@@ -1468,4 +1475,111 @@ model AccountingPeriod {
   @@unique([companyId, periodKey], map: "accounting_periods_company_period_key")
   @@index([companyId, periodKey], map: "accounting_periods_keyset_idx")
   @@map("accounting_periods")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-15 — Notifications. An in-app inbox (Notification) fed by the EPIC-6
+// event bus (order.status_changed / payment.collected → the order's
+// assignee), per-user per-type channel preferences, registered Web Push
+// endpoints, and a durable outbound delivery queue
+// (NotificationDelivery — the shipping_webhook_events / WebhookRetryWorker
+// shape from EPIC-12, reused verbatim for outbound sends). All four tables
+// tenant-editable (base columns + FORCE RLS by company_id + touch_updated_at);
+// NotificationDelivery additionally splits INSERT/SELECT/UPDATE policies from
+// the start (the retry worker's cross-tenant claim is known up front — see
+// docs/epic-15-design.md D2 and the EPIC-12 M12.4 precedent).
+// ---------------------------------------------------------------------------
+
+/// One in-app notification for one recipient (EPIC-15). System-generated only
+/// (no user-authored broadcast in v1) — `createdBy`/`updatedBy` stay null.
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  profileId String    @map("profile_id") @db.Uuid
+  type      String
+  title     String
+  body      String
+  payload   Json?
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profile    Profile                @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([companyId, profileId, createdAt(sort: Desc), id(sort: Desc)], map: "notifications_recipient_keyset_idx")
+  @@map("notifications")
+}
+
+/// Per-user, per-type, per-channel on/off switches (EPIC-15). A missing row
+/// for a (profile, type) pair means both channels default to enabled.
+model NotificationPreference {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  profileId      String   @map("profile_id") @db.Uuid
+  type           String
+  inAppEnabled   Boolean  @default(true) @map("in_app_enabled")
+  webPushEnabled Boolean  @default(true) @map("web_push_enabled")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, profileId, type], map: "notification_preferences_recipient_type_key")
+  @@map("notification_preferences")
+}
+
+/// A registered Web Push endpoint (EPIC-15, W3C Push API subscription
+/// object). `endpoint` is globally unique — it identifies one browser
+/// installation, never shared across companies or users.
+model PushSubscription {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  profileId String   @map("profile_id") @db.Uuid
+  endpoint  String
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profile    Profile                @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@unique([endpoint], map: "push_subscriptions_endpoint_key")
+  @@index([companyId, profileId], map: "push_subscriptions_recipient_idx")
+  @@map("push_subscriptions")
+}
+
+/// Durable outbound delivery queue for Web Push sends (EPIC-15, decision D2):
+/// one row per (notification, push subscription). A retry worker processes
+/// `pending`/`failed` rows with exponential backoff — the
+/// `shipping_webhook_events` shape (EPIC-12 M12.4) reused for an outbound
+/// queue instead of an inbound one.
+model NotificationDelivery {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  notificationId     String    @map("notification_id") @db.Uuid
+  pushSubscriptionId String    @map("push_subscription_id") @db.Uuid
+  channel            String    @default("web_push")
+  status             String    @default("pending")
+  attempts           Int       @default(0)
+  nextAttemptAt      DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  lastError          String?   @map("last_error")
+  processedAt        DateTime? @map("processed_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  notification     Notification     @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  pushSubscription PushSubscription @relation(fields: [pushSubscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "notification_deliveries_keyset_idx")
+  @@index([status, nextAttemptAt], map: "notification_deliveries_pending_idx")
+  @@map("notification_deliveries")
 }

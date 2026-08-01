@@ -66,6 +66,13 @@ export function buildConfig(env: ValidatedEnv): AppConfig {
     oauth,
     thirdParty,
     shipping: { webhookSigningSecret: env.SHIPPING_WEBHOOK_SIGNING_SECRET },
+    notifications: {
+      vapid: {
+        publicKey: env.VAPID_PUBLIC_KEY,
+        privateKey: env.VAPID_PRIVATE_KEY,
+        subject: env.VAPID_SUBJECT,
+      },
+    },
     superAdminEmails: env.SUPER_ADMIN_EMAILS !== undefined ? splitList(env.SUPER_ADMIN_EMAILS) : [],
   };
 
@@ -99,6 +106,13 @@ export function redactConfig(config: AppConfig): Record<string, unknown> {
     },
     encryption: { key: REDACTED, blindIndexKey: REDACTED },
     shipping: { webhookSigningSecret: REDACTED },
+    notifications: {
+      vapid: {
+        publicKey: config.notifications.vapid.publicKey,
+        privateKey: REDACTED,
+        subject: config.notifications.vapid.subject,
+      },
+    },
     oauth: config.oauth.google ? { google: { clientId: REDACTED, clientSecret: REDACTED } } : {},
     thirdParty: {
       whatsappApiKey: config.thirdParty.whatsappApiKey ? REDACTED : undefined,

@@ -20,6 +20,9 @@ function validEnv(
     ENCRYPTION_KEY: "0".repeat(64),
     PII_HASH_KEY: "a".repeat(64),
     SHIPPING_WEBHOOK_SIGNING_SECRET: "c".repeat(64),
+    VAPID_PUBLIC_KEY: "A".repeat(86) + "B",
+    VAPID_PRIVATE_KEY: "A".repeat(42) + "B",
+    VAPID_SUBJECT: "mailto:dev@cadeau.test",
     ...overrides,
   };
 }
@@ -145,6 +148,15 @@ describe("loadConfig — rejects missing required variables (refuses boot)", () 
     const error = expectConfigError(env, "SHIPPING_WEBHOOK_SIGNING_SECRET");
     expect(error.message).toContain("SHIPPING_WEBHOOK_SIGNING_SECRET");
   });
+
+  it("rejects a missing VAPID key or subject and names it", () => {
+    for (const key of ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"] as const) {
+      const env = validEnv();
+      delete env[key];
+      const error = expectConfigError(env, key);
+      expect(error.message).toContain(key);
+    }
+  });
 });
 
 describe("loadConfig — rejects invalid values (runtime validation)", () => {
@@ -214,6 +226,15 @@ describe("loadConfig — rejects invalid values (runtime validation)", () => {
       validEnv({ PII_HASH_KEY: key, SHIPPING_WEBHOOK_SIGNING_SECRET: key }),
       "SHIPPING_WEBHOOK_SIGNING_SECRET",
     );
+  });
+
+  it("rejects a wrong-length VAPID_PUBLIC_KEY or VAPID_PRIVATE_KEY", () => {
+    expectConfigError(validEnv({ VAPID_PUBLIC_KEY: "short" }), "VAPID_PUBLIC_KEY");
+    expectConfigError(validEnv({ VAPID_PRIVATE_KEY: "short" }), "VAPID_PRIVATE_KEY");
+  });
+
+  it("rejects a VAPID_SUBJECT that is not mailto: or https:", () => {
+    expectConfigError(validEnv({ VAPID_SUBJECT: "ops@cadeau.example" }), "VAPID_SUBJECT");
   });
 
   it("rejects an invalid JWT TTL duration", () => {
@@ -295,6 +316,11 @@ describe("redactConfig", () => {
     expect(redacted["encryption"]?.["key"]).toBe("***REDACTED***");
     expect(redacted["encryption"]?.["blindIndexKey"]).toBe("***REDACTED***");
     expect(redacted["shipping"]?.["webhookSigningSecret"]).toBe("***REDACTED***");
+    expect(
+      (redacted["notifications"] as Record<string, Record<string, unknown>>)["vapid"]?.[
+        "privateKey"
+      ],
+    ).toBe("***REDACTED***");
     expect(String(redacted["database"]?.["url"])).toContain("***REDACTED***");
     expect(String(redacted["database"]?.["url"])).not.toContain("pass");
     expect(redacted["http"]?.["port"]).toBe(3000);

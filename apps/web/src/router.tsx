@@ -15,6 +15,7 @@ import { LoginPage } from "@/pages/auth/login-page";
 import { RegisterPage } from "@/pages/auth/register-page";
 import { NotFoundPage } from "@/pages/not-found-page";
 import { PlaceholderPage } from "@/pages/placeholder-page";
+import { NotificationsPage } from "@/pages/settings/notifications-page";
 import { RolesPage } from "@/pages/settings/roles-page";
 
 /**
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
           { path: "analytics", element: <AnalyticsPage /> },
           { path: "master-data", element: <MasterDataPage /> },
           { path: "settings/roles", element: <RolesPage /> },
+          { path: "settings/notifications", element: <NotificationsPage /> },
           { path: "settings", element: <PlaceholderPage titleKey="nav.settings" /> },
           {
             path: "admin",

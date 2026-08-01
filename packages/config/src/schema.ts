@@ -93,6 +93,24 @@ export const envSchema = z
       .string()
       .regex(/^[0-9a-fA-F]{64}$/, "must be 64 hex characters (32 bytes)"),
 
+    // Secret: Web Push VAPID key pair (EPIC-15 M15.1). Self-generated key
+    // material (RFC 8292) identifying this server to browser push services —
+    // not a third-party account credential, so it is required like the other
+    // self-generated secrets above, not optional like WHATSAPP_API_KEY below.
+    // Generate with `npx web-push generate-vapid-keys`.
+    VAPID_PUBLIC_KEY: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{87}$/, "must be an 87-character base64url P-256 public key"),
+    VAPID_PRIVATE_KEY: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{43}$/, "must be a 43-character base64url P-256 private key"),
+    VAPID_SUBJECT: z
+      .string()
+      .refine(
+        (value) => value.startsWith("mailto:") || value.startsWith("https://"),
+        "must be a mailto: or https: URI identifying an operator contact (RFC 8292)",
+      ),
+
     // Platform Super-Admin bootstrap (optional, CSV of emails). The access seed
     // (EPIC-5) promotes matching profiles into `platform_admins`; privilege is a
     // separate DB-backed grant, never a tenant-token claim.
@@ -200,6 +218,7 @@ export const envSchema = z
         ["ENCRYPTION_KEY", value.ENCRYPTION_KEY],
         ["PII_HASH_KEY", value.PII_HASH_KEY],
         ["SHIPPING_WEBHOOK_SIGNING_SECRET", value.SHIPPING_WEBHOOK_SIGNING_SECRET],
+        ["VAPID_PRIVATE_KEY", value.VAPID_PRIVATE_KEY],
       ];
       for (const [name, secret] of productionSecrets) {
         if (INSECURE_PLACEHOLDER.test(secret)) {

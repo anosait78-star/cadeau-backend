@@ -13,7 +13,7 @@
  * Usage: tsx prisma/seed-demo.ts <companyId>
  */
 import { getConfig } from "@cadeau/config";
-import { encrypt, blindIndex } from "../../crypto/src/index";
+import { encrypt, blindIndex } from "@cadeau/crypto";
 import {
   getPrismaClient,
   disconnectPrisma,

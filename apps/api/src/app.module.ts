@@ -9,6 +9,7 @@ import { CustomersModule } from "./modules/customers/customers.module";
 import { FinanceModule } from "./modules/finance/finance.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { ProductsModule } from "./modules/products/products.module";
 import { ShippingModule } from "./modules/shipping/shipping.module";
@@ -41,6 +42,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     ShippingModule,
     FinanceModule,
     AnalyticsModule,
+    NotificationsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

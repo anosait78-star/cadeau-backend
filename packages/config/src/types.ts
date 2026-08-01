@@ -64,6 +64,19 @@ export interface ShippingConfig {
   readonly webhookSigningSecret: string;
 }
 
+export interface VapidConfig {
+  /** Base64url P-256 public key, sent to the browser at subscribe time. */
+  readonly publicKey: string;
+  /** Base64url P-256 private key — signs the VAPID JWT on every Web Push send. */
+  readonly privateKey: string;
+  /** `mailto:` or `https:` operator contact required by RFC 8292. */
+  readonly subject: string;
+}
+
+export interface NotificationsConfig {
+  readonly vapid: VapidConfig;
+}
+
 /**
  * The fully validated, structured, read-only application configuration.
  * This is the single source of truth consumed everywhere — no module reads
@@ -83,6 +96,7 @@ export interface AppConfig {
   readonly oauth: OAuthConfig;
   readonly thirdParty: ThirdPartyConfig;
   readonly shipping: ShippingConfig;
+  readonly notifications: NotificationsConfig;
   /**
    * Emails that bootstrap the platform Super-Admin grant (EPIC-5). The access
    * seed promotes matching profiles into `platform_admins`. Empty when unset.

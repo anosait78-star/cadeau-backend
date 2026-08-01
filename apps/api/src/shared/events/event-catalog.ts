@@ -27,10 +27,12 @@
  *     `shipment.status_changed`/`shipment.delivered`.
  *   - **Live now (EPIC-13 finance):** `purchase_order.received`,
  *     `payment.recorded`, `invoice.issued`, `refund.issued`, `period.closed`.
+ *   - **Live now (EPIC-15 notifications):** `notification.created`/
+ *     `notification.delivered`. This is also the catalog's first real
+ *     *subscriber* — `order.status_changed`/`payment.collected` above are
+ *     consumed by the notification dispatcher, not just published.
  *
- * **Forward-declared** entries (none currently pending) are listed so the
- * catalog is the one place the vocabulary is declared and so notification
- * subscribers (EPIC-15) can be typed against it ahead of their owning epic.
+ * **Forward-declared** entries (none currently pending).
  *
  * See {@link ../../../docs/events.md} for the emit/subscribe contract.
  */
@@ -244,6 +246,26 @@ export interface EventPayloads {
    */
   "period.closed": {
     readonly periodKey: string;
+  };
+
+  /**
+   * An in-app notification was created for one recipient (EPIC-15). Emitted
+   * alongside the durable audit write, after the `Notification` row commits.
+   * Ids only — the title/body may echo domain facts but never raw PII.
+   */
+  "notification.created": {
+    readonly notificationId: string;
+    readonly recipientProfileId: string;
+    readonly type: string;
+  };
+  /**
+   * A queued Web Push delivery reached the browser's push service
+   * successfully (EPIC-15, D2). Emitted by the delivery retry worker when a
+   * `notification_deliveries` row transitions to `processed`.
+   */
+  "notification.delivered": {
+    readonly notificationId: string;
+    readonly pushSubscriptionId: string;
   };
 }
 
