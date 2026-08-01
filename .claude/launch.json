@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "web",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@cadeau/web", "dev"],
+      "runtimeExecutable": "C:\\Users\\yasmi\\AppData\\Roaming\\npm-global\\pnpm.cmd",
+      "runtimeArgs": ["--filter", "@cadeau/web", "dev", "--port", "5173", "--strictPort"],
       "port": 5173
     }
   ]

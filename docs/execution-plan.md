@@ -205,10 +205,15 @@ origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
 Run locally: `pnpm format:check` · `pnpm lint` · `pnpm type-check` · `pnpm test` ·
 `pnpm build` · `pnpm arch:check` · `node scripts/check-stable-only.mjs` ·
-`pnpm audit --audit-level high` · (after web build) `pnpm perf:bundle`.
-**CI-only** (can't run locally — no Docker/browser/k6): `database` (migrations+RLS
-on real Postgres), `e2e` (Playwright desktop+mobile + axe), `performance`
-(Lighthouse desktop+mobile), `api-load` (k6), `sast` (semgrep), secret-scan.
+`pnpm audit --audit-level high` · (after web build) `pnpm perf:bundle`. As of
+2026-08-01 this workstation has Docker Desktop + WSL2 working, so the
+`database` gate (migrations + RLS on real Postgres via `docker compose up -d
+db`) can and should be run locally too — see
+[database.md](database.md#local-development). `pnpm test` against a real
+local Postgres exercises the same `@cadeau/database` integration tests CI runs.
+**Still CI-only** (no browser/k6 on this workstation): `e2e` (Playwright
+desktop+mobile + axe), `performance` (Lighthouse desktop+mobile), `api-load`
+(k6), `sast` (semgrep), secret-scan.
 
 ### Dependency policy (ADR-0001)
 
@@ -222,9 +227,12 @@ Exact-pin versions; **stable only** (no alpha/beta/rc/next/canary). Every new de
 - **pnpm is not on Git Bash's PATH.** Run pnpm — and `git commit` (so husky hooks
   find pnpm) — from **PowerShell** with `$env:Path` prefixed by
   `$env:AppData\npm-global;$env:AppData\Roaming\npm-global`.
-- **No Docker, no `gh`, no Playwright browser download** locally → DB/e2e/Lighthouse/
-  k6 are validated in CI, not locally. Verify everything else locally + real-browser
-  smoke via the preview tools when UI changes.
+- **Docker Desktop + WSL2 are working (since 2026-08-01)** — `docker compose up
+-d db` brings up a real local PostgreSQL 17 (migrations, RLS, triggers, seed
+  all verified against it); run the `database` gate locally before relying on
+  CI. **No `gh`, no Playwright browser download** locally → e2e/Lighthouse/k6
+  are still validated in CI, not locally. Verify everything else locally +
+  real-browser smoke via the preview tools when UI changes.
 - Never skip hooks (`--no-verify`). Conventional Commits; end messages with the
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer. Branch-first
   (feature branch per epic, e.g. `feat/epic-4-auth`).
