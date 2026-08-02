@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { ConfirmDialog } from "@/components/confirm-dialog/confirm-dialog";
+import { StatusBadge } from "@/components/status-badge/status-badge";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
@@ -36,13 +38,13 @@ export function PeriodsTab({ onNotify }: { onNotify: (text: string) => void }): 
   }, [load]);
 
   const doClose = async (periodKey: string): Promise<void> => {
-    setConfirmingKey(null);
     try {
       await closePeriod(periodKey);
       onNotify(t("finance.saved"));
       await load();
     } catch {
       onNotify(t("finance.saveFailed"));
+      throw new Error("finance.periods.closeFailed");
     }
   };
 
@@ -62,11 +64,14 @@ export function PeriodsTab({ onNotify }: { onNotify: (text: string) => void }): 
                 <CardHeader>
                   <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                     <span>{period.periodKey}</span>
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
-                      {period.status === "closed"
-                        ? t("finance.periods.status.closed")
-                        : t("finance.periods.status.open")}
-                    </span>
+                    <StatusBadge
+                      label={
+                        period.status === "closed"
+                          ? t("finance.periods.status.closed")
+                          : t("finance.periods.status.open")
+                      }
+                      tone={period.status === "closed" ? "neutral" : "success"}
+                    />
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
@@ -87,37 +92,25 @@ export function PeriodsTab({ onNotify }: { onNotify: (text: string) => void }): 
 
                   {period.status === "open" ? (
                     <PermissionGate permission="finance.manage">
-                      {confirmingKey === period.periodKey ? (
-                        <div className="flex flex-col gap-2 rounded-md border border-destructive/30 p-3">
-                          <p className="text-sm">{t("finance.periods.confirmClose")}</p>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => void doClose(period.periodKey)}
-                            >
-                              {t("finance.periods.confirmCloseYes")}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setConfirmingKey(null)}
-                            >
-                              {t("finance.periods.confirmCloseNo")}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setConfirmingKey(period.periodKey)}
-                          >
-                            {t("finance.periods.actions.close")}
-                          </Button>
-                        </div>
-                      )}
+                      <div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setConfirmingKey(period.periodKey)}
+                        >
+                          {t("finance.periods.actions.close")}
+                        </Button>
+                      </div>
+                      <ConfirmDialog
+                        open={confirmingKey === period.periodKey}
+                        onOpenChange={(open) => setConfirmingKey(open ? period.periodKey : null)}
+                        title={t("finance.periods.actions.close")}
+                        description={t("finance.periods.confirmClose")}
+                        confirmLabel={t("finance.periods.confirmCloseYes")}
+                        cancelLabel={t("finance.periods.confirmCloseNo")}
+                        destructive
+                        onConfirm={() => doClose(period.periodKey)}
+                      />
                     </PermissionGate>
                   ) : null}
                 </CardContent>
