@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { EmptyState } from "@/components/states/empty-state";
+import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -58,16 +59,13 @@ export function AnalyticsPage(): ReactNode {
 
 function AnalyticsScreen(): ReactNode {
   const { t } = useI18n();
+  const toast = useToast();
   const [tab, setTab] = useState<Tab>("business");
   const [from, setFrom] = useState(defaultFrom());
   const [to, setTo] = useState(defaultTo());
   const [granularity, setGranularity] = useState<"day" | "week" | "month">("day");
-  const [notice, setNotice] = useState<string | null>(null);
 
-  const flash = useCallback((text: string): void => {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 2500);
-  }, []);
+  const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
   const win: AnalyticsWindow = {
     from: new Date(from).toISOString(),
@@ -127,12 +125,6 @@ function AnalyticsScreen(): ReactNode {
           {t("analytics.actions.export")}
         </Button>
       </div>
-
-      {notice !== null ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {notice}
-        </p>
-      ) : null}
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("analytics.title")}>
         {TABS.map((key) => (

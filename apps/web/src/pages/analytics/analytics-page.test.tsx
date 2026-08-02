@@ -7,6 +7,7 @@ import {
   type CapabilitiesContextValue,
   type CapabilityRequirement,
 } from "@/features/access/capabilities-context";
+import { ToastProvider } from "@/components/toast/toast";
 import { I18nProvider } from "@/i18n/i18n-provider";
 import { AnalyticsPage } from "./analytics-page";
 
@@ -35,7 +36,11 @@ function renderPage(
   features = ["analytics"],
   permissions = ["analytics.read", "analytics.manage"],
 ) {
-  return render(<I18nProvider>{caps(features, permissions, <AnalyticsPage />)}</I18nProvider>);
+  return render(
+    <I18nProvider>
+      <ToastProvider>{caps(features, permissions, <AnalyticsPage />)}</ToastProvider>
+    </I18nProvider>,
+  );
 }
 
 const BUSINESS = {
