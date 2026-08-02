@@ -22,6 +22,10 @@
   --primary-foreground: #ffffff;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --success-foreground: #ffffff;
+  --warning: #d97706;
+  --warning-foreground: #ffffff;
 
   --radius: 0.5rem;
 }
@@ -41,6 +45,10 @@
   --primary-foreground: #ffffff;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --success-foreground: #0b0b0c;
+  --warning: #f59e0b;
+  --warning-foreground: #0b0b0c;
 }
 
 /* Expose tokens as Tailwind theme values (utilities like bg-background,
@@ -60,6 +68,10 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
 
   --radius-sm: calc(var(--radius) - 0.125rem);
   --radius-md: var(--radius);
