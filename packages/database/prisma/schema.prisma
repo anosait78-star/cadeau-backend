@@ -85,6 +85,18 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
+  // Onboarding profile fields (EPIC-16 launch-gate onboarding), all optional at
+  // the DB level — required-ness for company creation is enforced by the DTO.
+  country            String? @db.Text
+  phone              String? @db.Text
+  monthlyOrdersRange String? @map("monthly_orders_range") @db.Text
+  facebookHandle     String? @map("facebook_handle") @db.Text
+  instagramHandle    String? @map("instagram_handle") @db.Text
+  websiteUrl         String? @map("website_url") @db.Text
+  shippingCarrier    String? @map("shipping_carrier") @db.Text
+  /// Dialing prefix prepended to phone numbers for WhatsApp (settings tab).
+  whatsappCountryCode String? @map("whatsapp_country_code") @db.Text
+
   members                     CompanyMember[]
   sessions                    Session[]
   invitations                 Invitation[]
@@ -96,6 +108,7 @@ model Company {
   productCategories           ProductCategory[]
   orderLabels                 OrderLabel[]
   orderReasons                OrderReason[]
+  whatsappTemplates           WhatsappTemplate[]
   shippingZones               ShippingZone[]
   products                    Product[]
   productVariants             ProductVariant[]
@@ -588,6 +601,26 @@ model OrderReason {
   @@index([companyId, name, id], map: "order_reasons_keyset_idx")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_reasons_created_keyset_idx")
   @@map("order_reasons")
+}
+
+/// Reusable WhatsApp message template (settings tab). Tenant-editable.
+model WhatsappTemplate {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  body      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name], map: "whatsapp_templates_company_name_key")
+  @@index([companyId, name, id], map: "whatsapp_templates_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "whatsapp_templates_created_keyset_idx")
+  @@map("whatsapp_templates")
 }
 
 /// Shipping zone (EPIC-7). Tenant-editable grouping used for shipping-fee logic.

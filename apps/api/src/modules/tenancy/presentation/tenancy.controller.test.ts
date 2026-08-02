@@ -7,7 +7,7 @@ import type {
   CreatedInvitation,
   TenancyService,
 } from "../application/tenancy.service";
-import type { MembershipCompany, MeView } from "../domain/tenancy.types";
+import type { CompanyRecord, MembershipCompany, MeView } from "../domain/tenancy.types";
 import type { TokenPair } from "../../../shared/contracts/token-pair";
 import { TenancyController } from "./tenancy.controller";
 
@@ -17,6 +17,21 @@ const PRINCIPAL: RequestPrincipal = {
   companyId: randomUUID(),
 };
 const TOKENS: TokenPair = { accessToken: "a", refreshToken: "r", expiresInSeconds: 300 };
+
+const ONBOARDING_DTO_FIELDS = {
+  phone: "+201234567890",
+  monthlyOrdersRange: "100_500" as const,
+};
+const ONBOARDING_RECORD_FIELDS = {
+  phone: "+201234567890",
+  monthlyOrdersRange: "100_500",
+  country: null,
+  facebookHandle: null,
+  instagramHandle: null,
+  websiteUrl: null,
+  shippingCarrier: null,
+  whatsappCountryCode: null,
+};
 
 function make(overrides: Partial<TenancyService>): TenancyController {
   return new TenancyController(overrides as unknown as TenancyService);
@@ -40,7 +55,14 @@ describe("TenancyController", () => {
 
   it("GET /companies wraps the list in an envelope", async () => {
     const companies: MembershipCompany[] = [
-      { id: randomUUID(), name: "Acme", slug: "acme", role: "owner", status: "active" },
+      {
+        id: randomUUID(),
+        name: "Acme",
+        slug: "acme",
+        role: "owner",
+        status: "active",
+        whatsappCountryCode: null,
+      },
     ];
     const controller = make({ listCompanies: vi.fn().mockResolvedValue(companies) });
     const dto = await controller.listCompanies(PRINCIPAL);
@@ -56,25 +78,57 @@ describe("TenancyController", () => {
         slug: "new-co",
         status: "active",
         createdAt: new Date(),
+        ...ONBOARDING_RECORD_FIELDS,
       },
       tokens: TOKENS,
     };
     const createCompany = vi.fn().mockResolvedValue(result);
     const controller = make({ createCompany });
-    const dto = await controller.createCompany(PRINCIPAL, { name: "New Co", slug: "new-co" });
-    expect(createCompany).toHaveBeenCalledWith(PRINCIPAL, { name: "New Co", slug: "new-co" });
+    const dto = await controller.createCompany(PRINCIPAL, {
+      name: "New Co",
+      slug: "new-co",
+      ...ONBOARDING_DTO_FIELDS,
+    });
+    expect(createCompany).toHaveBeenCalledWith(PRINCIPAL, {
+      name: "New Co",
+      slug: "new-co",
+      phone: ONBOARDING_DTO_FIELDS.phone,
+      monthlyOrdersRange: ONBOARDING_DTO_FIELDS.monthlyOrdersRange,
+      country: null,
+      facebookHandle: null,
+      instagramHandle: null,
+      websiteUrl: null,
+      shippingCarrier: null,
+    });
     expect(dto.company.name).toBe("New Co");
     expect(dto.tokens.accessToken).toBe("a");
   });
 
   it("POST /companies defaults a missing slug to null", async () => {
     const createCompany = vi.fn().mockResolvedValue({
-      company: { id: randomUUID(), name: "X", slug: null, status: "active", createdAt: new Date() },
+      company: {
+        id: randomUUID(),
+        name: "X",
+        slug: null,
+        status: "active",
+        createdAt: new Date(),
+        ...ONBOARDING_RECORD_FIELDS,
+      },
       tokens: TOKENS,
     } satisfies CreateCompanyResult);
     const controller = make({ createCompany });
-    await controller.createCompany(PRINCIPAL, { name: "X" });
-    expect(createCompany).toHaveBeenCalledWith(PRINCIPAL, { name: "X", slug: null });
+    await controller.createCompany(PRINCIPAL, { name: "X", ...ONBOARDING_DTO_FIELDS });
+    expect(createCompany).toHaveBeenCalledWith(PRINCIPAL, {
+      name: "X",
+      slug: null,
+      phone: ONBOARDING_DTO_FIELDS.phone,
+      monthlyOrdersRange: ONBOARDING_DTO_FIELDS.monthlyOrdersRange,
+      country: null,
+      facebookHandle: null,
+      instagramHandle: null,
+      websiteUrl: null,
+      shippingCarrier: null,
+    });
   });
 
   it("POST /companies/:id/switch returns tokens", async () => {
@@ -84,6 +138,26 @@ describe("TenancyController", () => {
     const dto = await controller.switchCompany(PRINCIPAL, companyId);
     expect(switchCompany).toHaveBeenCalledWith(PRINCIPAL, companyId);
     expect(dto.refreshToken).toBe("r");
+  });
+
+  it("PATCH whatsapp-settings delegates and returns the updated company", async () => {
+    const companyId = randomUUID();
+    const company: CompanyRecord = {
+      id: companyId,
+      name: "Acme",
+      slug: "acme",
+      status: "active",
+      ...ONBOARDING_RECORD_FIELDS,
+      whatsappCountryCode: "20",
+      createdAt: new Date(),
+    };
+    const updateWhatsappSettings = vi.fn().mockResolvedValue(company);
+    const controller = make({ updateWhatsappSettings });
+    const dto = await controller.updateWhatsappSettings(PRINCIPAL, companyId, {
+      countryCode: "20",
+    });
+    expect(updateWhatsappSettings).toHaveBeenCalledWith(PRINCIPAL, companyId, "20");
+    expect(dto.whatsappCountryCode).toBe("20");
   });
 
   it("POST invitations returns the created invite with its one-time code", async () => {

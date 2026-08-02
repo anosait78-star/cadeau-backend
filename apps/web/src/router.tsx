@@ -14,9 +14,12 @@ import { ProductsPage } from "@/pages/products/products-page";
 import { LoginPage } from "@/pages/auth/login-page";
 import { RegisterPage } from "@/pages/auth/register-page";
 import { NotFoundPage } from "@/pages/not-found-page";
-import { PlaceholderPage } from "@/pages/placeholder-page";
+import { CreateCompanyPage } from "@/pages/onboarding/create-company-page";
+import { JoinCompanyPage } from "@/pages/onboarding/join-company-page";
+import { OnboardingStartPage } from "@/pages/onboarding/onboarding-start-page";
 import { NotificationsPage } from "@/pages/settings/notifications-page";
 import { RolesPage } from "@/pages/settings/roles-page";
+import { SettingsPage } from "@/pages/settings/settings-page";
 
 /**
  * Application routes. Public auth screens (`/login`, `/register`) render on their
@@ -29,6 +32,9 @@ export const router = createBrowserRouter([
   {
     element: <RequireAuth />,
     children: [
+      { path: "onboarding", element: <OnboardingStartPage /> },
+      { path: "onboarding/create", element: <CreateCompanyPage /> },
+      { path: "onboarding/join", element: <JoinCompanyPage /> },
       {
         element: <AppShell />,
         children: [
@@ -42,7 +48,8 @@ export const router = createBrowserRouter([
           { path: "master-data", element: <MasterDataPage /> },
           { path: "settings/roles", element: <RolesPage /> },
           { path: "settings/notifications", element: <NotificationsPage /> },
-          { path: "settings", element: <PlaceholderPage titleKey="nav.settings" /> },
+          { path: "settings", element: <SettingsPage /> },
+          { path: "settings/:tab", element: <SettingsPage /> },
           {
             path: "admin",
             element: (

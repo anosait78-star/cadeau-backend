@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  acceptInvitation as acceptInvitationRequest,
+  createCompany as createCompanyRequest,
   getMe,
   login as loginRequest,
   logout as logoutRequest,
   register as registerRequest,
   switchCompany as switchCompanyRequest,
   type AuthResponse,
+  type CreateCompanyInput,
+  type CreateCompanyResponse,
   type LoginInput,
   type MeView,
   type RegisterInput,
@@ -97,13 +101,41 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
     [loadMe],
   );
 
+  const createCompany = useCallback(
+    async (input: CreateCompanyInput): Promise<CreateCompanyResponse> => {
+      const result = await createCompanyRequest(input);
+      writeTokens(result.tokens);
+      await loadMe();
+      return result;
+    },
+    [loadMe],
+  );
+
+  const joinCompany = useCallback(
+    async (code: string): Promise<void> => {
+      const outcome = await acceptInvitationRequest(code);
+      await switchCompany(outcome.companyId);
+    },
+    [switchCompany],
+  );
+
   const reload = useCallback(async (): Promise<void> => {
     await loadMe();
   }, [loadMe]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, register, logout, switchCompany, reload }),
-    [status, user, login, register, logout, switchCompany, reload],
+    () => ({
+      status,
+      user,
+      login,
+      register,
+      logout,
+      switchCompany,
+      createCompany,
+      joinCompany,
+      reload,
+    }),
+    [status, user, login, register, logout, switchCompany, createCompany, joinCompany, reload],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

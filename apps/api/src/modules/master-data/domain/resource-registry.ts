@@ -129,6 +129,20 @@ export const RESOURCES: readonly ResourceDescriptor[] = [
     ],
   },
   {
+    name: "whatsapp-templates",
+    model: "whatsappTemplate",
+    scope: "tenant",
+    idField: "id",
+    clientProvidesId: false,
+    fields: [
+      { name: "name", kind: "string", required: true, maxLength: 128 },
+      { name: "body", kind: "string", required: true, maxLength: 2000 },
+    ],
+    searchable: ["name"],
+    sortWhitelist: ["name", "createdAt"],
+    defaultSort: "name",
+  },
+  {
     name: "shipping-zones",
     model: "shippingZone",
     scope: "tenant",

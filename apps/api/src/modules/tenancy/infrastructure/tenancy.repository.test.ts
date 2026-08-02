@@ -7,6 +7,16 @@ const USER = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const USER2 = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
 const COMPANY = "9f1c8f00-0000-4000-8000-000000000001";
 
+const ONBOARDING_FIELDS = {
+  phone: "+201234567890",
+  monthlyOrdersRange: "100_500",
+  country: "Egypt",
+  facebookHandle: "facebook.com/acme",
+  instagramHandle: "@acme",
+  websiteUrl: "https://acme.test",
+  shippingCarrier: "Aramex",
+} as const;
+
 interface Row {
   [key: string]: unknown;
 }
@@ -23,6 +33,8 @@ class FakePrisma {
   readonly companies: Row[] = [];
   readonly members: Row[] = [];
   readonly invitations: Row[] = [];
+  readonly plans: Row[] = [{ id: "plan-pro", code: "pro" }];
+  readonly subscriptions: Row[] = [];
   readonly queryRaw = vi.fn(() => Promise.resolve([]));
 
   profile = {
@@ -43,6 +55,18 @@ class FakePrisma {
       const row: Row = { createdAt: new Date(), ...data };
       this.companies.push(row);
       return Promise.resolve(row);
+    },
+    findFirst: ({ where }: { where: Row }) =>
+      Promise.resolve(this.companies.find((c) => matches(c, where)) ?? null),
+    updateMany: ({ where, data }: { where: Row; data: Row }) => {
+      let count = 0;
+      for (const c of this.companies) {
+        if (matches(c, where)) {
+          Object.assign(c, data);
+          count += 1;
+        }
+      }
+      return Promise.resolve({ count });
     },
   };
 
@@ -95,12 +119,27 @@ class FakePrisma {
     },
   };
 
+  plan = {
+    findUnique: ({ where }: { where: Row }) =>
+      Promise.resolve(this.plans.find((p) => matches(p, where)) ?? null),
+  };
+
+  subscription = {
+    create: ({ data }: { data: Row }) => {
+      const row: Row = { id: `sub${this.subscriptions.length + 1}`, ...data };
+      this.subscriptions.push(row);
+      return Promise.resolve(row);
+    },
+  };
+
   $transaction = <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
     fn({
       profile: this.profile,
       company: this.company,
       companyMember: this.companyMember,
       invitation: this.invitation,
+      plan: this.plan,
+      subscription: this.subscription,
       $queryRaw: this.queryRaw,
     });
 }
@@ -133,6 +172,8 @@ describe("TenancyRepository — profile & companies", () => {
   });
 });
 
+const TRIAL_ENDS_AT = new Date("2026-09-01T00:00:00.000Z");
+
 describe("TenancyRepository — createCompanyWithOwner", () => {
   it("creates a company and the owner membership atomically", async () => {
     const { repo, db } = make();
@@ -141,10 +182,53 @@ describe("TenancyRepository — createCompanyWithOwner", () => {
       name: "Acme",
       slug: "acme",
       userId: USER,
+      ...ONBOARDING_FIELDS,
+      trialEndsAt: TRIAL_ENDS_AT,
     });
-    expect(company).toMatchObject({ id: COMPANY, name: "Acme", status: "active" });
+    expect(company).toMatchObject({
+      id: COMPANY,
+      name: "Acme",
+      status: "active",
+      phone: ONBOARDING_FIELDS.phone,
+      monthlyOrdersRange: ONBOARDING_FIELDS.monthlyOrdersRange,
+      country: ONBOARDING_FIELDS.country,
+    });
     expect(db.members).toHaveLength(1);
     expect(db.members[0]).toMatchObject({ userId: USER, role: "owner", status: "active" });
+  });
+
+  it("grants a free pro-plan trial ending at the given date", async () => {
+    const { repo, db } = make();
+    await repo.createCompanyWithOwner({
+      companyId: COMPANY,
+      name: "Acme",
+      slug: "acme",
+      userId: USER,
+      ...ONBOARDING_FIELDS,
+      trialEndsAt: TRIAL_ENDS_AT,
+    });
+    expect(db.subscriptions).toHaveLength(1);
+    expect(db.subscriptions[0]).toMatchObject({
+      companyId: COMPANY,
+      planId: "plan-pro",
+      status: "trialing",
+      currentPeriodEnd: TRIAL_ENDS_AT,
+    });
+  });
+
+  it("still creates the company when no trial plan is seeded", async () => {
+    const { repo, db } = make();
+    db.plans.length = 0;
+    const company = await repo.createCompanyWithOwner({
+      companyId: COMPANY,
+      name: "Acme",
+      slug: "acme",
+      userId: USER,
+      ...ONBOARDING_FIELDS,
+      trialEndsAt: TRIAL_ENDS_AT,
+    });
+    expect(company.id).toBe(COMPANY);
+    expect(db.subscriptions).toHaveLength(0);
   });
 
   it("maps a duplicate slug to SlugAlreadyTakenError", async () => {
@@ -154,6 +238,8 @@ describe("TenancyRepository — createCompanyWithOwner", () => {
       name: "A",
       slug: "acme",
       userId: USER,
+      ...ONBOARDING_FIELDS,
+      trialEndsAt: TRIAL_ENDS_AT,
     });
     await expect(
       repo.createCompanyWithOwner({
@@ -161,6 +247,8 @@ describe("TenancyRepository — createCompanyWithOwner", () => {
         name: "B",
         slug: "acme",
         userId: USER,
+        ...ONBOARDING_FIELDS,
+        trialEndsAt: TRIAL_ENDS_AT,
       }),
     ).rejects.toBeInstanceOf(SlugAlreadyTakenError);
   });
@@ -170,6 +258,21 @@ describe("TenancyRepository — createCompanyWithOwner", () => {
     db.members.push({ companyId: COMPANY, userId: USER, role: "owner", status: "active" });
     expect(await repo.findActiveMembership(USER, COMPANY)).toMatchObject({ role: "owner" });
     expect(await repo.findActiveMembership(USER2, COMPANY)).toBeNull();
+  });
+});
+
+describe("TenancyRepository — updateWhatsappCountryCode", () => {
+  it("sets the prefix and binds the tenant context", async () => {
+    const { repo, db } = make();
+    db.companies.push({ id: COMPANY, name: "Acme", whatsappCountryCode: null });
+    const updated = await repo.updateWhatsappCountryCode(COMPANY, USER, "20");
+    expect(updated?.whatsappCountryCode).toBe("20");
+    expect(db.queryRaw).toHaveBeenCalled();
+  });
+
+  it("returns null when the company is gone", async () => {
+    const { repo } = make();
+    expect(await repo.updateWhatsappCountryCode(COMPANY, USER, "20")).toBeNull();
   });
 });
 

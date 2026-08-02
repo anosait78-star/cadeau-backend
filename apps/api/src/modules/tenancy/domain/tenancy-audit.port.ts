@@ -1,6 +1,7 @@
 /** Tenancy audit events (ADR-004 vocabulary). */
 export type TenancyAuditEvent =
   | "company.created"
+  | "company.whatsapp_settings_updated"
   | "member.invited"
   | "member.invite_revoked"
   | "member.joined";

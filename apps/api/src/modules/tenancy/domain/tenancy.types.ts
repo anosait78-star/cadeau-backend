@@ -10,6 +10,15 @@ export interface CompanyRecord {
   readonly name: string;
   readonly slug: string | null;
   readonly status: string;
+  readonly phone: string | null;
+  readonly monthlyOrdersRange: string | null;
+  readonly country: string | null;
+  readonly facebookHandle: string | null;
+  readonly instagramHandle: string | null;
+  readonly websiteUrl: string | null;
+  readonly shippingCarrier: string | null;
+  /** Dialing prefix prepended to phone numbers for WhatsApp (settings tab). */
+  readonly whatsappCountryCode: string | null;
   readonly createdAt: Date;
 }
 
@@ -20,6 +29,8 @@ export interface MembershipCompany {
   readonly slug: string | null;
   readonly role: string;
   readonly status: string;
+  /** Dialing prefix prepended to phone numbers for WhatsApp (settings tab). */
+  readonly whatsappCountryCode: string | null;
 }
 
 /** The caller's own profile fields for `/v1/me` (phone still encrypted here). */

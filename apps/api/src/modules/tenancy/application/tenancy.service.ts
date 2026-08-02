@@ -23,6 +23,9 @@ import type {
 /** Invite validity window: 7 days. */
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Free trial granted to every newly created company: 30 days. */
+const TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** A created company plus the re-issued tenant-scoped token pair. */
 export interface CreateCompanyResult {
   readonly company: CompanyRecord;
@@ -88,7 +91,17 @@ export class TenancyService {
   /** Create a company (caller becomes its owner) and switch the session into it. */
   async createCompany(
     principal: RequestPrincipal,
-    input: { readonly name: string; readonly slug: string | null },
+    input: {
+      readonly name: string;
+      readonly slug: string | null;
+      readonly phone: string;
+      readonly monthlyOrdersRange: string;
+      readonly country: string | null;
+      readonly facebookHandle: string | null;
+      readonly instagramHandle: string | null;
+      readonly websiteUrl: string | null;
+      readonly shippingCarrier: string | null;
+    },
   ): Promise<CreateCompanyResult> {
     const companyId = randomUUID();
     let company: CompanyRecord;
@@ -98,6 +111,14 @@ export class TenancyService {
         name: input.name,
         slug: input.slug,
         userId: principal.userId,
+        phone: input.phone,
+        monthlyOrdersRange: input.monthlyOrdersRange,
+        country: input.country,
+        facebookHandle: input.facebookHandle,
+        instagramHandle: input.instagramHandle,
+        websiteUrl: input.websiteUrl,
+        shippingCarrier: input.shippingCarrier,
+        trialEndsAt: new Date(this.clock.now() + TRIAL_DURATION_MS),
       });
     } catch (error) {
       if (error instanceof SlugAlreadyTakenError) {
@@ -117,6 +138,28 @@ export class TenancyService {
       throw AppErrors.forbidden("You are not an active member of that company.");
     }
     return this.sessions.reissueForCompany(principal, companyId);
+  }
+
+  /** Update the caller's active company's WhatsApp dialing-prefix setting. */
+  async updateWhatsappSettings(
+    principal: RequestPrincipal,
+    companyId: string,
+    countryCode: string | null,
+  ): Promise<CompanyRecord> {
+    await this.assertActiveTenant(principal, companyId);
+    const company = await this.repo.updateWhatsappCountryCode(
+      companyId,
+      principal.userId,
+      countryCode,
+    );
+    if (company === null) {
+      throw AppErrors.notFound("Company not found.");
+    }
+    this.audit.record("company.whatsapp_settings_updated", {
+      userId: principal.userId,
+      companyId,
+    });
+    return company;
   }
 
   /** Invite a member to the caller's active company. Returns the one-time code. */

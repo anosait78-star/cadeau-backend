@@ -4,15 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeTokens } from "@/auth/auth-storage";
 import { App } from "./app";
 
-/** A signed-in profile with no companies yet (the switcher stays a placeholder). */
+/** A signed-in profile with a company (so RequireAuth renders the app shell, not /onboarding). */
 const ME = {
   id: "u1",
   email: "founder@acme.test",
   fullName: null,
   phone: null,
   twoFactorEnabled: false,
-  activeCompanyId: null,
-  companies: [],
+  activeCompanyId: "c1",
+  companies: [{ id: "c1", name: "Acme", slug: "acme", role: "owner", status: "active" }],
 };
 
 /**

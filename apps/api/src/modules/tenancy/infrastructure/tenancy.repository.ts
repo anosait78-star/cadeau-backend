@@ -11,11 +11,27 @@ import type {
 } from "../domain/tenancy.types";
 import { TENANCY_PRISMA_CLIENT } from "./prisma-client.provider";
 
+/**
+ * Every newly created company starts on a one-month "pro" trial (no admin
+ * action required). Enforcement of the trial's expiry is not implemented yet
+ * (access.repository only checks that a Subscription row exists, not its
+ * status/currentPeriodEnd) — see docs/access-review.md for the follow-up.
+ */
+const TRIAL_PLAN_CODE = "pro";
+
 const COMPANY_SELECT = {
   id: true,
   name: true,
   slug: true,
   status: true,
+  phone: true,
+  monthlyOrdersRange: true,
+  country: true,
+  facebookHandle: true,
+  instagramHandle: true,
+  websiteUrl: true,
+  shippingCarrier: true,
+  whatsappCountryCode: true,
   createdAt: true,
 } as const;
 
@@ -70,7 +86,7 @@ export class TenancyRepository implements TenancyRepositoryPort {
         select: {
           role: true,
           status: true,
-          company: { select: { id: true, name: true, slug: true } },
+          company: { select: { id: true, name: true, slug: true, whatsappCountryCode: true } },
         },
       });
     });
@@ -80,6 +96,7 @@ export class TenancyRepository implements TenancyRepositoryPort {
       slug: row.company.slug,
       role: row.role,
       status: row.status,
+      whatsappCountryCode: row.company.whatsappCountryCode,
     }));
   }
 
@@ -88,6 +105,14 @@ export class TenancyRepository implements TenancyRepositoryPort {
     readonly name: string;
     readonly slug: string | null;
     readonly userId: string;
+    readonly phone: string;
+    readonly monthlyOrdersRange: string;
+    readonly country: string | null;
+    readonly facebookHandle: string | null;
+    readonly instagramHandle: string | null;
+    readonly websiteUrl: string | null;
+    readonly shippingCarrier: string | null;
+    readonly trialEndsAt: Date;
   }): Promise<CompanyRecord> {
     try {
       const company = await this.prisma.$transaction(async (tx) => {
@@ -98,6 +123,13 @@ export class TenancyRepository implements TenancyRepositoryPort {
             name: input.name,
             slug: input.slug,
             status: "active",
+            phone: input.phone,
+            monthlyOrdersRange: input.monthlyOrdersRange,
+            country: input.country,
+            facebookHandle: input.facebookHandle,
+            instagramHandle: input.instagramHandle,
+            websiteUrl: input.websiteUrl,
+            shippingCarrier: input.shippingCarrier,
             createdBy: input.userId,
             updatedBy: input.userId,
           },
@@ -116,6 +148,26 @@ export class TenancyRepository implements TenancyRepositoryPort {
             updatedBy: input.userId,
           },
         });
+        // Auto-provision a free trial so a new company has full access from
+        // day one. Silently skipped if the catalog has no "pro" plan seeded
+        // (never expected outside a broken environment) — a missing trial
+        // must not block company creation itself.
+        const plan = await tx.plan.findUnique({
+          where: { code: TRIAL_PLAN_CODE },
+          select: { id: true },
+        });
+        if (plan !== null) {
+          await tx.subscription.create({
+            data: {
+              companyId: input.companyId,
+              planId: plan.id,
+              status: "trialing",
+              currentPeriodEnd: input.trialEndsAt,
+              createdBy: input.userId,
+              updatedBy: input.userId,
+            },
+          });
+        }
         return created;
       });
       return toCompanyRecord(company);
@@ -135,6 +187,23 @@ export class TenancyRepository implements TenancyRepositoryPort {
         select: { role: true },
       });
     });
+  }
+
+  async updateWhatsappCountryCode(
+    companyId: string,
+    actorId: string,
+    countryCode: string | null,
+  ): Promise<CompanyRecord | null> {
+    const row = await this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+      const { count } = await tx.company.updateMany({
+        where: { id: companyId },
+        data: { whatsappCountryCode: countryCode, updatedBy: actorId },
+      });
+      if (count === 0) return null;
+      return tx.company.findFirst({ where: { id: companyId }, select: COMPANY_SELECT });
+    });
+    return row === null ? null : toCompanyRecord(row);
   }
 
   async createInvitation(input: {
@@ -245,6 +314,14 @@ function toCompanyRecord(row: CompanyRow): CompanyRecord {
     name: row.name,
     slug: row.slug,
     status: row.status,
+    phone: row.phone,
+    monthlyOrdersRange: row.monthlyOrdersRange,
+    country: row.country,
+    facebookHandle: row.facebookHandle,
+    instagramHandle: row.instagramHandle,
+    websiteUrl: row.websiteUrl,
+    shippingCarrier: row.shippingCarrier,
+    whatsappCountryCode: row.whatsappCountryCode,
     createdAt: row.createdAt,
   };
 }

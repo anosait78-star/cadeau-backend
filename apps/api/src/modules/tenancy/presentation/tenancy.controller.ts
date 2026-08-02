@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from "@nestjs/common";
@@ -26,7 +27,12 @@ import { RateLimitGuard } from "../../../shared/rate-limit/rate-limit.guard";
 import { TokensDto } from "../../../shared/contracts/tokens.dto";
 import { TenancyService } from "../application/tenancy.service";
 import { CompanyListDto, MeDto } from "./dto/me.dto";
-import { CreateCompanyDto, CreateCompanyResponseDto } from "./dto/company.dto";
+import {
+  CompanyDto,
+  CreateCompanyDto,
+  CreateCompanyResponseDto,
+  UpdateWhatsappSettingsDto,
+} from "./dto/company.dto";
 import {
   AcceptInvitationDto,
   AcceptInvitationResponseDto,
@@ -73,6 +79,13 @@ export class TenancyController {
     const result = await this.tenancy.createCompany(principal, {
       name: dto.name,
       slug: dto.slug ?? null,
+      phone: dto.phone,
+      monthlyOrdersRange: dto.monthlyOrdersRange,
+      country: dto.country ?? null,
+      facebookHandle: dto.facebookHandle ?? null,
+      instagramHandle: dto.instagramHandle ?? null,
+      websiteUrl: dto.websiteUrl ?? null,
+      shippingCarrier: dto.shippingCarrier ?? null,
     });
     return CreateCompanyResponseDto.from(result);
   }
@@ -86,6 +99,25 @@ export class TenancyController {
     @Param("companyId", ParseUUIDPipe) companyId: string,
   ): Promise<TokensDto> {
     return TokensDto.from(await this.tenancy.switchCompany(principal, companyId));
+  }
+
+  @Patch("companies/:companyId/whatsapp-settings")
+  @ApiOperation({
+    summary: "Update the company's WhatsApp dialing-prefix setting",
+    operationId: "updateWhatsappSettings",
+  })
+  @ApiOkResponse({ type: CompanyDto })
+  async updateWhatsappSettings(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("companyId", ParseUUIDPipe) companyId: string,
+    @Body() dto: UpdateWhatsappSettingsDto,
+  ): Promise<CompanyDto> {
+    const company = await this.tenancy.updateWhatsappSettings(
+      principal,
+      companyId,
+      dto.countryCode ?? null,
+    );
+    return CompanyDto.from(company);
   }
 
   @Post("companies/:companyId/invitations")

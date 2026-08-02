@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { findResource, RESOURCE_NAMES, RESOURCES } from "./resource-registry";
 
 describe("resource registry", () => {
-  it("exposes the eight EPIC-7 resources", () => {
+  it("exposes the EPIC-7 resources plus the settings additions", () => {
     expect(RESOURCE_NAMES).toEqual([
       "currencies",
       "country-configs",
@@ -11,6 +11,7 @@ describe("resource registry", () => {
       "product-categories",
       "order-labels",
       "order-reasons",
+      "whatsapp-templates",
       "shipping-zones",
     ]);
   });

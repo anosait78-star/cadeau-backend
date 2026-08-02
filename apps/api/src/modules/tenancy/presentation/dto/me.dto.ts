@@ -18,6 +18,9 @@ export class MembershipCompanyDto {
   @ApiProperty({ example: "active" })
   status!: string;
 
+  @ApiProperty({ nullable: true, example: "20", description: "WhatsApp dialing prefix." })
+  whatsappCountryCode!: string | null;
+
   static from(company: MembershipCompany): MembershipCompanyDto {
     const dto = new MembershipCompanyDto();
     dto.id = company.id;
@@ -25,6 +28,7 @@ export class MembershipCompanyDto {
     dto.slug = company.slug;
     dto.role = company.role;
     dto.status = company.status;
+    dto.whatsappCountryCode = company.whatsappCountryCode;
     return dto;
   }
 }

@@ -60,17 +60,29 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
           slug: c?.slug ?? null,
           role: m.role,
           status: m.status,
+          whatsappCountryCode: c?.whatsappCountryCode ?? null,
         };
       });
     return Promise.resolve(list);
   }
+
+  readonly trialEndsAtCalls: Date[] = [];
 
   createCompanyWithOwner(input: {
     companyId: string;
     name: string;
     slug: string | null;
     userId: string;
+    phone: string;
+    monthlyOrdersRange: string;
+    country: string | null;
+    facebookHandle: string | null;
+    instagramHandle: string | null;
+    websiteUrl: string | null;
+    shippingCarrier: string | null;
+    trialEndsAt: Date;
   }): Promise<CompanyRecord> {
+    this.trialEndsAtCalls.push(input.trialEndsAt);
     if (input.slug !== null && [...this.companies.values()].some((c) => c.slug === input.slug)) {
       return Promise.reject(new SlugAlreadyTakenError());
     }
@@ -79,6 +91,14 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
       name: input.name,
       slug: input.slug,
       status: "active",
+      phone: input.phone,
+      monthlyOrdersRange: input.monthlyOrdersRange,
+      country: input.country,
+      facebookHandle: input.facebookHandle,
+      instagramHandle: input.instagramHandle,
+      websiteUrl: input.websiteUrl,
+      shippingCarrier: input.shippingCarrier,
+      whatsappCountryCode: null,
       createdAt: new Date(),
     };
     this.companies.set(company.id, company);
@@ -97,6 +117,18 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
       (x) => x.userId === userId && x.companyId === companyId && x.status === "active",
     );
     return Promise.resolve(m === undefined ? null : { role: m.role });
+  }
+
+  updateWhatsappCountryCode(
+    companyId: string,
+    _actorId: string,
+    countryCode: string | null,
+  ): Promise<CompanyRecord | null> {
+    const company = this.companies.get(companyId);
+    if (company === undefined) return Promise.resolve(null);
+    const updated: CompanyRecord = { ...company, whatsappCountryCode: countryCode };
+    this.companies.set(companyId, updated);
+    return Promise.resolve(updated);
   }
 
   createInvitation(input: {
@@ -237,6 +269,14 @@ function seedOwner(repo: FakeTenancyRepo, email: string): { userId: string; comp
     name: "Acme",
     slug: "acme",
     status: "active",
+    phone: "+201234567890",
+    monthlyOrdersRange: "100_500",
+    country: null,
+    facebookHandle: null,
+    instagramHandle: null,
+    websiteUrl: null,
+    shippingCarrier: null,
+    whatsappCountryCode: null,
     createdAt: new Date(),
   });
   repo.members.push({ companyId, userId, role: "owner", status: "active", createdAt: new Date() });
@@ -256,6 +296,16 @@ describe("getMe", () => {
   });
 });
 
+const ONBOARDING_FIELDS = {
+  phone: "+201234567890",
+  monthlyOrdersRange: "100_500",
+  country: "Egypt",
+  facebookHandle: "facebook.com/acme",
+  instagramHandle: "@acme",
+  websiteUrl: "https://acme.test",
+  shippingCarrier: "Aramex",
+} as const;
+
 describe("createCompany", () => {
   it("creates the company, makes the caller owner, and re-issues tokens", async () => {
     const { service, repo, audit, reissued } = build();
@@ -268,8 +318,18 @@ describe("createCompany", () => {
       totpEnabledAt: null,
     });
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId: null };
-    const result = await service.createCompany(principal, { name: "New Co", slug: "new-co" });
+    const result = await service.createCompany(principal, {
+      name: "New Co",
+      slug: "new-co",
+      ...ONBOARDING_FIELDS,
+    });
     expect(result.company.name).toBe("New Co");
+    expect(result.company.phone).toBe(ONBOARDING_FIELDS.phone);
+    expect(result.company.monthlyOrdersRange).toBe(ONBOARDING_FIELDS.monthlyOrdersRange);
+    // Free trial: every new company gets a 30-day trial window from "now".
+    expect(repo.trialEndsAtCalls).toHaveLength(1);
+    expect(repo.trialEndsAtCalls[0]?.getTime()).toBe(now + 30 * 24 * 60 * 60 * 1000);
+    expect(result.company.country).toBe(ONBOARDING_FIELDS.country);
     expect(result.tokens).toEqual(TOKENS);
     expect(reissued).toContain(result.company.id);
     expect(audit.events).toContain("company.created");
@@ -280,7 +340,7 @@ describe("createCompany", () => {
     const { userId } = seedOwner(repo, "dup@test.dev"); // seeds slug "acme"
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId: null };
     await expect(
-      service.createCompany(principal, { name: "X", slug: "acme" }),
+      service.createCompany(principal, { name: "X", slug: "acme", ...ONBOARDING_FIELDS }),
     ).rejects.toMatchObject({ status: 409 });
   });
 });
@@ -302,6 +362,40 @@ describe("switchCompany", () => {
     await expect(service.switchCompany(principal, randomUUID())).rejects.toMatchObject({
       status: 403,
     });
+  });
+});
+
+describe("updateWhatsappSettings", () => {
+  it("updates the prefix and records an audit event", async () => {
+    const { service, repo, audit } = build();
+    const { userId, companyId } = seedOwner(repo, "wa@test.dev");
+    const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
+
+    const updated = await service.updateWhatsappSettings(principal, companyId, "20");
+
+    expect(updated.whatsappCountryCode).toBe("20");
+    expect(repo.companies.get(companyId)?.whatsappCountryCode).toBe("20");
+    expect(audit.events).toContain("company.whatsapp_settings_updated");
+  });
+
+  it("clears the prefix when passed null", async () => {
+    const { service, repo } = build();
+    const { userId, companyId } = seedOwner(repo, "wa2@test.dev");
+    const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
+
+    await service.updateWhatsappSettings(principal, companyId, "20");
+    await service.updateWhatsappSettings(principal, companyId, null);
+
+    expect(repo.companies.get(companyId)?.whatsappCountryCode).toBeNull();
+  });
+
+  it("403s when the caller is not an active member of that company", async () => {
+    const { service, repo } = build();
+    const { userId } = seedOwner(repo, "wa3@test.dev");
+    const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId: null };
+    await expect(
+      service.updateWhatsappSettings(principal, randomUUID(), "20"),
+    ).rejects.toMatchObject({ status: 403 });
   });
 });
 

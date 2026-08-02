@@ -35,10 +35,25 @@ export interface TenancyRepositoryPort {
     readonly name: string;
     readonly slug: string | null;
     readonly userId: string;
+    readonly phone: string;
+    readonly monthlyOrdersRange: string;
+    readonly country: string | null;
+    readonly facebookHandle: string | null;
+    readonly instagramHandle: string | null;
+    readonly websiteUrl: string | null;
+    readonly shippingCarrier: string | null;
+    readonly trialEndsAt: Date;
   }): Promise<CompanyRecord>;
 
   /** The caller's active membership role in a company, or null if not an active member. */
   findActiveMembership(userId: string, companyId: string): Promise<{ role: string } | null>;
+
+  /** Update the WhatsApp dialing-prefix setting for a company. Returns null if the company is gone. */
+  updateWhatsappCountryCode(
+    companyId: string,
+    actorId: string,
+    countryCode: string | null,
+  ): Promise<CompanyRecord | null>;
 
   /** Create a pending invitation in the given (active) tenant. */
   createInvitation(input: {
