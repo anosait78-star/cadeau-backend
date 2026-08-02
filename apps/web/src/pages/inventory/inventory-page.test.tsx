@@ -7,6 +7,7 @@ import {
   type CapabilitiesContextValue,
   type CapabilityRequirement,
 } from "@/features/access/capabilities-context";
+import { ToastProvider } from "@/components/toast/toast";
 import { I18nProvider } from "@/i18n/i18n-provider";
 import { InventoryPage } from "./inventory-page";
 
@@ -35,7 +36,11 @@ function renderPage(
   features = ["inventory"],
   permissions = ["inventory.read", "inventory.manage"],
 ) {
-  return render(<I18nProvider>{caps(features, permissions, <InventoryPage />)}</I18nProvider>);
+  return render(
+    <I18nProvider>
+      <ToastProvider>{caps(features, permissions, <InventoryPage />)}</ToastProvider>
+    </I18nProvider>,
+  );
 }
 
 const WAREHOUSE = "33333333-3333-3333-3333-333333333333";

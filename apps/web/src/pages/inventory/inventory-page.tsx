@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel } from "@/components/detail-panel/detail-panel";
+import { FilterBar } from "@/components/filter-bar/filter-bar";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { LoadingState } from "@/components/states/loading-state";
+import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,7 +29,10 @@ import {
   type WarehouseInput,
 } from "@/features/inventory/inventory-api";
 import { listProducts, listVariants } from "@/features/products/products-api";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
+import { buildStockColumns } from "./inventory-stock-columns";
+import { buildWarehouseColumns } from "./inventory-warehouse-columns";
 
 /** A selectable option (warehouse or variant). */
 interface Option {
@@ -71,15 +78,12 @@ export function InventoryPage(): ReactNode {
 
 function InventoryScreen(): ReactNode {
   const { t } = useI18n();
+  const toast = useToast();
   const [tab, setTab] = useState<Tab>("stock");
-  const [notice, setNotice] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseState>({ kind: "loading" });
   const [variants, setVariants] = useState<Option[]>([]);
 
-  const flash = useCallback((text: string): void => {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 2500);
-  }, []);
+  const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
   const loadWarehouses = useCallback(async (): Promise<void> => {
     setWarehouses({ kind: "loading" });
@@ -153,12 +157,6 @@ function InventoryScreen(): ReactNode {
         </Button>
       </div>
 
-      {notice !== null ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {notice}
-        </p>
-      ) : null}
-
       {tab === "stock" ? (
         <StockTab
           warehouses={warehouseOptions}
@@ -190,10 +188,12 @@ function StockTab({
   onNotify: (text: string) => void;
 }): ReactNode {
   const { t } = useI18n();
+  const isDesktop = useIsDesktop();
   const [state, setState] = useState<StockState>({ kind: "loading" });
   const [warehouseId, setWarehouseId] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
   const [form, setForm] = useState<"adjust" | "transfer" | null>(null);
+  const [selectedLevel, setSelectedLevel] = useState<StockLevel | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
@@ -231,12 +231,38 @@ function StockTab({
   const afterWrite = async (message: string): Promise<void> => {
     onNotify(message);
     setForm(null);
+    setSelectedLevel(null);
     await load();
   };
 
+  const activeFilterCount = (warehouseId.length > 0 ? 1 : 0) + (lowOnly ? 1 : 0);
+  const clearFilters = (): void => {
+    setWarehouseId("");
+    setLowOnly(false);
+  };
+
+  const columns = useMemo(
+    () => buildStockColumns({ t, warehouseNames, variantNames }),
+    [t, warehouseNames, variantNames],
+  );
+
+  const renderStockDetail = (level: StockLevel): ReactNode => (
+    <StockCard
+      level={level}
+      warehouseName={warehouseNames.get(level.warehouseId) ?? level.warehouseId}
+      variantName={variantNames.get(level.variantId) ?? level.variantId}
+      onSaved={() => void afterWrite(t("inventory.saved"))}
+      onFail={() => onNotify(t("inventory.saveFailed"))}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
+      <FilterBar
+        activeCount={activeFilterCount}
+        onClearAll={clearFilters}
+        clearAllLabel={t("inventory.filter.clear")}
+      >
         <div className="flex flex-col gap-1">
           <Label htmlFor="stock-warehouse">{t("inventory.filter.warehouse")}</Label>
           <OptionSelect
@@ -262,7 +288,7 @@ function StockTab({
             {t("inventory.actions.transfer")}
           </Button>
         </PermissionGate>
-      </div>
+      </FilterBar>
 
       {form === "adjust" ? (
         <PermissionGate permission="inventory.manage">
@@ -288,33 +314,56 @@ function StockTab({
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("inventory.stock.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<StockLevel>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelectedLevel}
+            emptyState={<EmptyState title={t("inventory.stock.empty")} />}
+          />
+        ) : (
+          <MobileCardList<StockLevel>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderStockDetail}
+            emptyTitle={t("inventory.stock.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("inventory.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((level) => (
-            <li key={level.id}>
-              <StockCard
-                level={level}
-                warehouseName={warehouseNames.get(level.warehouseId) ?? level.warehouseId}
-                variantName={variantNames.get(level.variantId) ?? level.variantId}
-                onSaved={() => void afterWrite(t("inventory.saved"))}
-                onFail={() => onNotify(t("inventory.saveFailed"))}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("inventory.loadMore")}
-        </Button>
-      ) : null}
+      <DetailPanel
+        open={selectedLevel !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedLevel(null);
+        }}
+        title={
+          selectedLevel === null
+            ? ""
+            : (variantNames.get(selectedLevel.variantId) ?? selectedLevel.variantId)
+        }
+        sections={
+          selectedLevel === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("inventory.title"),
+                  content: renderStockDetail(selectedLevel),
+                },
+              ]
+        }
+      />
     </div>
   );
 }
@@ -656,20 +705,40 @@ function WarehousesTab({
   onNotify: (text: string) => void;
 }): ReactNode {
   const { t } = useI18n();
+  const isDesktop = useIsDesktop();
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedWarehouse, setSelectedWarehouse] = useState<Warehouse | null>(null);
 
   const save = async (action: () => Promise<unknown>): Promise<void> => {
     try {
       await action();
       setCreating(false);
       setEditingId(null);
+      setSelectedWarehouse(null);
       onNotify(t("inventory.saved"));
       await onReload();
     } catch {
       onNotify(t("inventory.saveFailed"));
     }
   };
+
+  const columns = useMemo(() => buildWarehouseColumns({ t }), [t]);
+
+  const renderWarehouseDetail = (warehouse: Warehouse): ReactNode =>
+    editingId === warehouse.id ? (
+      <WarehouseForm
+        warehouse={warehouse}
+        onSubmit={(body) => save(() => updateWarehouse(warehouse.id, body))}
+        onCancel={() => setEditingId(null)}
+      />
+    ) : (
+      <WarehouseCard
+        warehouse={warehouse}
+        onEdit={() => setEditingId(warehouse.id)}
+        onArchive={() => void save(() => archiveWarehouse(warehouse.id))}
+      />
+    );
 
   return (
     <div className="flex flex-col gap-4">
@@ -690,33 +759,55 @@ function WarehousesTab({
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void onReload()} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("inventory.warehouses.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<Warehouse>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={false}
+            onLoadMore={() => {}}
+            onRowClick={setSelectedWarehouse}
+            emptyState={<EmptyState title={t("inventory.warehouses.empty")} />}
+          />
+        ) : (
+          <MobileCardList<Warehouse>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderWarehouseDetail}
+            emptyTitle={t("inventory.warehouses.empty")}
+            hasMore={false}
+            onLoadMore={() => {}}
+            loadMoreLabel=""
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((item) => (
-            <li key={item.id}>
-              {editingId === item.id ? (
-                <WarehouseForm
-                  warehouse={item}
-                  onSubmit={(body) => save(() => updateWarehouse(item.id, body))}
-                  onCancel={() => setEditingId(null)}
-                />
-              ) : (
-                <WarehouseCard
-                  warehouse={item}
-                  onEdit={() => setEditingId(item.id)}
-                  onArchive={() => void save(() => archiveWarehouse(item.id))}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <DetailPanel
+        open={selectedWarehouse !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedWarehouse(null);
+            setEditingId(null);
+          }
+        }}
+        title={selectedWarehouse?.name ?? ""}
+        sections={
+          selectedWarehouse === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("inventory.tab.warehouses"),
+                  content: renderWarehouseDetail(selectedWarehouse),
+                },
+              ]
+        }
+      />
     </div>
   );
 }
