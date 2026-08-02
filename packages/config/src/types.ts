@@ -62,6 +62,8 @@ export interface ShippingConfig {
    * {@link EncryptionConfig.key} / {@link EncryptionConfig.blindIndexKey}.
    */
   readonly webhookSigningSecret: string;
+  /** Bosta's REST base URL. No vendor sandbox exists — this always points at the real API. */
+  readonly bostaBaseUrl: string;
 }
 
 export interface VapidConfig {

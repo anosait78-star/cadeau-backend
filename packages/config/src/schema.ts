@@ -123,6 +123,10 @@ export const envSchema = z
     // Secret: Third-party APIs (optional — activated in their own epics)
     WHATSAPP_API_KEY: z.string().min(1).optional(),
     SHIPPING_BOSTA_API_KEY: z.string().min(1).optional(),
+
+    // Bosta's REST base URL — overridable for tests/staging; defaults to the
+    // real API (there is no vendor-provided sandbox).
+    BOSTA_API_BASE_URL: z.string().url().optional(),
   })
   .superRefine((value, ctx) => {
     // Allowed origins: each must be a valid http(s) URL (or the wildcard).

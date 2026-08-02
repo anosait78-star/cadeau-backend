@@ -65,7 +65,14 @@ export function buildConfig(env: ValidatedEnv): AppConfig {
     encryption: { key: env.ENCRYPTION_KEY, blindIndexKey: env.PII_HASH_KEY },
     oauth,
     thirdParty,
-    shipping: { webhookSigningSecret: env.SHIPPING_WEBHOOK_SIGNING_SECRET },
+    shipping: {
+      webhookSigningSecret: env.SHIPPING_WEBHOOK_SIGNING_SECRET,
+      // https, not http: Bosta 308-redirects http→https, and a cross-scheme
+      // redirect makes `fetch` drop the Authorization header (by spec) —
+      // hitting http here silently turns every call into an unauthenticated
+      // one instead of erroring loudly.
+      bostaBaseUrl: env.BOSTA_API_BASE_URL ?? "https://app.bosta.co/api/v2/",
+    },
     notifications: {
       vapid: {
         publicKey: env.VAPID_PUBLIC_KEY,
