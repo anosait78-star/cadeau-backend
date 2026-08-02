@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { LoadingState } from "@/components/states/loading-state";
+import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,7 +18,9 @@ import {
   type Expense,
   type ExpenseInput,
 } from "@/features/finance/finance-api";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
+import { buildExpenseColumns } from "./expenses-columns";
 import { DASH, Field, formatDate, formatMoney, OptionSelect, type Option } from "./finance-shared";
 
 type State =
@@ -32,10 +37,12 @@ export function ExpensesTab({
   onNotify: (text: string) => void;
 }): ReactNode {
   const { t, locale } = useI18n();
+  const isDesktop = useIsDesktop();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [category, setCategory] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const supplierNames = new Map(suppliers.map((s) => [s.id, s.name]));
 
   const load = useCallback(async (): Promise<void> => {
@@ -79,23 +86,46 @@ export function ExpensesTab({
     }
   };
 
+  const columns = useMemo(
+    () => buildExpenseColumns({ t, locale, supplierNames }),
+    [t, locale, suppliers],
+  );
+
+  /** The card-or-edit-form for one expense — shared by the mobile list and the desktop detail panel. */
+  const renderExpenseDetail = (expense: Expense): ReactNode =>
+    editingId === expense.id ? (
+      <ExpenseForm
+        expense={expense}
+        suppliers={suppliers}
+        onSubmit={(body) => save(() => updateExpense(expense.id, body))}
+        onCancel={() => setEditingId(null)}
+      />
+    ) : (
+      <ExpenseCard
+        expense={expense}
+        supplierNames={supplierNames}
+        onEdit={() => setEditingId(expense.id)}
+      />
+    );
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <Field id="expense-filter-category" label={t("finance.expenses.filter.category")}>
-          <Input
-            id="expense-filter-category"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            aria-label={t("finance.expenses.filter.category")}
-          />
-        </Field>
-        <PermissionGate permission="finance.manage">
-          {creating ? null : (
-            <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
-          )}
-        </PermissionGate>
-      </div>
+      <TableToolbar
+        search={{
+          value: category,
+          onChange: setCategory,
+          onSubmit: () => void load(),
+          placeholder: t("finance.expenses.filter.category"),
+          label: t("finance.expenses.filter.category"),
+        }}
+        primaryActions={
+          <PermissionGate permission="finance.manage">
+            {creating ? null : (
+              <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
+            )}
+          </PermissionGate>
+        }
+      />
 
       {creating ? (
         <PermissionGate permission="finance.manage">
@@ -120,79 +150,111 @@ export function ExpensesTab({
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("finance.expenses.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<Expense>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelectedExpense}
+            emptyState={<EmptyState title={t("finance.expenses.empty")} />}
+          />
+        ) : (
+          <MobileCardList<Expense>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderExpenseDetail}
+            emptyTitle={t("finance.expenses.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("finance.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((item) => (
-            <li key={item.id}>
-              {editingId === item.id ? (
-                <ExpenseForm
-                  expense={item}
-                  suppliers={suppliers}
-                  onSubmit={(body) => save(() => updateExpense(item.id, body))}
-                  onCancel={() => setEditingId(null)}
-                />
-              ) : (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                      <span>{item.category}</span>
-                      <span className="text-sm font-normal tabular-nums text-muted-foreground">
-                        {formatMoney(item.amountMinor, locale)}
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-3">
-                    <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
-                      <div className="flex flex-col">
-                        <dt className="text-xs text-muted-foreground">
-                          {t("finance.expenses.field.incurredAt")}
-                        </dt>
-                        <dd>{formatDate(item.incurredAt, locale)}</dd>
-                      </div>
-                      <div className="flex flex-col">
-                        <dt className="text-xs text-muted-foreground">
-                          {t("finance.expenses.field.supplier")}
-                        </dt>
-                        <dd>
-                          {item.supplierId !== null
-                            ? (supplierNames.get(item.supplierId) ?? item.supplierId)
-                            : DASH}
-                        </dd>
-                      </div>
-                      <div className="col-span-2 flex flex-col">
-                        <dt className="text-xs text-muted-foreground">
-                          {t("finance.expenses.field.notes")}
-                        </dt>
-                        <dd>{item.notes ?? DASH}</dd>
-                      </div>
-                    </dl>
-                    <PermissionGate permission="finance.manage">
-                      <div>
-                        <Button size="sm" variant="outline" onClick={() => setEditingId(item.id)}>
-                          {t("finance.actions.edit")}
-                        </Button>
-                      </div>
-                    </PermissionGate>
-                  </CardContent>
-                </Card>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("finance.loadMore")}
-        </Button>
-      ) : null}
+      <DetailPanel
+        open={selectedExpense !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedExpense(null);
+            setEditingId(null);
+          }
+        }}
+        title={selectedExpense?.category ?? ""}
+        sections={
+          selectedExpense === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("finance.expenses.field.category"),
+                  content: renderExpenseDetail(selectedExpense),
+                },
+              ]
+        }
+      />
     </div>
+  );
+}
+
+function ExpenseCard({
+  expense,
+  supplierNames,
+  onEdit,
+}: {
+  expense: Expense;
+  supplierNames: Map<string, string>;
+  onEdit: () => void;
+}): ReactNode {
+  const { t, locale } = useI18n();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <span>{expense.category}</span>
+          <span className="text-sm font-normal tabular-nums text-muted-foreground">
+            {formatMoney(expense.amountMinor, locale)}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">
+              {t("finance.expenses.field.incurredAt")}
+            </dt>
+            <dd>{formatDate(expense.incurredAt, locale)}</dd>
+          </div>
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">
+              {t("finance.expenses.field.supplier")}
+            </dt>
+            <dd>
+              {expense.supplierId !== null
+                ? (supplierNames.get(expense.supplierId) ?? expense.supplierId)
+                : DASH}
+            </dd>
+          </div>
+          <div className="col-span-2 flex flex-col">
+            <dt className="text-xs text-muted-foreground">{t("finance.expenses.field.notes")}</dt>
+            <dd>{expense.notes ?? DASH}</dd>
+          </div>
+        </dl>
+        <PermissionGate permission="finance.manage">
+          <div>
+            <Button size="sm" variant="outline" onClick={onEdit}>
+              {t("finance.actions.edit")}
+            </Button>
+          </div>
+        </PermissionGate>
+      </CardContent>
+    </Card>
   );
 }
 
