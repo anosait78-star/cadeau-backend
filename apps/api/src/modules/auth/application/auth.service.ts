@@ -198,6 +198,38 @@ export class AuthService implements SessionReissuePort {
   }
 
   /**
+   * Change the caller's password after verifying their current one. Sessions
+   * are left intact — the caller stays signed in on this and other devices.
+   */
+  async changePassword(
+    principal: RequestPrincipal,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const profile = await this.repo.findOwnProfileById(principal.userId);
+    if (profile === null) {
+      throw AppErrors.unauthorized();
+    }
+    const ok = await verifyPassword(currentPassword, profile.passwordHash);
+    if (!ok) {
+      throw AppErrors.badRequest("Current password is incorrect.");
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await this.repo.setPasswordHash(principal.userId, passwordHash);
+    this.audit.record("auth.password_changed", { userId: principal.userId });
+  }
+
+  /**
+   * Flag the caller's account for deletion. This does not erase any data — it
+   * records a request for manual/compliance review. Idempotent: a second call
+   * after one already succeeded is a no-op.
+   */
+  async requestAccountDeletion(principal: RequestPrincipal): Promise<void> {
+    await this.repo.requestAccountDeletion(principal.userId, new Date(this.clock.now()));
+    this.audit.record("auth.account_deletion_requested", { userId: principal.userId });
+  }
+
+  /**
    * Re-issue the caller's current session scoped to `companyId`, rotating its
    * refresh token and stamping the tenant into the new access token. Called when
    * a company is created or switched into; the caller's active tenant is proven by

@@ -40,6 +40,7 @@ class FakeRepo implements AuthRepositoryPort {
       phoneEncrypted: input.phoneEncrypted,
       totpSecretEncrypted: null,
       totpEnabledAt: null,
+      deletionRequestedAt: null,
       createdAt: new Date(),
     };
     this.profiles.set(record.id, record);
@@ -134,6 +135,20 @@ class FakeRepo implements AuthRepositoryPort {
   enableTotp(userId: string, enabledAt: Date): Promise<void> {
     const p = this.profiles.get(userId);
     if (p !== undefined) this.profiles.set(userId, { ...p, totpEnabledAt: enabledAt });
+    return Promise.resolve();
+  }
+
+  setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    const p = this.profiles.get(userId);
+    if (p !== undefined) this.profiles.set(userId, { ...p, passwordHash });
+    return Promise.resolve();
+  }
+
+  requestAccountDeletion(userId: string, requestedAt: Date): Promise<void> {
+    const p = this.profiles.get(userId);
+    if (p !== undefined && p.deletionRequestedAt === null) {
+      this.profiles.set(userId, { ...p, deletionRequestedAt: requestedAt });
+    }
     return Promise.resolve();
   }
 
@@ -370,6 +385,72 @@ describe("2FA (TOTP)", () => {
       META,
     );
     expect(ok.tokens.accessToken).toBeTruthy();
+  });
+});
+
+describe("changePassword", () => {
+  async function seedUser() {
+    const ctx = build();
+    await ctx.service.register(
+      { email: "pw@test.dev", password: "password123", fullName: null, phone: null },
+      META,
+    );
+    const profile = [...ctx.repo.profiles.values()][0] as ProfileRecord;
+    const principal = { userId: profile.id, sessionId: randomUUID(), companyId: null };
+    return { ...ctx, principal };
+  }
+
+  it("changes the password when the current one is correct", async () => {
+    const { service, principal, audit } = await seedUser();
+    await service.changePassword(principal, "password123", "newpassword456");
+
+    const relogin = await service.login(
+      { email: "pw@test.dev", password: "newpassword456", totpCode: null },
+      META,
+    );
+    expect(relogin.tokens.accessToken).toBeTruthy();
+    expect(audit.events).toContain("auth.password_changed");
+  });
+
+  it("rejects a wrong current password", async () => {
+    const { service, principal } = await seedUser();
+    await expect(
+      service.changePassword(principal, "wrong-current", "newpassword456"),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("requestAccountDeletion", () => {
+  it("flags the account and records an audit event", async () => {
+    const ctx = build();
+    await ctx.service.register(
+      { email: "del@test.dev", password: "password123", fullName: null, phone: null },
+      META,
+    );
+    const profile = [...ctx.repo.profiles.values()][0] as ProfileRecord;
+    const principal = { userId: profile.id, sessionId: randomUUID(), companyId: null };
+
+    await ctx.service.requestAccountDeletion(principal);
+
+    expect(ctx.repo.profiles.get(principal.userId)?.deletionRequestedAt).not.toBeNull();
+    expect(ctx.audit.events).toContain("auth.account_deletion_requested");
+  });
+
+  it("is idempotent — a second request does not move the timestamp", async () => {
+    const ctx = build();
+    await ctx.service.register(
+      { email: "del2@test.dev", password: "password123", fullName: null, phone: null },
+      META,
+    );
+    const profile = [...ctx.repo.profiles.values()][0] as ProfileRecord;
+    const principal = { userId: profile.id, sessionId: randomUUID(), companyId: null };
+
+    await ctx.service.requestAccountDeletion(principal);
+    const first = ctx.repo.profiles.get(principal.userId)?.deletionRequestedAt;
+    now += 1000;
+    await ctx.service.requestAccountDeletion(principal);
+
+    expect(ctx.repo.profiles.get(principal.userId)?.deletionRequestedAt).toEqual(first);
   });
 });
 

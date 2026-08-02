@@ -28,6 +28,7 @@ import { RateLimitGuard } from "../../../shared/rate-limit/rate-limit.guard";
 import { AuthService } from "../application/auth.service";
 import type { RequestMeta } from "../domain/auth.types";
 import { AuthResponseDto, TokensDto } from "./dto/auth-response.dto";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 import { LoginDto } from "./dto/login.dto";
 import { RefreshDto } from "./dto/refresh.dto";
 import { RegisterDto } from "./dto/register.dto";
@@ -117,6 +118,32 @@ export class AuthController {
     @Param("sessionId", ParseUUIDPipe) sessionId: string,
   ): Promise<void> {
     await this.auth.revokeSession(principal, sessionId);
+  }
+
+  @Post("change-password")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Change the caller's password", operationId: "changePassword" })
+  @ApiNoContentResponse()
+  async changePassword(
+    @CurrentUser() principal: RequestPrincipal,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<void> {
+    await this.auth.changePassword(principal, dto.currentPassword, dto.newPassword);
+  }
+
+  @Post("account-deletion-request")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Request deletion of the caller's account",
+    operationId: "requestAccountDeletion",
+  })
+  @ApiNoContentResponse()
+  async requestAccountDeletion(@CurrentUser() principal: RequestPrincipal): Promise<void> {
+    await this.auth.requestAccountDeletion(principal);
   }
 
   @Post("2fa/enroll")

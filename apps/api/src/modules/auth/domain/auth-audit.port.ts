@@ -11,7 +11,9 @@ export type AuthAuditEvent =
   | "auth.2fa_failed"
   | "auth.2fa_enrolled"
   | "auth.2fa_enabled"
-  | "auth.company_switched";
+  | "auth.company_switched"
+  | "auth.password_changed"
+  | "auth.account_deletion_requested";
 
 /** Structured, secret-free details for an audit record. */
 export interface AuthAuditDetails {

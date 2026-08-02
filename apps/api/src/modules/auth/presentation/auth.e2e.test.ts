@@ -29,6 +29,7 @@ class InMemoryAuthRepo implements AuthRepositoryPort {
       createdAt: new Date(),
       totpSecretEncrypted: null,
       totpEnabledAt: null,
+      deletionRequestedAt: null,
       ...input,
     };
     this.profiles.set(record.id, record);
@@ -99,6 +100,18 @@ class InMemoryAuthRepo implements AuthRepositoryPort {
   enableTotp(userId: string, enabledAt: Date): Promise<void> {
     const p = this.profiles.get(userId);
     if (p !== undefined) this.profiles.set(userId, { ...p, totpEnabledAt: enabledAt });
+    return Promise.resolve();
+  }
+  setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    const p = this.profiles.get(userId);
+    if (p !== undefined) this.profiles.set(userId, { ...p, passwordHash });
+    return Promise.resolve();
+  }
+  requestAccountDeletion(userId: string, requestedAt: Date): Promise<void> {
+    const p = this.profiles.get(userId);
+    if (p !== undefined && p.deletionRequestedAt === null) {
+      this.profiles.set(userId, { ...p, deletionRequestedAt: requestedAt });
+    }
     return Promise.resolve();
   }
   bindSessionCompany(input: {

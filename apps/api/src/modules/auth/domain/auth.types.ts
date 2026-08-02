@@ -18,6 +18,8 @@ export interface ProfileRecord {
   readonly totpSecretEncrypted: string | null;
   /** When 2FA was confirmed; null ⇒ enrolled-but-unconfirmed or off. */
   readonly totpEnabledAt: Date | null;
+  /** When the account holder requested deletion; null ⇒ no pending request. */
+  readonly deletionRequestedAt: Date | null;
   readonly createdAt: Date;
 }
 

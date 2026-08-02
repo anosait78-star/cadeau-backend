@@ -173,6 +173,23 @@ export class AuthRepository implements AuthRepositoryPort {
     });
   }
 
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await setUserContext(tx, userId);
+      await tx.profile.updateMany({ where: { id: userId }, data: { passwordHash } });
+    });
+  }
+
+  async requestAccountDeletion(userId: string, requestedAt: Date): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await setUserContext(tx, userId);
+      await tx.profile.updateMany({
+        where: { id: userId, deletionRequestedAt: null },
+        data: { deletionRequestedAt: requestedAt },
+      });
+    });
+  }
+
   async bindSessionCompany(input: {
     readonly sessionId: string;
     readonly userId: string;
@@ -210,6 +227,7 @@ function toProfileRecord(row: {
   phoneEncrypted: string | null;
   totpSecretEncrypted: string | null;
   totpEnabledAt: Date | null;
+  deletionRequestedAt: Date | null;
   createdAt: Date;
 }): ProfileRecord {
   return {
@@ -220,6 +238,7 @@ function toProfileRecord(row: {
     phoneEncrypted: row.phoneEncrypted,
     totpSecretEncrypted: row.totpSecretEncrypted,
     totpEnabledAt: row.totpEnabledAt,
+    deletionRequestedAt: row.deletionRequestedAt,
     createdAt: row.createdAt,
   };
 }

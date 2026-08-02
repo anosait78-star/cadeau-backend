@@ -64,6 +64,15 @@ export interface AuthRepositoryPort {
   /** Mark the caller's 2FA confirmed (set `totpEnabledAt`). Self-service. */
   enableTotp(userId: string, enabledAt: Date): Promise<void>;
 
+  /** Replace the caller's password hash. Self-service. */
+  setPasswordHash(userId: string, passwordHash: string): Promise<void>;
+
+  /**
+   * Flag the caller's account for deletion (idempotent — does not overwrite an
+   * existing timestamp). Does not itself erase any data. Self-service.
+   */
+  requestAccountDeletion(userId: string, requestedAt: Date): Promise<void>;
+
   /**
    * Rebind the caller's current session to a company and rotate its refresh
    * token. Authorized by the access-token principal (not by presenting the

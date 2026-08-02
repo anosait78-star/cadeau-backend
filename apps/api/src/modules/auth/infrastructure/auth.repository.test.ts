@@ -258,4 +258,44 @@ describe("AuthRepository — profile & 2FA", () => {
     expect(db.profiles[0]?.["totpEnabledAt"]).toBe(enabledAt);
     expect(db.queryRaw).toHaveBeenCalled();
   });
+
+  it("replaces the password hash", async () => {
+    const { repo, db } = make();
+    db.profiles.push({
+      id: USER,
+      email: "pw@test.dev",
+      passwordHash: "old-hash",
+      fullName: null,
+      phoneEncrypted: null,
+      totpSecretEncrypted: null,
+      totpEnabledAt: null,
+      deletionRequestedAt: null,
+      createdAt: new Date(),
+    });
+
+    await repo.setPasswordHash(USER, "new-hash");
+    expect(db.profiles[0]?.["passwordHash"]).toBe("new-hash");
+  });
+
+  it("flags a deletion request once and does not overwrite it on a second call", async () => {
+    const { repo, db } = make();
+    db.profiles.push({
+      id: USER,
+      email: "del@test.dev",
+      passwordHash: "h",
+      fullName: null,
+      phoneEncrypted: null,
+      totpSecretEncrypted: null,
+      totpEnabledAt: null,
+      deletionRequestedAt: null,
+      createdAt: new Date(),
+    });
+
+    const first = new Date();
+    await repo.requestAccountDeletion(USER, first);
+    expect(db.profiles[0]?.["deletionRequestedAt"]).toBe(first);
+
+    await repo.requestAccountDeletion(USER, new Date(first.getTime() + 1000));
+    expect(db.profiles[0]?.["deletionRequestedAt"]).toBe(first);
+  });
 });

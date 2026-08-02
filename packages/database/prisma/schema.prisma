@@ -57,6 +57,9 @@ model Profile {
   totpSecretEncrypted String?   @map("totp_secret_encrypted")
   /// When 2FA was confirmed; NULL ⇒ enrolled-but-unconfirmed or off.
   totpEnabledAt       DateTime? @map("totp_enabled_at") @db.Timestamptz(6)
+  /// When the account holder requested deletion; NULL ⇒ no pending request.
+  /// A request does not itself erase data — it flags the account for review.
+  deletionRequestedAt DateTime? @map("deletion_requested_at") @db.Timestamptz(6)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
