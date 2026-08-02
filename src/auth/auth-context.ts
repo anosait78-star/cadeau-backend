@@ -1,5 +1,12 @@
 import { createContext } from "react";
-import type { AuthResponse, LoginInput, MeView, RegisterInput } from "./auth-api";
+import type {
+  AuthResponse,
+  CreateCompanyInput,
+  CreateCompanyResponse,
+  LoginInput,
+  MeView,
+  RegisterInput,
+} from "./auth-api";
 
 /** Lifecycle of the session: unknown while hydrating, then a definite state. */
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -16,6 +23,10 @@ export interface AuthContextValue {
   logout: () => Promise<void>;
   /** Switch the active tenant (re-issues tokens) and refresh the profile. */
   switchCompany: (companyId: string) => Promise<void>;
+  /** Create a company, switch into it, and refresh the profile. */
+  createCompany: (input: CreateCompanyInput) => Promise<CreateCompanyResponse>;
+  /** Join a company by invite code, switch into it, and refresh the profile. */
+  joinCompany: (code: string) => Promise<void>;
   /** Re-fetch `GET /v1/me` (e.g. after joining/creating a company). */
   reload: () => Promise<void>;
 }

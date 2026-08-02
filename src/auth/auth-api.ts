@@ -27,6 +27,8 @@ export interface MembershipCompany {
   readonly slug: string | null;
   readonly role: string;
   readonly status: string;
+  /** Dialing prefix prepended to phone numbers for WhatsApp (settings tab). */
+  readonly whatsappCountryCode: string | null;
 }
 
 /** The caller's profile plus the companies they belong to (`GET /v1/me`). */
@@ -76,4 +78,83 @@ export function getMe(): Promise<MeView> {
 /** `POST /v1/companies/{id}/switch` — re-issue a token pair scoped to a company. */
 export function switchCompany(companyId: string): Promise<TokenPair> {
   return apiFetch<TokenPair>(`/companies/${companyId}/switch`, { method: "POST" });
+}
+
+/** Monthly-orders-volume buckets offered on the create-company screen. */
+export const MONTHLY_ORDERS_RANGES = [
+  "under_100",
+  "100_500",
+  "500_1000",
+  "1000_2000",
+  "2000_5000",
+  "over_5000",
+] as const;
+
+export type MonthlyOrdersRange = (typeof MONTHLY_ORDERS_RANGES)[number];
+
+/** `POST /v1/companies` payload. */
+export interface CreateCompanyInput {
+  name: string;
+  slug?: string | undefined;
+  phone: string;
+  monthlyOrdersRange: MonthlyOrdersRange;
+  country?: string | undefined;
+  facebookHandle?: string | undefined;
+  instagramHandle?: string | undefined;
+  websiteUrl?: string | undefined;
+  shippingCarrier?: string | undefined;
+}
+
+/** A created (or fetched) company, including its onboarding profile fields. */
+export interface CompanyRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly slug: string | null;
+  readonly status: string;
+  readonly phone: string | null;
+  readonly monthlyOrdersRange: string | null;
+  readonly country: string | null;
+  readonly facebookHandle: string | null;
+  readonly instagramHandle: string | null;
+  readonly websiteUrl: string | null;
+  readonly shippingCarrier: string | null;
+  readonly whatsappCountryCode: string | null;
+  readonly createdAt: string;
+}
+
+/** `POST /v1/companies` response: the new company plus tenant-scoped tokens. */
+export interface CreateCompanyResponse {
+  readonly company: CompanyRecord;
+  readonly tokens: TokenPair;
+}
+
+/** `POST /v1/companies` — create a company and switch the session into it. */
+export function createCompany(input: CreateCompanyInput): Promise<CreateCompanyResponse> {
+  return apiFetch<CreateCompanyResponse>("/companies", { method: "POST", body: input });
+}
+
+/** Outcome of accepting an invitation by code. */
+export interface AcceptInvitationResponse {
+  readonly companyId: string;
+  readonly role: string;
+  readonly alreadyMember: boolean;
+}
+
+/** `POST /v1/invitations/accept` — join a company by its shareable invite code. */
+export function acceptInvitation(code: string): Promise<AcceptInvitationResponse> {
+  return apiFetch<AcceptInvitationResponse>("/invitations/accept", {
+    method: "POST",
+    body: { code },
+  });
+}
+
+/** `PATCH /v1/companies/{id}/whatsapp-settings` — set (or clear) the dialing prefix. */
+export function updateWhatsappCountryCode(
+  companyId: string,
+  countryCode: string | null,
+): Promise<CompanyRecord> {
+  return apiFetch<CompanyRecord>(`/companies/${companyId}/whatsapp-settings`, {
+    method: "PATCH",
+    body: { countryCode },
+  });
 }

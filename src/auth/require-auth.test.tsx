@@ -19,18 +19,25 @@ const ME = {
   fullName: null,
   phone: null,
   twoFactorEnabled: false,
+  activeCompanyId: "c1",
+  companies: [{ id: "c1", name: "Acme", slug: "acme", role: "owner", status: "active" }],
+};
+
+const ME_NO_COMPANY = {
+  ...ME,
   activeCompanyId: null,
   companies: [],
 };
 
-function renderGuarded(): void {
+function renderGuarded(initialEntry = "/"): void {
   render(
     <I18nProvider>
       <AuthProvider>
-        <MemoryRouter initialEntries={["/"]}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <Routes>
             <Route element={<RequireAuth />}>
               <Route index element={<p>protected content</p>} />
+              <Route path="onboarding" element={<p>onboarding screen</p>} />
             </Route>
             <Route path="/login" element={<p>login screen</p>} />
           </Routes>
@@ -63,5 +70,20 @@ describe("RequireAuth", () => {
     fetchMock.mockResolvedValueOnce(json(200, ME));
     renderGuarded();
     expect(await screen.findByText("protected content")).toBeInTheDocument();
+  });
+
+  it("redirects to /onboarding when the caller has no company", async () => {
+    writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+    fetchMock.mockResolvedValueOnce(json(200, ME_NO_COMPANY));
+    renderGuarded();
+    await waitFor(() => expect(screen.getByText("onboarding screen")).toBeInTheDocument());
+    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+  });
+
+  it("does not redirect away from /onboarding for a zero-company caller", async () => {
+    writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+    fetchMock.mockResolvedValueOnce(json(200, ME_NO_COMPANY));
+    renderGuarded("/onboarding");
+    expect(await screen.findByText("onboarding screen")).toBeInTheDocument();
   });
 });

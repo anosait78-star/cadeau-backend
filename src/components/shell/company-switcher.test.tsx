@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router";
 import { AuthProvider } from "@/auth/auth-provider";
 import { writeTokens } from "@/auth/auth-storage";
 import { I18nProvider } from "@/i18n/i18n-provider";
@@ -32,7 +33,9 @@ function renderSwitcher(): void {
   render(
     <I18nProvider>
       <AuthProvider>
-        <CompanySwitcher />
+        <MemoryRouter>
+          <CompanySwitcher />
+        </MemoryRouter>
       </AuthProvider>
     </I18nProvider>,
   );
@@ -70,9 +73,10 @@ describe("CompanySwitcher", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Beta/ })).toBeInTheDocument());
   });
 
-  it("renders a disabled placeholder when the user has no companies", async () => {
+  it("links to /onboarding when the user has no companies", async () => {
     fetchMock.mockResolvedValueOnce(json(200, ME({ activeCompanyId: null, companies: [] })));
     renderSwitcher();
-    expect(await screen.findByText("لا توجد شركة بعد")).toBeInTheDocument();
+    const link = await screen.findByRole("link", { name: "لا توجد شركة بعد" });
+    expect(link).toHaveAttribute("href", "/onboarding");
   });
 });

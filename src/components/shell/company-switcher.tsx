@@ -1,8 +1,9 @@
 import { Building2, Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 import { useAuth } from "@/auth/use-auth";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,10 +32,10 @@ export function CompanySwitcher(): ReactNode {
 
   if (companies.length === 0) {
     return (
-      <Button variant="outline" size="sm" disabled>
+      <Link to="/onboarding" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
         <Building2 className="h-4 w-4" aria-hidden="true" />
         <span className="max-w-40 truncate">{t("company.switcher.none")}</span>
-      </Button>
+      </Link>
     );
   }
 
