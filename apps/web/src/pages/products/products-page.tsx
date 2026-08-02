@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { LoadingState } from "@/components/states/loading-state";
+import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
+import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,7 +27,9 @@ import {
   type ProductVariant,
   type VariantInput,
 } from "@/features/products/products-api";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
+import { buildProductColumns } from "./products-columns";
 
 /** A `{ id → name }` lookup for a reference collection (categories, units). */
 type NameMap = ReadonlyMap<string, string>;
@@ -64,19 +70,18 @@ export function ProductsPage(): ReactNode {
 
 function ProductsScreen(): ReactNode {
   const { t } = useI18n();
+  const isDesktop = useIsDesktop();
+  const toast = useToast();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const [categories, setCategories] = useState<RefOption[]>([]);
   const [units, setUnits] = useState<RefOption[]>([]);
 
-  const flash = useCallback((text: string): void => {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 2500);
-  }, []);
+  const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
   const load = useCallback(async (q: string): Promise<void> => {
     setState({ kind: "loading" });
@@ -144,6 +149,7 @@ function ProductsScreen(): ReactNode {
         s.kind === "ready" ? { ...s, items: s.items.map((i) => (i.id === id ? updated : i)) } : s,
       );
       setEditingId(null);
+      setSelectedProduct((p) => (p !== null && p.id === id ? updated : p));
       flash(t("products.saved"));
     } catch {
       flash(t("products.saveFailed"));
@@ -158,11 +164,38 @@ function ProductsScreen(): ReactNode {
           ? { ...s, items: s.items.map((i) => (i.id === id ? { ...i, active: false } : i)) }
           : s,
       );
+      setSelectedProduct((p) => (p !== null && p.id === id ? { ...p, active: false } : p));
       flash(t("products.saved"));
     } catch {
       flash(t("products.saveFailed"));
     }
   };
+
+  const columns = useMemo(
+    () => buildProductColumns({ t, categoryNames, unitNames }),
+    [t, categoryNames, unitNames],
+  );
+
+  /** The card-or-edit-form for one product — shared by the mobile list and the desktop detail panel. */
+  const renderProductDetail = (product: Product): ReactNode =>
+    editingId === product.id ? (
+      <ProductForm
+        product={product}
+        categories={categories}
+        units={units}
+        onSubmit={(body) => onUpdate(product.id, body)}
+        onCancel={() => setEditingId(null)}
+      />
+    ) : (
+      <ProductCard
+        product={product}
+        categoryNames={categoryNames}
+        unitNames={unitNames}
+        onEdit={() => setEditingId(product.id)}
+        onArchive={() => void onArchive(product.id)}
+        onNotify={flash}
+      />
+    );
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
@@ -171,34 +204,27 @@ function ProductsScreen(): ReactNode {
         <p className="text-sm text-muted-foreground">{t("products.subtitle")}</p>
       </header>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-1 flex-col gap-1">
-          <Label htmlFor="products-search">{t("products.search.label")}</Label>
-          <Input
-            id="products-search"
-            value={search}
-            placeholder={t("products.search.placeholder")}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
-            }}
-          />
-        </div>
-        <Button variant="outline" onClick={onSearch}>
-          {t("products.search.submit")}
-        </Button>
-        <PermissionGate permission="products.manage">
-          {creating ? null : (
-            <Button onClick={() => setCreating(true)}>{t("products.actions.create")}</Button>
-          )}
-        </PermissionGate>
-      </div>
-
-      {notice !== null ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {notice}
-        </p>
-      ) : null}
+      <TableToolbar
+        search={{
+          value: search,
+          onChange: setSearch,
+          onSubmit: onSearch,
+          placeholder: t("products.search.placeholder"),
+          label: t("products.search.label"),
+        }}
+        secondaryActions={
+          <Button variant="outline" onClick={onSearch}>
+            {t("products.search.submit")}
+          </Button>
+        }
+        primaryActions={
+          <PermissionGate permission="products.manage">
+            {creating ? null : (
+              <Button onClick={() => setCreating(true)}>{t("products.actions.create")}</Button>
+            )}
+          </PermissionGate>
+        }
+      />
 
       {creating ? (
         <PermissionGate permission="products.manage">
@@ -211,44 +237,55 @@ function ProductsScreen(): ReactNode {
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load(search.trim())} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("products.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<Product>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelectedProduct}
+            emptyState={<EmptyState title={t("products.empty")} />}
+          />
+        ) : (
+          <MobileCardList<Product>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderProductDetail}
+            emptyTitle={t("products.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("products.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((product) => (
-            <li key={product.id}>
-              {editingId === product.id ? (
-                <ProductForm
-                  product={product}
-                  categories={categories}
-                  units={units}
-                  onSubmit={(body) => onUpdate(product.id, body)}
-                  onCancel={() => setEditingId(null)}
-                />
-              ) : (
-                <ProductCard
-                  product={product}
-                  categoryNames={categoryNames}
-                  unitNames={unitNames}
-                  onEdit={() => setEditingId(product.id)}
-                  onArchive={() => void onArchive(product.id)}
-                  onNotify={flash}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("products.loadMore")}
-        </Button>
-      ) : null}
+      <DetailPanel
+        open={selectedProduct !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedProduct(null);
+            setEditingId(null);
+          }
+        }}
+        title={selectedProduct?.name ?? ""}
+        sections={
+          selectedProduct === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("products.title"),
+                  content: renderProductDetail(selectedProduct),
+                },
+              ]
+        }
+      />
     </div>
   );
 }

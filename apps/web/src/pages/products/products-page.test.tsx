@@ -7,6 +7,7 @@ import {
   type CapabilitiesContextValue,
   type CapabilityRequirement,
 } from "@/features/access/capabilities-context";
+import { ToastProvider } from "@/components/toast/toast";
 import { I18nProvider } from "@/i18n/i18n-provider";
 import { ProductsPage } from "./products-page";
 
@@ -32,7 +33,11 @@ function caps(features: string[], permissions: string[], children: ReactNode): R
 }
 
 function renderPage(features = ["products"], permissions = ["products.read", "products.manage"]) {
-  return render(<I18nProvider>{caps(features, permissions, <ProductsPage />)}</I18nProvider>);
+  return render(
+    <I18nProvider>
+      <ToastProvider>{caps(features, permissions, <ProductsPage />)}</ToastProvider>
+    </I18nProvider>,
+  );
 }
 
 function product(id: string, over: Record<string, unknown> = {}) {
