@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { LoadingState } from "@/components/states/loading-state";
+import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +20,9 @@ import {
   type InvoiceDetail,
   type InvoiceListItem,
 } from "@/features/finance/finance-api";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
+import { buildInvoiceColumns } from "./invoices-columns";
 import { DASH, Field, formatDate, formatMoney } from "./finance-shared";
 
 type State =
@@ -32,11 +37,13 @@ type State =
 /** Invoices — list, detail (lines + VAT), a PDF download, and issuing (order or manual). */
 export function InvoicesTab({ onNotify }: { onNotify: (text: string) => void }): ReactNode {
   const { t, locale } = useI18n();
+  const isDesktop = useIsDesktop();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [orderId, setOrderId] = useState("");
   const [creating, setCreating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [selected, setSelected] = useState<InvoiceListItem | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
@@ -89,23 +96,36 @@ export function InvoicesTab({ onNotify }: { onNotify: (text: string) => void }):
     }
   };
 
+  const columns = useMemo(() => buildInvoiceColumns({ t, locale }), [t, locale]);
+
+  /** The card (with a toggleable line-items list) for one invoice — shared by the mobile list and the desktop detail panel. */
+  const renderInvoiceCard = (invoice: InvoiceListItem): ReactNode => (
+    <InvoiceCard
+      invoice={invoice}
+      lines={expandedId === invoice.id ? detail : null}
+      onToggle={() => void toggle(invoice.id)}
+      onDownload={() => void download(invoice)}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <Field id="invoice-filter-order" label={t("finance.invoices.field.order")}>
-          <Input
-            id="invoice-filter-order"
-            value={orderId}
-            onChange={(e) => setOrderId(e.target.value)}
-            aria-label={t("finance.invoices.field.order")}
-          />
-        </Field>
-        <PermissionGate permission="finance.manage">
-          {creating ? null : (
-            <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
-          )}
-        </PermissionGate>
-      </div>
+      <TableToolbar
+        search={{
+          value: orderId,
+          onChange: setOrderId,
+          onSubmit: () => void load(),
+          placeholder: t("finance.invoices.field.order"),
+          label: t("finance.invoices.field.order"),
+        }}
+        primaryActions={
+          <PermissionGate permission="finance.manage">
+            {creating ? null : (
+              <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
+            )}
+          </PermissionGate>
+        }
+      />
 
       {creating ? (
         <PermissionGate permission="finance.manage">
@@ -121,90 +141,131 @@ export function InvoicesTab({ onNotify }: { onNotify: (text: string) => void }):
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("finance.invoices.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<InvoiceListItem>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelected}
+            emptyState={<EmptyState title={t("finance.invoices.empty")} />}
+          />
+        ) : (
+          <MobileCardList<InvoiceListItem>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderInvoiceCard}
+            emptyTitle={t("finance.invoices.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("finance.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((invoice) => (
-            <li key={invoice.id}>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                    <span>
-                      {t("finance.invoices.field.number")} #{invoice.number}
-                    </span>
-                    <span className="text-sm font-normal tabular-nums text-muted-foreground">
-                      {formatMoney(invoice.totalMinor, locale)}
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-3">
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
-                    <div className="flex flex-col">
-                      <dt className="text-xs text-muted-foreground">
-                        {t("finance.invoices.field.subtotal")}
-                      </dt>
-                      <dd className="tabular-nums">{formatMoney(invoice.subtotalMinor, locale)}</dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-xs text-muted-foreground">
-                        {t("finance.invoices.field.vat")}
-                      </dt>
-                      <dd className="tabular-nums">{formatMoney(invoice.vatMinor, locale)}</dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-xs text-muted-foreground">
-                        {t("finance.invoices.field.order")}
-                      </dt>
-                      <dd>{invoice.orderId ?? DASH}</dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-xs text-muted-foreground">
-                        {t("finance.expenses.field.incurredAt")}
-                      </dt>
-                      <dd>{formatDate(invoice.createdAt, locale)}</dd>
-                    </div>
-                  </dl>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => void toggle(invoice.id)}>
-                      {t("finance.actions.view")}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => void download(invoice)}>
-                      {t("finance.invoices.actions.downloadPdf")}
-                    </Button>
-                  </div>
-
-                  {expandedId === invoice.id && detail !== null ? (
-                    <ul className="flex flex-col gap-1 rounded-md border border-input p-3 text-sm">
-                      {detail.lines.map((line) => (
-                        <li key={line.id} className="flex flex-wrap justify-between gap-2">
-                          <span>{line.description}</span>
-                          <span className="tabular-nums text-muted-foreground">
-                            {line.quantity} × {formatMoney(line.unitPriceMinor, locale)} ={" "}
-                            {formatMoney(line.lineTotalMinor, locale)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("finance.loadMore")}
-        </Button>
-      ) : null}
+      <DetailPanel
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelected(null);
+            setExpandedId(null);
+          }
+        }}
+        title={selected !== null ? `${t("finance.invoices.field.number")} #${selected.number}` : ""}
+        sections={
+          selected === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("finance.invoices.field.number"),
+                  content: renderInvoiceCard(selected),
+                },
+              ]
+        }
+      />
     </div>
+  );
+}
+
+function InvoiceCard({
+  invoice,
+  lines,
+  onToggle,
+  onDownload,
+}: {
+  invoice: InvoiceListItem;
+  lines: InvoiceDetail | null;
+  onToggle: () => void;
+  onDownload: () => void;
+}): ReactNode {
+  const { t, locale } = useI18n();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <span>
+            {t("finance.invoices.field.number")} #{invoice.number}
+          </span>
+          <span className="text-sm font-normal tabular-nums text-muted-foreground">
+            {formatMoney(invoice.totalMinor, locale)}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">
+              {t("finance.invoices.field.subtotal")}
+            </dt>
+            <dd className="tabular-nums">{formatMoney(invoice.subtotalMinor, locale)}</dd>
+          </div>
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">{t("finance.invoices.field.vat")}</dt>
+            <dd className="tabular-nums">{formatMoney(invoice.vatMinor, locale)}</dd>
+          </div>
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">{t("finance.invoices.field.order")}</dt>
+            <dd>{invoice.orderId ?? DASH}</dd>
+          </div>
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">
+              {t("finance.expenses.field.incurredAt")}
+            </dt>
+            <dd>{formatDate(invoice.createdAt, locale)}</dd>
+          </div>
+        </dl>
+
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={onToggle}>
+            {t("finance.actions.view")}
+          </Button>
+          <Button size="sm" variant="outline" onClick={onDownload}>
+            {t("finance.invoices.actions.downloadPdf")}
+          </Button>
+        </div>
+
+        {lines !== null ? (
+          <ul className="flex flex-col gap-1 rounded-md border border-input p-3 text-sm">
+            {lines.lines.map((line) => (
+              <li key={line.id} className="flex flex-wrap justify-between gap-2">
+                <span>{line.description}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {line.quantity} × {formatMoney(line.unitPriceMinor, locale)} ={" "}
+                  {formatMoney(line.lineTotalMinor, locale)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
