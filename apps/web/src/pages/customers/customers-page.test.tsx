@@ -7,6 +7,7 @@ import {
   type CapabilitiesContextValue,
   type CapabilityRequirement,
 } from "@/features/access/capabilities-context";
+import { ToastProvider } from "@/components/toast/toast";
 import { I18nProvider } from "@/i18n/i18n-provider";
 import { CustomersPage } from "./customers-page";
 
@@ -35,7 +36,11 @@ function renderPage(
   features = ["customers"],
   permissions = ["customers.read", "customers.manage"],
 ) {
-  return render(<I18nProvider>{caps(features, permissions, <CustomersPage />)}</I18nProvider>);
+  return render(
+    <I18nProvider>
+      <ToastProvider>{caps(features, permissions, <CustomersPage />)}</ToastProvider>
+    </I18nProvider>,
+  );
 }
 
 const LIST_ROW = {
@@ -276,6 +281,67 @@ describe("CustomersPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText(/5 Tahrir Sq/)).toBeInTheDocument();
+  });
+
+  it("shows the Bosta city/district picker only when bosta is connected, and cascades", async () => {
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/master-data/governorates"))
+        return Promise.resolve(json(200, GOVERNORATES));
+      if (url.includes("/shipping/carriers")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              { key: "manual", connected: true, pickupLocationWarning: false, connectedAt: null },
+              {
+                key: "bosta",
+                connected: true,
+                pickupLocationWarning: false,
+                connectedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (url.includes("/shipping/bosta/cities/") && url.includes("/districts")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                districtId: "d1",
+                districtName: "1st Settlement",
+                zoneId: "z1",
+                zoneName: "New Cairo",
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/shipping/bosta/cities")) {
+        return Promise.resolve(
+          json(200, { data: [{ id: "c1b", name: "Cairo", nameAr: "القاهرة" }] }),
+        );
+      }
+      if (url.match(/\/customers\/c1$/) && method === "GET")
+        return Promise.resolve(json(200, DETAIL));
+      if (url.includes("/customers")) return Promise.resolve(json(200, CUSTOMERS_PAGE));
+      return Promise.resolve(json(404, { error: { code: "NOT_FOUND", statusCode: 404 } }));
+    });
+
+    renderPage();
+    await screen.findByText("Sara");
+    await userEvent.click(screen.getByRole("button", { name: "Details" }));
+    await screen.findByText("+201001234567");
+    await userEvent.click(screen.getByRole("button", { name: "Add address" }));
+
+    const citySelect = await screen.findByLabelText("Bosta city");
+    expect(screen.getByLabelText("Bosta district")).toBeDisabled();
+
+    await userEvent.selectOptions(citySelect, "c1b");
+    const districtSelect = await screen.findByLabelText("Bosta district");
+    await waitFor(() => expect(districtSelect).not.toBeDisabled());
+    expect(screen.getByRole("option", { name: "1st Settlement" })).toBeInTheDocument();
   });
 
   it("renders an error state and retries the list", async () => {

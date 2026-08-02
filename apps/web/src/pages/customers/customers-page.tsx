@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel as SharedDetailPanel } from "@/components/detail-panel/detail-panel";
+import type { Translate } from "@/components/i18n/translate-type";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
+import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
+import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,18 +30,23 @@ import {
   type CustomerListItem,
 } from "@/features/customers/customers-api";
 import { listItems, type MasterDataItem } from "@/features/master-data/master-data-api";
-import type { TranslationKey } from "@/i18n/dictionaries";
+import {
+  listBostaCities,
+  listBostaDistricts,
+  listCarriers,
+  type BostaCity,
+  type BostaDistrict,
+} from "@/features/shipping/shipping-api";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
+import { buildCustomerColumns } from "./customers-columns";
 
 /** A governorate option for the address select. */
 interface RefOption {
   readonly id: string;
   readonly name: string;
 }
-
-/** The translate function, as handed out by {@link useI18n}. */
-type Translate = (key: TranslationKey) => string;
 
 type State =
   | { readonly kind: "loading" }
@@ -75,18 +86,17 @@ export function CustomersPage(): ReactNode {
 }
 
 function CustomersScreen(): ReactNode {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const isDesktop = useIsDesktop();
+  const toast = useToast();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerListItem | null>(null);
   const [governorates, setGovernorates] = useState<RefOption[]>([]);
 
-  const flash = useCallback((text: string): void => {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 2500);
-  }, []);
+  const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
   const load = useCallback(async (q: string): Promise<void> => {
     setState({ kind: "loading" });
@@ -135,14 +145,16 @@ function CustomersScreen(): ReactNode {
 
   /** Fold a detail response back into the masked list row it came from. */
   const mergeDetail = (detail: CustomerDetail): void => {
+    const listItem = toListItem(detail);
     setState((s) =>
       s.kind === "ready"
         ? {
             ...s,
-            items: s.items.map((i) => (i.id === detail.id ? toListItem(detail) : i)),
+            items: s.items.map((i) => (i.id === detail.id ? listItem : i)),
           }
         : s,
     );
+    setSelectedCustomer((c) => (c !== null && c.id === detail.id ? listItem : c));
   };
 
   const onCreate = async (body: CustomerInput): Promise<void> => {
@@ -176,11 +188,32 @@ function CustomersScreen(): ReactNode {
           ? { ...s, items: s.items.map((i) => (i.id === id ? { ...i, active: false } : i)) }
           : s,
       );
+      setSelectedCustomer((c) => (c !== null && c.id === id ? { ...c, active: false } : c));
       flash(t("customers.saved"));
     } catch (error) {
       flash(saveErrorText(error, t));
     }
   };
+
+  const columns = useMemo(() => buildCustomerColumns({ t, locale }), [t, locale]);
+
+  /** The card-or-edit-form for one customer — shared by the mobile list and the desktop detail panel. */
+  const renderCustomerDetail = (customer: CustomerListItem): ReactNode =>
+    editingId === customer.id ? (
+      <CustomerForm
+        customer={customer}
+        onSubmit={(body) => onUpdate(customer.id, body)}
+        onCancel={() => setEditingId(null)}
+      />
+    ) : (
+      <CustomerCard
+        customer={customer}
+        governorates={governorates}
+        onEdit={() => setEditingId(customer.id)}
+        onArchive={() => void onArchive(customer.id)}
+        onNotify={flash}
+      />
+    );
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
@@ -189,35 +222,28 @@ function CustomersScreen(): ReactNode {
         <p className="text-sm text-muted-foreground">{t("customers.subtitle")}</p>
       </header>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-1 flex-col gap-1">
-          <Label htmlFor="customers-search">{t("customers.search.label")}</Label>
-          <Input
-            id="customers-search"
-            value={search}
-            placeholder={t("customers.search.placeholder")}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
-            }}
-          />
-          <p className="text-xs text-muted-foreground">{t("customers.search.hint")}</p>
-        </div>
-        <Button variant="outline" onClick={onSearch}>
-          {t("customers.search.submit")}
-        </Button>
-        <PermissionGate permission="customers.manage">
-          {creating ? null : (
-            <Button onClick={() => setCreating(true)}>{t("customers.actions.create")}</Button>
-          )}
-        </PermissionGate>
-      </div>
-
-      {notice !== null ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {notice}
-        </p>
-      ) : null}
+      <TableToolbar
+        search={{
+          value: search,
+          onChange: setSearch,
+          onSubmit: onSearch,
+          placeholder: t("customers.search.placeholder"),
+          label: t("customers.search.label"),
+        }}
+        secondaryActions={
+          <Button variant="outline" onClick={onSearch}>
+            {t("customers.search.submit")}
+          </Button>
+        }
+        primaryActions={
+          <PermissionGate permission="customers.manage">
+            {creating ? null : (
+              <Button onClick={() => setCreating(true)}>{t("customers.actions.create")}</Button>
+            )}
+          </PermissionGate>
+        }
+      />
+      <p className="text-xs text-muted-foreground">{t("customers.search.hint")}</p>
 
       {creating ? (
         <PermissionGate permission="customers.manage">
@@ -225,41 +251,55 @@ function CustomersScreen(): ReactNode {
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load(search.trim())} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("customers.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<CustomerListItem>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelectedCustomer}
+            emptyState={<EmptyState title={t("customers.empty")} />}
+          />
+        ) : (
+          <MobileCardList<CustomerListItem>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderCustomerDetail}
+            emptyTitle={t("customers.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("customers.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((customer) => (
-            <li key={customer.id}>
-              {editingId === customer.id ? (
-                <CustomerForm
-                  customer={customer}
-                  onSubmit={(body) => onUpdate(customer.id, body)}
-                  onCancel={() => setEditingId(null)}
-                />
-              ) : (
-                <CustomerCard
-                  customer={customer}
-                  governorates={governorates}
-                  onEdit={() => setEditingId(customer.id)}
-                  onArchive={() => void onArchive(customer.id)}
-                  onNotify={flash}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("customers.loadMore")}
-        </Button>
-      ) : null}
+      <SharedDetailPanel
+        open={selectedCustomer !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedCustomer(null);
+            setEditingId(null);
+          }
+        }}
+        title={selectedCustomer?.name ?? ""}
+        sections={
+          selectedCustomer === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("customers.title"),
+                  content: renderCustomerDetail(selectedCustomer),
+                },
+              ]
+        }
+      />
     </div>
   );
 }
@@ -336,7 +376,11 @@ function CustomerCard({
         </div>
 
         {showDetail ? (
-          <DetailPanel customerId={customer.id} governorates={governorates} onNotify={onNotify} />
+          <CustomerDetailExpansion
+            customerId={customer.id}
+            governorates={governorates}
+            onNotify={onNotify}
+          />
         ) : null}
       </CardContent>
     </Card>
@@ -344,11 +388,12 @@ function CustomerCard({
 }
 
 /**
- * The detail panel for one customer, loaded on expand. This is the only place
- * the full phone number is fetched or shown: opening it is a deliberate act, not
- * a side effect of browsing the list.
+ * The expandable detail section for one customer (both the mobile card and
+ * the desktop `DetailPanel` reuse it via `CustomerCard`). This is the only
+ * place the full phone number is fetched or shown: opening it is a
+ * deliberate act, not a side effect of browsing the list.
  */
-function DetailPanel({
+function CustomerDetailExpansion({
   customerId,
   governorates,
   onNotify,
@@ -619,7 +664,37 @@ function AddressForm({
   const [active, setActive] = useState(address?.active ?? true);
   const [submitting, setSubmitting] = useState(false);
 
+  // Bosta mapping (settings > shipping must be connected for this to matter —
+  // BostaCarrierAdapter refuses to ship without it, deliberately, rather than
+  // guessing a city).
+  const [bostaConnected, setBostaConnected] = useState(false);
+  const [cities, setCities] = useState<BostaCity[]>([]);
+  const [districts, setDistricts] = useState<BostaDistrict[]>([]);
+  const [bostaCityId, setBostaCityId] = useState(address?.bostaCityId ?? "");
+  const [bostaDistrictId, setBostaDistrictId] = useState(address?.bostaDistrictId ?? "");
+
+  useEffect(() => {
+    listCarriers()
+      .then(({ data }) => {
+        const bosta = data.find((c) => c.key === "bosta");
+        if (bosta?.connected === true) {
+          setBostaConnected(true);
+          void listBostaCities().then(({ data }) => setCities(data));
+        }
+      })
+      .catch(() => setBostaConnected(false));
+  }, []);
+
+  useEffect(() => {
+    if (bostaCityId.length === 0) {
+      setDistricts([]);
+      return;
+    }
+    void listBostaDistricts(bostaCityId).then(({ data }) => setDistricts(data));
+  }, [bostaCityId]);
+
   const submit = async (): Promise<void> => {
+    const selectedCity = cities.find((c) => c.id === bostaCityId);
     const body: AddressInput = {
       line: line.trim(),
       ...(landmark.trim().length > 0
@@ -628,6 +703,13 @@ function AddressForm({
           ? { landmark: null }
           : {}),
       ...(governorateId.length > 0 ? { governorateId } : editing ? { governorateId: null } : {}),
+      ...(bostaConnected
+        ? {
+            bostaCityId: bostaCityId.length > 0 ? bostaCityId : null,
+            bostaDistrictId: bostaDistrictId.length > 0 ? bostaDistrictId : null,
+            bostaCityName: selectedCity?.name ?? null,
+          }
+        : {}),
       isDefault,
       ...(editing ? { active } : {}),
     };
@@ -675,6 +757,52 @@ function AddressForm({
           />
         </div>
       </div>
+
+      {bostaConnected ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="address-bosta-city">{t("customers.address.field.bostaCity")}</Label>
+            <select
+              id="address-bosta-city"
+              aria-label={t("customers.address.field.bostaCity")}
+              value={bostaCityId}
+              onChange={(e) => {
+                setBostaCityId(e.target.value);
+                setBostaDistrictId("");
+              }}
+              className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">{DASH}</option>
+              {cities.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="address-bosta-district">
+              {t("customers.address.field.bostaDistrict")}
+            </Label>
+            <select
+              id="address-bosta-district"
+              aria-label={t("customers.address.field.bostaDistrict")}
+              value={bostaDistrictId}
+              onChange={(e) => setBostaDistrictId(e.target.value)}
+              disabled={bostaCityId.length === 0}
+              className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">{DASH}</option>
+              {districts.map((d) => (
+                <option key={d.districtId} value={d.districtId}>
+                  {d.districtName}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ) : null}
+
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
