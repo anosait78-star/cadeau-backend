@@ -1,3 +1,4 @@
+import type { BostaHttpClientPort } from "../domain/bosta-http-client.port";
 import { CarrierAuthError, CarrierUnavailableError } from "../domain/shipping.errors";
 
 /** A single outbound Bosta call times out after this long. */
@@ -17,7 +18,7 @@ const CARRIER = "bosta";
  * (timeout, network, 5xx) becomes {@link CarrierUnavailableError} — so
  * `ShippingService` never has to know an HTTP status came from Bosta.
  */
-export class BostaHttpClient {
+export class BostaHttpClient implements BostaHttpClientPort {
   constructor(private readonly baseUrl: string) {}
 
   /** `apiKey` is omitted for Bosta's public, unauthenticated endpoints (e.g. `/cities`). */

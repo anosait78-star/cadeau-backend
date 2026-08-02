@@ -1,7 +1,10 @@
 import { Module } from "@nestjs/common";
+import { APP_CONFIG, type InjectedAppConfig } from "../../shared/config/config.tokens";
 import { systemClockProvider } from "../../shared/time/clock";
 import { ShippingService } from "./application/shipping.service";
 import { WebhookProcessorService } from "./application/webhook-processor.service";
+import { BOSTA_CATALOG_CACHE } from "./domain/bosta-catalog-cache.port";
+import { BOSTA_HTTP_CLIENT } from "./domain/bosta-http-client.port";
 import { CARRIER_CONNECTIONS_REPOSITORY } from "./domain/carrier-connections-repository.port";
 import { CARRIER_PORT } from "./domain/carrier.port";
 import { SHIPPING_AUDIT } from "./domain/shipping-audit.port";
@@ -10,6 +13,7 @@ import { WEBHOOK_INBOX } from "./domain/webhook-inbox.port";
 import { ShippingAuditLogAdapter } from "./infrastructure/audit-log.adapter";
 import { BostaCarrierAdapter } from "./infrastructure/bosta-carrier.adapter";
 import { BostaCatalogCache } from "./infrastructure/bosta-catalog-cache";
+import { BostaHttpClient } from "./infrastructure/bosta-http-client";
 import { CarrierConnectionsRepository } from "./infrastructure/carrier-connections.repository";
 import { CarrierRouter } from "./infrastructure/carrier-router";
 import { ManualCarrierAdapter } from "./infrastructure/manual-carrier.adapter";
@@ -47,7 +51,12 @@ import { ShippingWebhooksController } from "./presentation/shipping-webhooks.con
     shippingPrismaClientProvider,
     ManualCarrierAdapter,
     BostaCarrierAdapter,
-    BostaCatalogCache,
+    { provide: BOSTA_CATALOG_CACHE, useClass: BostaCatalogCache },
+    {
+      provide: BOSTA_HTTP_CLIENT,
+      useFactory: (config: InjectedAppConfig) => new BostaHttpClient(config.shipping.bostaBaseUrl),
+      inject: [APP_CONFIG],
+    },
     { provide: CARRIER_PORT, useClass: CarrierRouter },
     { provide: SHIPPING_REPOSITORY, useClass: ShippingRepository },
     { provide: SHIPPING_AUDIT, useClass: ShippingAuditLogAdapter },

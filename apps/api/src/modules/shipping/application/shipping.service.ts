@@ -39,8 +39,11 @@ import {
   OrderNotShippableError,
   ReferenceNotFoundError,
 } from "../domain/shipping.errors";
-import { BostaCatalogCache } from "../infrastructure/bosta-catalog-cache";
-import { BostaHttpClient } from "../infrastructure/bosta-http-client";
+import {
+  BOSTA_CATALOG_CACHE,
+  type BostaCatalogCachePort,
+} from "../domain/bosta-catalog-cache.port";
+import { BOSTA_HTTP_CLIENT, type BostaHttpClientPort } from "../domain/bosta-http-client.port";
 
 /** The carrier keys this deployment knows about, in display order. */
 const KNOWN_CARRIERS = ["manual", "bosta"] as const;
@@ -70,7 +73,8 @@ export class ShippingService {
     @Inject(CARRIER_CONNECTIONS_REPOSITORY)
     private readonly connections: CarrierConnectionsRepositoryPort,
     @Inject(APP_CONFIG) private readonly config: InjectedAppConfig,
-    private readonly bostaCatalog: BostaCatalogCache,
+    @Inject(BOSTA_CATALOG_CACHE) private readonly bostaCatalog: BostaCatalogCachePort,
+    @Inject(BOSTA_HTTP_CLIENT) private readonly bostaHttpClient: BostaHttpClientPort,
   ) {}
 
   /**
@@ -177,10 +181,9 @@ export class ShippingService {
     const cached = this.bostaCatalog.get<BostaCityView[]>("cities");
     if (cached !== null) return cached;
 
-    const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
     let response: { data?: { list?: { _id: string; name: string; nameAr?: string }[] } };
     try {
-      response = await client.request("GET", "cities");
+      response = await this.bostaHttpClient.request("GET", "cities");
     } catch (error) {
       throw this.mapError(error);
     }
@@ -203,7 +206,6 @@ export class ShippingService {
     const cached = this.bostaCatalog.get<BostaDistrictView[]>(cacheKey);
     if (cached !== null) return cached;
 
-    const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
     let response: {
       data?: readonly {
         districtId: string;
@@ -213,7 +215,10 @@ export class ShippingService {
       }[];
     };
     try {
-      response = await client.request("GET", `cities/${encodeURIComponent(cityId)}/districts`);
+      response = await this.bostaHttpClient.request(
+        "GET",
+        `cities/${encodeURIComponent(cityId)}/districts`,
+      );
     } catch (error) {
       throw this.mapError(error);
     }
@@ -229,8 +234,7 @@ export class ShippingService {
 
   /** `GET /pickup-locations` — proves the key works; an empty list is a warning, not a failure. */
   private async probeBosta(apiKey: string): Promise<boolean> {
-    const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
-    const response = await client.request<{ data?: { list?: unknown[] } }>(
+    const response = await this.bostaHttpClient.request<{ data?: { list?: unknown[] } }>(
       "GET",
       "pickup-locations",
       apiKey,

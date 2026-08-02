@@ -4,6 +4,7 @@ import type { RequestPrincipal } from "../../../shared/auth/authenticated-reques
 import { AppException } from "../../../shared/errors/app-exception";
 import type { CarrierConnectionsRepositoryPort } from "../domain/carrier-connections-repository.port";
 import { BostaCatalogCache } from "../infrastructure/bosta-catalog-cache";
+import { BostaHttpClient } from "../infrastructure/bosta-http-client";
 import type { ShipmentStatusChangeResult, ShipmentView } from "../domain/shipment.entity";
 import type { ShippingAuditPort } from "../domain/shipping-audit.port";
 import type { ShippingRepositoryPort } from "../domain/shipping-repository.port";
@@ -92,6 +93,7 @@ function makeHarness(): Harness {
     connections as unknown as CarrierConnectionsRepositoryPort,
     getConfig(),
     new BostaCatalogCache({ now: () => 1_700_000_000_000 }),
+    new BostaHttpClient(getConfig().shipping.bostaBaseUrl),
   );
   return { service, repo, audit, events, connections };
 }

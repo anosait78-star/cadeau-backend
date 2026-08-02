@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
+import type { BostaCatalogCachePort } from "../domain/bosta-catalog-cache.port";
 
 /** Bosta's city/district catalog changes rarely — cache it for a few hours. */
 export const BOSTA_CATALOG_TTL_MS = 4 * 60 * 60 * 1000;
@@ -17,7 +18,7 @@ interface CacheEntry {
  * (no Redis in this stack).
  */
 @Injectable()
-export class BostaCatalogCache {
+export class BostaCatalogCache implements BostaCatalogCachePort {
   private readonly entries = new Map<string, CacheEntry>();
 
   constructor(@Inject(CLOCK) private readonly clock: Clock) {}
