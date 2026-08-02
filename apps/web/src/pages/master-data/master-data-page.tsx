@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { LoadingState } from "@/components/states/loading-state";
+import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +20,9 @@ import {
   type MasterDataItem,
 } from "@/features/master-data/master-data-api";
 import { MD_RESOURCES, type MdField, type MdResource } from "@/features/master-data/resources";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
+import { buildMdColumns } from "./master-data-columns";
 
 type State =
   | { readonly kind: "loading" }
@@ -78,15 +83,14 @@ export function MasterDataPage(): ReactNode {
 /** The list + editing surface for one selected resource. */
 function ResourcePanel({ resource }: { resource: MdResource }): ReactNode {
   const { t } = useI18n();
+  const isDesktop = useIsDesktop();
+  const toast = useToast();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<MasterDataItem | null>(null);
 
-  const flash = useCallback((text: string): void => {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 2500);
-  }, []);
+  const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
   const load = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
@@ -132,6 +136,7 @@ function ResourcePanel({ resource }: { resource: MdResource }): ReactNode {
         s.kind === "ready" ? { ...s, items: s.items.map((i) => (i.id === id ? updated : i)) } : s,
       );
       setEditingId(null);
+      setSelectedItem((it) => (it !== null && it.id === id ? updated : it));
       flash(t("md.saved"));
       return true;
     } catch {
@@ -148,11 +153,32 @@ function ResourcePanel({ resource }: { resource: MdResource }): ReactNode {
           ? { ...s, items: s.items.map((i) => (i.id === id ? { ...i, active: false } : i)) }
           : s,
       );
+      setSelectedItem((it) => (it !== null && it.id === id ? { ...it, active: false } : it));
       flash(t("md.saved"));
     } catch {
       flash(t("md.saveFailed"));
     }
   };
+
+  const columns = useMemo(() => buildMdColumns({ t, resource }), [t, resource]);
+
+  /** The card-or-edit-form for one item — shared by the mobile list and the desktop detail panel. */
+  const renderItemDetail = (item: MasterDataItem): ReactNode =>
+    editingId === item.id ? (
+      <ItemForm
+        resource={resource}
+        item={item}
+        onSubmit={(body) => onUpdate(item.id, body)}
+        onCancel={() => setEditingId(null)}
+      />
+    ) : (
+      <ItemCard
+        resource={resource}
+        item={item}
+        onEdit={() => setEditingId(item.id)}
+        onDeactivate={() => void onDeactivate(item.id)}
+      />
+    );
 
   return (
     <section className="flex flex-col gap-4">
@@ -176,47 +202,55 @@ function ResourcePanel({ resource }: { resource: MdResource }): ReactNode {
         <p className="text-sm text-muted-foreground">{t("md.readOnly")}</p>
       )}
 
-      {notice !== null ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {notice}
-        </p>
-      ) : null}
-
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("md.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<MasterDataItem>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelectedItem}
+            emptyState={<EmptyState title={t("md.empty")} />}
+          />
+        ) : (
+          <MobileCardList<MasterDataItem>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderItemDetail}
+            emptyTitle={t("md.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("md.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((item) => (
-            <li key={item.id}>
-              {editingId === item.id ? (
-                <ItemForm
-                  resource={resource}
-                  item={item}
-                  onSubmit={(body) => onUpdate(item.id, body)}
-                  onCancel={() => setEditingId(null)}
-                />
-              ) : (
-                <ItemCard
-                  resource={resource}
-                  item={item}
-                  onEdit={() => setEditingId(item.id)}
-                  onDeactivate={() => void onDeactivate(item.id)}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("md.loadMore")}
-        </Button>
-      ) : null}
+      <DetailPanel
+        open={selectedItem !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedItem(null);
+            setEditingId(null);
+          }
+        }}
+        title={selectedItem === null ? "" : fieldText(selectedItem, "name")}
+        sections={
+          selectedItem === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t(resource.labelKey),
+                  content: renderItemDetail(selectedItem),
+                },
+              ]
+        }
+      />
     </section>
   );
 }
