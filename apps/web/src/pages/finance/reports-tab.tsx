@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { ErrorState } from "@/components/states/error-state";
+import { LoadingState } from "@/components/states/loading-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,7 +30,12 @@ function defaultTo(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Cash center + P&L — a computed, read-only numeric summary over a date range (D6). */
+/**
+ * Cash center + P&L — a computed, read-only numeric summary over a date range (D6).
+ * Audited 2026-08-02 for EPIC-16 Phase B shared-infra compliance: no DataGrid/ConfirmDialog/
+ * StatusBadge/DetailPanel applicable (no record list, no destructive actions, no status chips).
+ * Added shared LoadingState/ErrorState for the load cycle to match list-tab conventions.
+ */
 export function ReportsTab({ onNotify }: { onNotify: (text: string) => void }): ReactNode {
   const { t, locale } = useI18n();
   const [dateFrom, setDateFrom] = useState(defaultFrom());
@@ -102,6 +109,9 @@ export function ReportsTab({ onNotify }: { onNotify: (text: string) => void }): 
         </Field>
         <Button onClick={() => void load()}>{t("finance.reports.actions.load")}</Button>
       </div>
+
+      {state.kind === "loading" ? <LoadingState /> : null}
+      {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
 
       {state.kind === "ready" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
