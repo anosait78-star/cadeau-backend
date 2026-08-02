@@ -32,9 +32,12 @@ export interface Shipment {
   readonly updatedAt: string;
 }
 
-/** An available carrier (behind the carrier-abstraction, today: `manual` only). */
+/** An available carrier + this tenant's connection state (`manual` is always connected). */
 export interface Carrier {
   readonly key: string;
+  readonly connected: boolean;
+  readonly pickupLocationWarning: boolean;
+  readonly connectedAt: string | null;
 }
 
 /** Waybill metadata (no PDF in this epic). */
@@ -44,9 +47,49 @@ export interface Waybill {
   readonly trackingNumber: string;
 }
 
-/** `GET /v1/shipping/carriers` — available carriers. */
+/** `GET /v1/shipping/carriers` — available carriers + connection state. */
 export function listCarriers(): Promise<{ data: Carrier[] }> {
   return apiFetch<{ data: Carrier[] }>("/shipping/carriers");
+}
+
+/** `POST /v1/shipping/carriers/{carrier}/connect` — validates the key before saving it. */
+export function connectCarrier(carrier: string, apiKey: string): Promise<Carrier> {
+  return apiFetch<Carrier>(`/shipping/carriers/${carrier}/connect`, {
+    method: "POST",
+    body: { apiKey },
+  });
+}
+
+/** `DELETE /v1/shipping/carriers/{carrier}/connect` — disconnect a carrier. */
+export function disconnectCarrier(carrier: string): Promise<void> {
+  return apiFetch<void>(`/shipping/carriers/${carrier}/connect`, { method: "DELETE" });
+}
+
+/** A Bosta city (address-mapping picker). */
+export interface BostaCity {
+  readonly id: string;
+  readonly name: string;
+  readonly nameAr: string | null;
+}
+
+/** A Bosta district within a city (address-mapping picker). */
+export interface BostaDistrict {
+  readonly districtId: string;
+  readonly districtName: string;
+  readonly zoneId: string;
+  readonly zoneName: string;
+}
+
+/** `GET /v1/shipping/bosta/cities` — Bosta's public city catalog. */
+export function listBostaCities(): Promise<{ data: BostaCity[] }> {
+  return apiFetch<{ data: BostaCity[] }>("/shipping/bosta/cities");
+}
+
+/** `GET /v1/shipping/bosta/cities/{cityId}/districts` — Bosta's districts for a city. */
+export function listBostaDistricts(cityId: string): Promise<{ data: BostaDistrict[] }> {
+  return apiFetch<{ data: BostaDistrict[] }>(
+    `/shipping/bosta/cities/${encodeURIComponent(cityId)}/districts`,
+  );
 }
 
 /**

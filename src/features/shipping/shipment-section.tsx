@@ -207,8 +207,14 @@ function formatMoney(minorUnits: number, locale: string): string {
 }
 
 function shipmentErrorText(error: unknown, t: Translate): string {
-  if (error instanceof ApiError && error.code === "UNPROCESSABLE_ENTITY") {
-    return t("shipping.invalid");
+  if (error instanceof ApiError) {
+    if (error.code === "UNPROCESSABLE_ENTITY") return t("shipping.invalid");
+    // Any other 4xx (e.g. CONFLICT on a duplicate active shipment, or a
+    // FORBIDDEN/NOT_FOUND) carries a specific, user-actionable server
+    // message — show it instead of the generic fallback below.
+    if (error.statusCode >= 400 && error.statusCode < 500 && error.message.length > 0) {
+      return error.message;
+    }
   }
   return t("shipping.saveFailed");
 }

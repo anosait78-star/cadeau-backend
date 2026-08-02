@@ -37,6 +37,10 @@ export interface CustomerAddress {
   readonly landmark: string | null;
   readonly notes: string | null;
   readonly governorateId: string | null;
+  /** Bosta's own city/district ids + the city's display name (real-carrier integration). */
+  readonly bostaCityId: string | null;
+  readonly bostaDistrictId: string | null;
+  readonly bostaCityName: string | null;
   readonly isDefault: boolean;
   readonly active: boolean;
   readonly createdAt: string;
@@ -106,6 +110,9 @@ export interface AddressInput {
   readonly landmark?: string | null;
   readonly notes?: string | null;
   readonly governorateId?: string | null;
+  readonly bostaCityId?: string | null;
+  readonly bostaDistrictId?: string | null;
+  readonly bostaCityName?: string | null;
   readonly isDefault?: boolean;
   readonly active?: boolean;
 }
