@@ -7,6 +7,7 @@ import {
   type CapabilitiesContextValue,
   type CapabilityRequirement,
 } from "@/features/access/capabilities-context";
+import { ToastProvider } from "@/components/toast/toast";
 import { I18nProvider } from "@/i18n/i18n-provider";
 import { NotificationsPage } from "./notifications-page";
 
@@ -31,7 +32,11 @@ function caps(features: string[], children: ReactNode): ReactNode {
 }
 
 function renderPage(features = ["notifications"]) {
-  return render(<I18nProvider>{caps(features, <NotificationsPage />)}</I18nProvider>);
+  return render(
+    <I18nProvider>
+      <ToastProvider>{caps(features, <NotificationsPage />)}</ToastProvider>
+    </I18nProvider>,
+  );
 }
 
 describe("NotificationsPage", () => {

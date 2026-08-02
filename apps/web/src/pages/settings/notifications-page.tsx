@@ -4,6 +4,7 @@ import { FeatureGate } from "@/components/access/feature-gate";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
+import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -48,9 +49,9 @@ export function NotificationsPage(): ReactNode {
 
 function NotificationsPreferencesScreen(): ReactNode {
   const { t } = useI18n();
+  const toast = useToast();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<"saved" | "failed" | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
@@ -85,13 +86,12 @@ function NotificationsPreferencesScreen(): ReactNode {
   const save = async (): Promise<void> => {
     if (state.kind !== "ready") return;
     setSaving(true);
-    setSaveMessage(null);
     try {
       const { data } = await updateNotificationPreferences(state.preferences);
       setState({ kind: "ready", preferences: [...data] });
-      setSaveMessage("saved");
+      toast.show(t("notifications.preferences.saved"));
     } catch {
-      setSaveMessage("failed");
+      toast.show(t("notifications.preferences.saveFailed"), { variant: "error" });
     } finally {
       setSaving(false);
     }
@@ -146,14 +146,6 @@ function NotificationsPreferencesScreen(): ReactNode {
               <Button onClick={() => void save()} disabled={saving}>
                 {t("notifications.preferences.save")}
               </Button>
-              {saveMessage === "saved" ? (
-                <span className="text-sm text-primary">{t("notifications.preferences.saved")}</span>
-              ) : null}
-              {saveMessage === "failed" ? (
-                <span className="text-sm text-destructive">
-                  {t("notifications.preferences.saveFailed")}
-                </span>
-              ) : null}
             </div>
           </CardContent>
         </Card>
