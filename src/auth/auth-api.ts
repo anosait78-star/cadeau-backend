@@ -158,3 +158,16 @@ export function updateWhatsappCountryCode(
     body: { countryCode },
   });
 }
+
+/** `POST /v1/auth/change-password` — the caller must present their current password. */
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return apiFetch<void>("/auth/change-password", {
+    method: "POST",
+    body: { currentPassword, newPassword },
+  });
+}
+
+/** `POST /v1/auth/account-deletion-request` — flags the account for review; does not erase data. */
+export function requestAccountDeletion(): Promise<void> {
+  return apiFetch<void>("/auth/account-deletion-request", { method: "POST" });
+}
