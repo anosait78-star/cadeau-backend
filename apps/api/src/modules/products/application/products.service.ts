@@ -4,6 +4,13 @@ import type { RequestPrincipal } from "../../../shared/auth/authenticated-reques
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
+import {
+  IMPORT_MAX_ROWS,
+  mapImport,
+  MissingMappedColumnError,
+  parseCsv,
+  type ImportMapping,
+} from "../domain/csv-import";
 import { parseProductListQuery, type RawProductListQuery } from "../domain/list-query";
 import type {
   ProductVariantView,
@@ -24,6 +31,14 @@ import {
   InvalidListCursorError,
   ReferenceNotFoundError,
 } from "../domain/products.errors";
+
+/** One row's outcome in a CSV import (atomic per row). */
+export interface ImportResult {
+  readonly row: number;
+  readonly ok: boolean;
+  readonly productId?: string;
+  readonly error?: { code: string; message: string };
+}
 
 /**
  * Orchestrates the products module (EPIC-8). It enforces the tenant scope
@@ -159,7 +174,84 @@ export class ProductsService {
     return variant;
   }
 
+  /**
+   * Import products from CSV with an explicit column mapping. Each mapped row
+   * becomes one product (atomic per row); when `sku`/`barcode` is mapped it also
+   * becomes that product's first variant. One bad row never fails the others.
+   * Capped at {@link IMPORT_MAX_ROWS}.
+   */
+  async importProducts(
+    principal: RequestPrincipal,
+    csv: string,
+    mapping: ImportMapping,
+  ): Promise<{ results: ImportResult[] }> {
+    this.requireTenant(principal);
+    let mapped: ReturnType<typeof mapImport>;
+    try {
+      mapped = mapImport(parseCsv(csv), mapping);
+    } catch (error) {
+      if (error instanceof MissingMappedColumnError) {
+        throw AppErrors.badRequest(error.message);
+      }
+      if (error instanceof RangeError) {
+        throw AppErrors.badRequest(error.message);
+      }
+      throw error;
+    }
+    const { rows, errors } = mapped;
+    if (rows.length > IMPORT_MAX_ROWS) {
+      throw AppErrors.badRequest(`Import exceeds the ${IMPORT_MAX_ROWS}-row limit.`);
+    }
+
+    const results: ImportResult[] = errors.map((e) => ({
+      row: e.row,
+      ok: false,
+      error: { code: "UNPROCESSABLE_ENTITY", message: e.message },
+    }));
+
+    for (const row of rows) {
+      let productId: string | undefined;
+      try {
+        const product = await this.create(principal, {
+          name: row.name,
+          description: row.description,
+          categoryId: row.categoryId,
+          unitId: row.unitId,
+        });
+        productId = product.id;
+        if (row.sku !== null || row.barcode !== null) {
+          await this.createVariant(principal, product.id, {
+            name: row.name,
+            sku: row.sku,
+            barcode: row.barcode,
+          });
+        }
+        results.push({ row: row.row, ok: true, productId: product.id });
+      } catch (error) {
+        if (productId !== undefined) {
+          // The product was created but its variant failed: don't leave an orphan.
+          await this.archive(principal, productId).catch(() => undefined);
+        }
+        results.push({ row: row.row, ok: false, error: this.toImportError(error) });
+      }
+    }
+    results.sort((a, b) => a.row - b.row);
+    return { results };
+  }
+
   // ---- internals -----------------------------------------------------------
+
+  /** Render an import row failure into a stable code/message pair (no throw). */
+  private toImportError(error: unknown): { code: string; message: string } {
+    if (error instanceof AppException) {
+      const payload = error.getResponse() as { code?: string; message?: string };
+      return {
+        code: payload.code ?? "UNPROCESSABLE_ENTITY",
+        message: payload.message ?? "The product could not be created.",
+      };
+    }
+    return { code: "INTERNAL", message: "The product could not be created." };
+  }
 
   private async auditProduct(
     companyId: string,

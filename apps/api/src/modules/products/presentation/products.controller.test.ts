@@ -65,6 +65,7 @@ describe("ProductsController", () => {
       listVariants: vi.fn(),
       createVariant: vi.fn(),
       updateVariant: vi.fn(),
+      importProducts: vi.fn(),
     };
     controller = new ProductsController(service as unknown as ProductsService);
   });
@@ -116,5 +117,17 @@ describe("ProductsController", () => {
     service.listVariants.mockResolvedValue([variant("v1")]);
     const dto = await controller.listVariants(principal, "p1");
     expect(dto.data).toHaveLength(1);
+  });
+
+  it("importProducts delegates and maps the per-row results", async () => {
+    service.importProducts.mockResolvedValue({
+      results: [{ row: 1, ok: true, productId: "p1" }],
+    });
+    const dto = await controller.importProducts(principal, {
+      csv: "name\nMug",
+      mapping: { name: "name" },
+    });
+    expect(service.importProducts).toHaveBeenCalledWith(principal, "name\nMug", { name: "name" });
+    expect(dto.results).toEqual([{ row: 1, ok: true, productId: "p1" }]);
   });
 });

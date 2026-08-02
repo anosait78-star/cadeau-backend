@@ -31,8 +31,10 @@ import type { RawProductListQuery } from "../domain/list-query";
 import {
   CreateProductDto,
   CreateVariantDto,
+  ImportProductsDto,
   ProductDetailDto,
   ProductDto,
+  ProductImportResultDto,
   ProductListDto,
   ProductVariantDto,
   UpdateProductDto,
@@ -91,6 +93,23 @@ export class ProductsController {
     res.status(HttpStatus.CREATED);
     res.setHeader("Location", `/v1/products/${row.id}`);
     return ProductDto.from(row);
+  }
+
+  @Post("import")
+  @HttpCode(HttpStatus.OK)
+  @RequireCapability({ feature: PRODUCTS_FEATURE, permission: "products.manage" })
+  @ApiOperation({
+    summary: "Import products from CSV with a column mapping",
+    description: "Each data row becomes one product; the response reports a per-row result.",
+    operationId: "importProducts",
+  })
+  @ApiOkResponse({ type: ProductImportResultDto })
+  async importProducts(
+    @CurrentUser() principal: RequestPrincipal,
+    @Body() body: ImportProductsDto,
+  ): Promise<ProductImportResultDto> {
+    const { results } = await this.service.importProducts(principal, body.csv, body.mapping);
+    return ProductImportResultDto.from(results);
   }
 
   @Patch(":productId")

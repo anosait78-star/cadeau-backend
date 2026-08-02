@@ -253,3 +253,69 @@ describe("ProductsService writes", () => {
     );
   });
 });
+
+describe("ProductsService.importProducts", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  const mapping = { name: "name", sku: "sku" };
+
+  it("creates one product per valid row, and a variant when sku is mapped", async () => {
+    h.repo.create.mockResolvedValueOnce(product("p1", { name: "Mug" }));
+    h.repo.createVariant.mockResolvedValueOnce(variant("v1"));
+    const csv = "name,sku\nMug,MUG-1";
+
+    const { results } = await h.service.importProducts(principal(), csv, mapping);
+
+    expect(results).toEqual([{ row: 1, ok: true, productId: "p1" }]);
+    expect(h.repo.create).toHaveBeenCalledWith(
+      { companyId: COMPANY, actorId: USER },
+      { name: "Mug", description: null, categoryId: null, unitId: null },
+    );
+    expect(h.repo.createVariant).toHaveBeenCalledWith({ companyId: COMPANY, actorId: USER }, "p1", {
+      name: "Mug",
+      sku: "MUG-1",
+      barcode: null,
+    });
+  });
+
+  it("skips variant creation when sku/barcode are not mapped", async () => {
+    h.repo.create.mockResolvedValueOnce(product("p1"));
+    const { results } = await h.service.importProducts(principal(), "name\nMug", { name: "name" });
+    expect(results).toEqual([{ row: 1, ok: true, productId: "p1" }]);
+    expect(h.repo.createVariant).not.toHaveBeenCalled();
+  });
+
+  it("reports a mapping error without calling the repo", async () => {
+    const csv = "name,sku\n,MUG-1"; // missing name
+    const { results } = await h.service.importProducts(principal(), csv, mapping);
+    expect(results).toEqual([
+      { row: 1, ok: false, error: { code: "UNPROCESSABLE_ENTITY", message: "Missing name." } },
+    ]);
+    expect(h.repo.create).not.toHaveBeenCalled();
+  });
+
+  it("continues past a row that fails to create, reporting its error", async () => {
+    h.repo.create
+      .mockRejectedValueOnce(new DuplicateProductError("name"))
+      .mockResolvedValueOnce(product("p2", { name: "Bowl" }));
+    const csv = "name\nMug\nBowl";
+
+    const { results } = await h.service.importProducts(principal(), csv, { name: "name" });
+
+    expect(results).toEqual([
+      { row: 1, ok: false, error: { code: "CONFLICT", message: expect.any(String) } },
+      { row: 2, ok: true, productId: "p2" },
+    ]);
+  });
+
+  it("rejects when the mapped row count exceeds the row limit", async () => {
+    const header = "name\n";
+    const rows = Array.from({ length: 1001 }, (_, i) => `p${i}`).join("\n");
+    await expect(
+      h.service.importProducts(principal(), header + rows, { name: "name" }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});

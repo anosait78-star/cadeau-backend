@@ -127,3 +127,33 @@ export function updateVariant(
     body,
   });
 }
+
+/** The column mapping for a CSV import (values are header column names). */
+export interface ProductImportMapping {
+  readonly name: string;
+  readonly description?: string;
+  readonly categoryId?: string;
+  readonly unitId?: string;
+  /** When mapped, also creates the product's first variant. */
+  readonly sku?: string;
+  readonly barcode?: string;
+}
+
+/** One row's outcome in a CSV import. */
+export interface ProductImportResultItem {
+  readonly row: number;
+  readonly ok: boolean;
+  readonly productId?: string;
+  readonly error?: { readonly code: string; readonly message: string };
+}
+
+/** `POST /v1/products/import` — import products from CSV with a column mapping. */
+export function importProducts(
+  csv: string,
+  mapping: ProductImportMapping,
+): Promise<{ results: ProductImportResultItem[] }> {
+  return apiFetch<{ results: ProductImportResultItem[] }>("/products/import", {
+    method: "POST",
+    body: { csv, mapping },
+  });
+}

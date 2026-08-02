@@ -1,6 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
+import { Type } from "class-transformer";
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from "class-validator";
 import type { KeysetPage } from "@cadeau/database";
+import type { ImportResult } from "../../application/products.service";
 import type {
   ProductVariantView,
   ProductView,
@@ -113,6 +124,48 @@ export class UpdateVariantDto {
   @IsString()
   @MaxLength(120)
   barcode?: string | null;
+}
+
+/** The column mapping for a CSV import (values are header column names). */
+export class ProductImportMappingDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+  @ApiPropertyOptional({ description: "product_categories id column." })
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+  @ApiPropertyOptional({ description: "units id column." })
+  @IsOptional()
+  @IsString()
+  unitId?: string;
+  @ApiPropertyOptional({ description: "When mapped, also creates the product's first variant." })
+  @IsOptional()
+  @IsString()
+  sku?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+}
+
+/** CSV import payload: the raw CSV and how its columns map to product fields. */
+export class ImportProductsDto {
+  @ApiProperty({ maxLength: 1_000_000, description: "Raw CSV text (Excel/Sheets export)." })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1_000_000)
+  csv!: string;
+
+  @ApiProperty({ type: ProductImportMappingDto })
+  @ValidateNested()
+  @Type(() => ProductImportMappingDto)
+  mapping!: ProductImportMappingDto;
 }
 
 // ---- Response DTOs ---------------------------------------------------------
@@ -266,6 +319,39 @@ export class VariantListDto {
   static from(views: readonly ProductVariantView[]): VariantListDto {
     const dto = new VariantListDto();
     dto.data = views.map((v) => ProductVariantDto.from(v));
+    return dto;
+  }
+}
+
+/** One row's outcome in a CSV import. */
+export class ProductImportResultItemDto {
+  @ApiProperty({ example: 3, description: "1-based data-row number." })
+  row!: number;
+  @ApiProperty()
+  ok!: boolean;
+  @ApiPropertyOptional({ format: "uuid" })
+  productId?: string;
+  @ApiPropertyOptional()
+  error?: { code: string; message: string };
+
+  static from(result: ImportResult): ProductImportResultItemDto {
+    const dto = new ProductImportResultItemDto();
+    dto.row = result.row;
+    dto.ok = result.ok;
+    if (result.productId !== undefined) dto.productId = result.productId;
+    if (result.error !== undefined) dto.error = result.error;
+    return dto;
+  }
+}
+
+/** The import envelope: one result per data row (created or errored). */
+export class ProductImportResultDto {
+  @ApiProperty({ type: [ProductImportResultItemDto] })
+  results!: ProductImportResultItemDto[];
+
+  static from(results: readonly ImportResult[]): ProductImportResultDto {
+    const dto = new ProductImportResultDto();
+    dto.results = results.map((r) => ProductImportResultItemDto.from(r));
     return dto;
   }
 }
