@@ -424,12 +424,19 @@ export class OrdersService {
     if (error instanceof DuplicateOrderError) {
       return AppErrors.conflict(error.message, [{ field: error.field, messages: [error.message] }]);
     }
+    if (error instanceof InsufficientStockError) {
+      return new AppException(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        "UNPROCESSABLE_ENTITY",
+        error.message,
+        [{ field: error.field, messages: [error.message], shortages: error.shortages }],
+      );
+    }
     if (
       error instanceof ReferenceNotFoundError ||
       error instanceof IllegalTransitionError ||
       error instanceof ReasonRequiredError ||
       error instanceof EmptyOrderError ||
-      error instanceof InsufficientStockError ||
       error instanceof InvalidAmountError
     ) {
       const field = "field" in error && typeof error.field === "string" ? error.field : "status";

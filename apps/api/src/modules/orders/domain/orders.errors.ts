@@ -47,11 +47,33 @@ export class EmptyOrderError extends Error {
   }
 }
 
-/** Reserving stock for an order failed because a variant has insufficient stock. */
+/** One variant that could not be fully reserved for an order. */
+export interface StockShortage {
+  variantId: string;
+  variantName: string;
+  productName: string;
+  requested: number;
+  available: number;
+}
+
+/** Reserving stock for an order failed because one or more variants have insufficient stock. */
 export class InsufficientStockError extends Error {
-  constructor(readonly field: string = "items") {
-    super("Insufficient stock to reserve for this order.");
+  constructor(
+    readonly shortages: StockShortage[],
+    readonly field: string = "items",
+  ) {
+    super(InsufficientStockError.buildMessage(shortages));
     this.name = "InsufficientStockError";
+  }
+
+  private static buildMessage(shortages: StockShortage[]): string {
+    if (shortages.length === 1) {
+      const s = shortages[0]!;
+      return s.available <= 0
+        ? `لا يمكن تغيير حالة الطلب لأن الكمية المتوفرة من "${s.productName} - ${s.variantName}" في المخزون = 0.`
+        : `لا يمكن نقل الطلب لأن المخزون غير كافٍ لـ "${s.productName} - ${s.variantName}" (المطلوب ${s.requested}، المتاح ${s.available}).`;
+    }
+    return `لا يمكن نقل الطلب إلى الحالة التالية لأن المخزون غير كافٍ لـ ${shortages.length} أصناف.`;
   }
 }
 

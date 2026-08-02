@@ -619,12 +619,47 @@ export class OrdersRepository implements OrdersRepositoryPort {
         where: { orderId, companyId: actor.companyId },
         select: { variantId: true, quantity: true },
       });
+
+      // Aggregate by variant first — an order can list the same variant
+      // across multiple lines, and availability must be checked against the
+      // *total* quantity demanded, not each line in isolation.
+      const demandByVariant = new Map<string, number>();
+      for (const item of items) {
+        demandByVariant.set(
+          item.variantId,
+          (demandByVariant.get(item.variantId) ?? 0) + Number(item.quantity),
+        );
+      }
+
+      // Check pass: lock every level up front and collect *all* shortages
+      // (not just the first) so the caller can surface a complete picture.
+      const levels = new Map<string, { id: string; onHand: number; committed: number }>();
+      const shortages: InsufficientStockError["shortages"] = [];
+      for (const [variantId, qty] of demandByVariant) {
+        const level = await this.lockLevel(tx, actor, warehouseId, variantId);
+        levels.set(variantId, level);
+        const allowOversell = await this.variantOversell(tx, variantId);
+        const available = level.onHand - level.committed;
+        if (!allowOversell && qty > available) {
+          const variant = await tx.productVariant.findFirst({
+            where: { id: variantId },
+            select: { name: true, product: { select: { name: true } } },
+          });
+          shortages.push({
+            variantId,
+            variantName: variant?.name ?? variantId,
+            productName: variant?.product.name ?? "",
+            requested: qty,
+            available: Math.max(available, 0),
+          });
+        }
+      }
+      if (shortages.length > 0) throw new InsufficientStockError(shortages);
+
+      // Apply pass: all items cleared the check, so commit the reservations.
       for (const item of items) {
         const qty = Number(item.quantity);
-        const level = await this.lockLevel(tx, actor, warehouseId, item.variantId);
-        const allowOversell = await this.variantOversell(tx, item.variantId);
-        const available = level.onHand - level.committed;
-        if (!allowOversell && qty > available) throw new InsufficientStockError();
+        const level = levels.get(item.variantId)!;
         await tx.inventoryStock.updateMany({
           where: { id: level.id },
           data: stampForUpdate(actor, {

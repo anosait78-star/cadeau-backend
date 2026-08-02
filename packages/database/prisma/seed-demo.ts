@@ -354,26 +354,11 @@ async function main(): Promise<void> {
     `[seed:demo] ${PRODUCT_CATALOG.length} products / ${variants.length} variants ready`,
   );
 
-  // Inventory stock — chunked into several transactions to keep each one small.
-  for (const chunk of chunks(variants, 15)) {
-    await withTenantTransaction(client, COMPANY_ID, async (tx) => {
-      for (const v of chunk) {
-        const onHand = intBetween(20, 400);
-        await tx.inventoryStock.upsert({
-          where: { warehouseId_variantId: { warehouseId, variantId: v.id } },
-          create: {
-            companyId: COMPANY_ID,
-            warehouseId,
-            variantId: v.id,
-            onHand: BigInt(onHand),
-            reorderPoint: BigInt(intBetween(5, 20)),
-          },
-          update: {},
-        });
-      }
-    });
-  }
-  console.info("[seed:demo] inventory stock ready");
+  // Inventory stock is seeded *after* orders are generated (below), once we
+  // know how much demand each variant actually needs to cover — otherwise a
+  // variant's random on-hand quantity can fall short of what demo orders
+  // require to reserve, and status transitions in the demo fail with a real
+  // (correct) insufficient-stock error.
 
   // -------------------------------------------------------------------------
   // 3. Customers + addresses.
@@ -484,6 +469,11 @@ async function main(): Promise<void> {
   const SHIPPED_LIKE = new Set(["shipped", "delivered", "completed", "returned", "exchanged"]);
   const INVOICED_LIKE = new Set(["delivered", "completed", "exchanged"]);
 
+  // Tracks total quantity demanded per variant across every seeded order
+  // (regardless of status), so inventory stock can be sized to actually
+  // cover it — see the inventory-stock seeding step after this loop.
+  const variantDemand = new Map<string, number>();
+
   for (let i = 0; i < ORDER_COUNT; i++) {
     const idemKey = `demo-order-${i + 1}`;
     const status = pick(weightedStatuses);
@@ -494,6 +484,9 @@ async function main(): Promise<void> {
       variant: v,
       quantity: intBetween(1, 3),
     }));
+    for (const it of items) {
+      variantDemand.set(it.variant.id, (variantDemand.get(it.variant.id) ?? 0) + it.quantity);
+    }
     const gov = pick(governorates);
     const label = rand() > 0.6 ? pick(labelIds) : null;
     const cancelReasons = reasonsByKind.get("cancellation") ?? [];
@@ -712,6 +705,33 @@ async function main(): Promise<void> {
   console.info(
     `[seed:demo] orders: ${ordersCreated} created, shipments: ${shipmentsCreated}, invoices: ${invoicesCreated}, refunds: ${refundsCreated}`,
   );
+
+  // Inventory stock — sized so every variant has enough on-hand quantity to
+  // cover ALL demand placed on it by the seeded orders above (committed
+  // reservations from already-"processing"-like orders, plus what
+  // "confirming" orders will need once reserved), with headroom on top so
+  // demo status transitions never fail on insufficient stock. Chunked into
+  // several transactions to keep each one small.
+  for (const chunk of chunks(variants, 15)) {
+    await withTenantTransaction(client, COMPANY_ID, async (tx) => {
+      for (const v of chunk) {
+        const demand = variantDemand.get(v.id) ?? 0;
+        const onHand = Math.max(intBetween(20, 400), demand + 100);
+        await tx.inventoryStock.upsert({
+          where: { warehouseId_variantId: { warehouseId, variantId: v.id } },
+          create: {
+            companyId: COMPANY_ID,
+            warehouseId,
+            variantId: v.id,
+            onHand: BigInt(onHand),
+            reorderPoint: BigInt(intBetween(5, 20)),
+          },
+          update: { onHand: BigInt(onHand) },
+        });
+      }
+    });
+  }
+  console.info("[seed:demo] inventory stock ready");
 
   await withTenantTransaction(client, COMPANY_ID, async (tx) => {
     await tx.orderSequence.upsert({
