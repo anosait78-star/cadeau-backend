@@ -28,3 +28,28 @@ export function authErrorKey(error: unknown, context: AuthErrorContext): Transla
       return "auth.error.generic";
   }
 }
+
+/** Map a thrown error from the change-password form to a localized message key. */
+export function changePasswordErrorKey(error: unknown): TranslationKey {
+  if (error instanceof ApiError && error.code === "BAD_REQUEST") {
+    return "settings.security.wrongPassword";
+  }
+  return "settings.security.changeFailed";
+}
+
+/**
+ * Map a thrown error from company creation/joining to a client-safe, localized
+ * message key. NOT_FOUND covers both "no invitation with this code" and
+ * "expired/revoked" (the API deliberately does not distinguish these).
+ */
+export function onboardingErrorKey(error: unknown): TranslationKey {
+  if (!(error instanceof ApiError)) {
+    return "onboarding.error.generic";
+  }
+  switch (error.code) {
+    case "NOT_FOUND":
+      return "onboarding.error.invalidInvitation";
+    default:
+      return "onboarding.error.generic";
+  }
+}
