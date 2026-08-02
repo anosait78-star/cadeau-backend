@@ -56,16 +56,14 @@ function makeAdapter(
 
   const connections = {
     list: vi.fn(),
-    findActive: vi
-      .fn()
-      .mockResolvedValue(
-        options.connected === false
-          ? null
-          : {
-              apiKeyEncrypted: encrypt("real-bosta-key", config.encryption.key),
-              webhookTokenHash: "h",
-            },
-      ),
+    findActive: vi.fn().mockResolvedValue(
+      options.connected === false
+        ? null
+        : {
+            apiKeyEncrypted: encrypt("real-bosta-key", config.encryption.key),
+            webhookTokenHash: "h",
+          },
+    ),
     upsert: vi.fn(),
     deactivate: vi.fn(),
   };
