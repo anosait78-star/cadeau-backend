@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { LoadingState } from "@/components/states/loading-state";
+import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,9 +25,11 @@ import {
   type PurchaseOrderReceipt,
   type PurchaseOrderStatus,
 } from "@/features/finance/finance-api";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { DASH, Field, formatDate, formatMoney, OptionSelect, type Option } from "./finance-shared";
+import { buildPurchaseOrderColumns } from "./purchase-orders-columns";
 
 type State =
   | { readonly kind: "loading" }
@@ -47,12 +52,14 @@ export function PurchaseOrdersTab({
   warehouses: readonly Option[];
   onNotify: (text: string) => void;
 }): ReactNode {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const isDesktop = useIsDesktop();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [status, setStatus] = useState<PurchaseOrderStatus | "">("");
   const [supplierId, setSupplierId] = useState("");
   const [creating, setCreating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedPo, setSelectedPo] = useState<PurchaseOrderListItem | null>(null);
 
   const supplierNames = new Map(suppliers.map((s) => [s.id, s.name]));
 
@@ -87,46 +94,74 @@ export function PurchaseOrdersTab({
     });
   };
 
+  const columns = useMemo(
+    () => buildPurchaseOrderColumns({ t, locale, supplierNames }),
+    [t, locale, supplierNames],
+  );
+
+  /** The card (list row and receive/pay actions) for one PO — shared by the mobile list and the desktop detail panel. */
+  const renderPoCard = (po: PurchaseOrderListItem): ReactNode => (
+    <PurchaseOrderCard
+      po={po}
+      supplierName={supplierNames.get(po.supplierId) ?? po.supplierId}
+      expanded={expandedId === po.id}
+      onToggle={() => setExpandedId(expandedId === po.id ? null : po.id)}
+      variants={variants}
+      warehouses={warehouses}
+      onChanged={async (message) => {
+        onNotify(message);
+        await load();
+      }}
+      onFail={() => onNotify(t("finance.saveFailed"))}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-muted-foreground" htmlFor="po-status">
-            {t("finance.po.filter.status")}
-          </label>
-          <select
-            id="po-status"
-            aria-label={t("finance.po.filter.status")}
-            value={status}
-            onChange={(e) => setStatus(e.target.value as PurchaseOrderStatus | "")}
-            className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-          >
-            <option value="">—</option>
-            {PURCHASE_ORDER_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {t(`finance.po.status.${s}` as TranslationKey)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-muted-foreground" htmlFor="po-supplier">
-            {t("finance.po.filter.supplier")}
-          </label>
-          <OptionSelect
-            id="po-supplier"
-            value={supplierId}
-            options={suppliers}
-            onChange={setSupplierId}
-            ariaLabel={t("finance.po.filter.supplier")}
-          />
-        </div>
-        <PermissionGate permission="finance.manage">
-          {creating ? null : (
-            <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
-          )}
-        </PermissionGate>
-      </div>
+      <TableToolbar
+        secondaryActions={
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground" htmlFor="po-status">
+                {t("finance.po.filter.status")}
+              </label>
+              <select
+                id="po-status"
+                aria-label={t("finance.po.filter.status")}
+                value={status}
+                onChange={(e) => setStatus(e.target.value as PurchaseOrderStatus | "")}
+                className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="">—</option>
+                {PURCHASE_ORDER_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {t(`finance.po.status.${s}` as TranslationKey)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground" htmlFor="po-supplier">
+                {t("finance.po.filter.supplier")}
+              </label>
+              <OptionSelect
+                id="po-supplier"
+                value={supplierId}
+                options={suppliers}
+                onChange={setSupplierId}
+                ariaLabel={t("finance.po.filter.supplier")}
+              />
+            </div>
+          </div>
+        }
+        primaryActions={
+          <PermissionGate permission="finance.manage">
+            {creating ? null : (
+              <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
+            )}
+          </PermissionGate>
+        }
+      />
 
       {creating ? (
         <PermissionGate permission="finance.manage">
@@ -144,39 +179,55 @@ export function PurchaseOrdersTab({
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("finance.po.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<PurchaseOrderListItem>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelectedPo}
+            emptyState={<EmptyState title={t("finance.po.empty")} />}
+          />
+        ) : (
+          <MobileCardList<PurchaseOrderListItem>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderPoCard}
+            emptyTitle={t("finance.po.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("finance.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((po) => (
-            <li key={po.id}>
-              <PurchaseOrderCard
-                po={po}
-                supplierName={supplierNames.get(po.supplierId) ?? po.supplierId}
-                expanded={expandedId === po.id}
-                onToggle={() => setExpandedId(expandedId === po.id ? null : po.id)}
-                variants={variants}
-                warehouses={warehouses}
-                onChanged={async (message) => {
-                  onNotify(message);
-                  await load();
-                }}
-                onFail={() => onNotify(t("finance.saveFailed"))}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("finance.loadMore")}
-        </Button>
-      ) : null}
+      <DetailPanel
+        open={selectedPo !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedPo(null);
+            setExpandedId(null);
+          }
+        }}
+        title={selectedPo !== null ? `${t("finance.po.field.number")} #${selectedPo.number}` : ""}
+        sections={
+          selectedPo === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("finance.po.field.number"),
+                  content: renderPoCard(selectedPo),
+                },
+              ]
+        }
+      />
     </div>
   );
 }
