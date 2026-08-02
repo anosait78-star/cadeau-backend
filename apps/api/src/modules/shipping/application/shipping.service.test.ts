@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getConfig } from "@cadeau/config";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppException } from "../../../shared/errors/app-exception";
+import type { CarrierConnectionsRepositoryPort } from "../domain/carrier-connections-repository.port";
+import { BostaCatalogCache } from "../infrastructure/bosta-catalog-cache";
 import type { ShipmentStatusChangeResult, ShipmentView } from "../domain/shipment.entity";
 import type { ShippingAuditPort } from "../domain/shipping-audit.port";
 import type { ShippingRepositoryPort } from "../domain/shipping-repository.port";
@@ -43,6 +46,7 @@ interface Harness {
   repo: { [K in keyof ShippingRepositoryPort]: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   events: { publish: ReturnType<typeof vi.fn>; subscribe: ReturnType<typeof vi.fn> };
+  connections: { [K in keyof CarrierConnectionsRepositoryPort]: ReturnType<typeof vi.fn> };
 }
 
 function makeHarness(): Harness {
@@ -73,14 +77,23 @@ function makeHarness(): Harness {
     generateWaybill: vi.fn().mockResolvedValue({ trackingNumber: "MAN-ABC123", carrier: "manual" }),
     cancelShipment: vi.fn(),
   };
+  const connections = {
+    list: vi.fn().mockResolvedValue([]),
+    findActive: vi.fn().mockResolvedValue(null),
+    upsert: vi.fn(),
+    deactivate: vi.fn().mockResolvedValue("conn-1"),
+  };
   const service = new ShippingService(
     repo as unknown as ShippingRepositoryPort,
     audit as unknown as ShippingAuditPort,
     events,
     clock,
     carrier,
+    connections as unknown as CarrierConnectionsRepositoryPort,
+    getConfig(),
+    new BostaCatalogCache({ now: () => 1_700_000_000_000 }),
   );
-  return { service, repo, audit, events };
+  return { service, repo, audit, events, connections };
 }
 
 describe("ShippingService", () => {
@@ -293,8 +306,23 @@ describe("ShippingService", () => {
     });
   });
 
-  it("lists the manual carrier (D1)", () => {
-    expect(h.service.listCarriers(principal())).toEqual([{ key: "manual" }]);
+  it("lists manual (always connected) and bosta (not connected by default)", async () => {
+    expect(await h.service.listCarriers(principal())).toEqual([
+      {
+        id: null,
+        carrier: "manual",
+        connected: true,
+        pickupLocationWarning: false,
+        connectedAt: null,
+      },
+      {
+        id: null,
+        carrier: "bosta",
+        connected: false,
+        pickupLocationWarning: false,
+        connectedAt: null,
+      },
+    ]);
   });
 
   describe("generateWaybill", () => {
@@ -313,5 +341,162 @@ describe("ShippingService", () => {
         status: 404,
       });
     });
+  });
+});
+
+function bostaResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+
+describe("ShippingService.connectCarrier / disconnectCarrier", () => {
+  let h: Harness;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    h = makeHarness();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects an unsupported carrier without probing anything", async () => {
+    await expect(h.service.connectCarrier(principal(), "aramex", "some-key")).rejects.toMatchObject(
+      { status: 400 },
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("validates the key against Bosta, encrypts it, and persists the connection", async () => {
+    fetchMock.mockResolvedValueOnce(
+      bostaResponse(200, { success: true, data: { list: [{ _id: "loc1" }] } }),
+    );
+    h.connections.upsert.mockResolvedValueOnce({
+      id: "conn-1",
+      carrier: "bosta",
+      connected: true,
+      pickupLocationWarning: false,
+      connectedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const view = await h.service.connectCarrier(principal(), "bosta", "real-key");
+
+    expect(view.connected).toBe(true);
+    expect(view.pickupLocationWarning).toBe(false);
+    const upsertArg = h.connections.upsert.mock.calls[0]?.[0];
+    expect(upsertArg).toMatchObject({ companyId: COMPANY, carrier: "bosta", actorId: USER });
+    expect(upsertArg.apiKeyEncrypted).not.toBe("real-key"); // encrypted, never stored raw
+    expect(upsertArg.apiKeyEncrypted).toMatch(/^v1\./);
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "carrier.connected", entityId: "conn-1" }),
+    );
+  });
+
+  it("flags pickupLocationWarning when the business has no pickup location yet", async () => {
+    fetchMock.mockResolvedValueOnce(bostaResponse(200, { success: true, data: { list: [] } }));
+    h.connections.upsert.mockImplementationOnce((input) =>
+      Promise.resolve({
+        id: "conn-1",
+        carrier: input.carrier,
+        connected: true,
+        pickupLocationWarning: input.pickupLocationWarning,
+        connectedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    const view = await h.service.connectCarrier(principal(), "bosta", "real-key");
+    expect(view.pickupLocationWarning).toBe(true);
+  });
+
+  it("rejects a bad key with a client-actionable error, persisting nothing", async () => {
+    fetchMock.mockResolvedValueOnce(bostaResponse(401, { success: false }));
+    await expect(h.service.connectCarrier(principal(), "bosta", "bad-key")).rejects.toMatchObject({
+      status: 422,
+    });
+    expect(h.connections.upsert).not.toHaveBeenCalled();
+  });
+
+  it("maps a Bosta outage to 503", async () => {
+    fetchMock.mockResolvedValueOnce(bostaResponse(500, { success: false }));
+    await expect(h.service.connectCarrier(principal(), "bosta", "key")).rejects.toMatchObject({
+      status: 503,
+    });
+  });
+
+  it("disconnects an active connection and audits it", async () => {
+    h.connections.deactivate.mockResolvedValueOnce("conn-1");
+    await h.service.disconnectCarrier(principal(), "bosta");
+    expect(h.connections.deactivate).toHaveBeenCalledWith(COMPANY, "bosta", USER);
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "carrier.disconnected", entityId: "conn-1" }),
+    );
+  });
+
+  it("404s disconnecting a carrier with no active connection", async () => {
+    h.connections.deactivate.mockResolvedValueOnce(null);
+    await expect(h.service.disconnectCarrier(principal(), "bosta")).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
+
+describe("ShippingService.listBostaCities / listBostaDistricts", () => {
+  let h: Harness;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    h = makeHarness();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("maps and caches the city catalog, hitting Bosta only once", async () => {
+    fetchMock.mockResolvedValueOnce(
+      bostaResponse(200, {
+        data: { list: [{ _id: "c1", name: "Cairo", nameAr: "القاهرة" }] },
+      }),
+    );
+
+    const first = await h.service.listBostaCities(principal());
+    expect(first).toEqual([{ id: "c1", name: "Cairo", nameAr: "القاهرة" }]);
+
+    const second = await h.service.listBostaCities(principal());
+    expect(second).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // second call served from cache
+  });
+
+  it("requires no API key for the public cities endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(bostaResponse(200, { data: { list: [] } }));
+    await h.service.listBostaCities(principal());
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect((init.headers as Record<string, string>)["Authorization"]).toBeUndefined();
+  });
+
+  it("maps and caches districts per city", async () => {
+    fetchMock.mockResolvedValueOnce(
+      bostaResponse(200, {
+        data: [
+          { districtId: "d1", districtName: "1st Settlement", zoneId: "z1", zoneName: "New Cairo" },
+        ],
+      }),
+    );
+
+    const districts = await h.service.listBostaDistricts(principal(), "c1");
+    expect(districts).toEqual([
+      { districtId: "d1", districtName: "1st Settlement", zoneId: "z1", zoneName: "New Cairo" },
+    ]);
+
+    await h.service.listBostaDistricts(principal(), "c1");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps a Bosta outage while fetching the catalog to 503", async () => {
+    fetchMock.mockResolvedValueOnce(bostaResponse(500, { success: false }));
+    await expect(h.service.listBostaCities(principal())).rejects.toMatchObject({ status: 503 });
   });
 });

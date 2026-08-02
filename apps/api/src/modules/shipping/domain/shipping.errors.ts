@@ -46,3 +46,61 @@ export class IllegalTransitionError extends Error {
     this.name = "IllegalTransitionError";
   }
 }
+
+/** The carrier rejected the presented API key (or none is connected). */
+export class CarrierAuthError extends Error {
+  constructor(readonly carrier: string) {
+    super(`${carrier} rejected the connection's API key.`);
+    this.name = "CarrierAuthError";
+  }
+}
+
+/** The carrier's API could not be reached or errored (timeout, 5xx, network). */
+export class CarrierUnavailableError extends Error {
+  constructor(
+    readonly carrier: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CarrierUnavailableError";
+  }
+}
+
+/** No active connection exists for the requested carrier. */
+export class CarrierNotConnectedError extends Error {
+  constructor(readonly carrier: string) {
+    super(`No active connection to ${carrier} for this company.`);
+    this.name = "CarrierNotConnectedError";
+  }
+}
+
+/** The customer has no default address to ship to. */
+export class CustomerAddressMissingError extends Error {
+  constructor() {
+    super("The customer has no default address to ship to.");
+    this.name = "CustomerAddressMissingError";
+  }
+}
+
+/**
+ * The customer's default address is not mapped to the carrier's own
+ * city/district (settings > customers) — refused rather than guessed
+ * (no format guessing, matches the CSV importer's convention).
+ */
+export class CustomerAddressNotMappedError extends Error {
+  constructor(readonly carrier: string) {
+    super(`The customer's address is not mapped to a ${carrier} city/district yet.`);
+    this.name = "CustomerAddressNotMappedError";
+  }
+}
+
+/** The order's cash-on-delivery amount exceeds the carrier's documented cap. */
+export class CodLimitExceededError extends Error {
+  constructor(
+    readonly carrier: string,
+    readonly limitMinor: number,
+  ) {
+    super(`${carrier} caps cash-on-delivery at ${limitMinor / 100}.`);
+    this.name = "CodLimitExceededError";
+  }
+}

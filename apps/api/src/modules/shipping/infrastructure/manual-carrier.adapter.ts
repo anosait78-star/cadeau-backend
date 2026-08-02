@@ -25,18 +25,19 @@ export class ManualCarrierAdapter implements CarrierPort {
   async createShipment(_input: CarrierCreateShipmentInput): Promise<CarrierShipmentHandle> {
     return Promise.resolve({
       trackingNumber: `MAN-${randomUUID().replace(/-/g, "").slice(0, 16)}`,
+      carrier: this.name,
     });
   }
 
-  getTracking(_trackingNumber: string): Promise<CarrierTrackingInfo> {
+  getTracking(_companyId: string, _trackingNumber: string): Promise<CarrierTrackingInfo> {
     return Promise.reject(new Error("The manual carrier has no upstream to poll for tracking."));
   }
 
-  generateWaybill(trackingNumber: string): Promise<CarrierWaybillInfo> {
+  generateWaybill(_companyId: string, trackingNumber: string): Promise<CarrierWaybillInfo> {
     return Promise.resolve({ trackingNumber, carrier: this.name });
   }
 
-  cancelShipment(_trackingNumber: string): Promise<void> {
+  cancelShipment(_companyId: string, _trackingNumber: string): Promise<void> {
     return Promise.resolve();
   }
 }

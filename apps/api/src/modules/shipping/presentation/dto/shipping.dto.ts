@@ -4,11 +4,15 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  MinLength,
 } from "class-validator";
+import type { BostaCityView, BostaDistrictView } from "../../domain/bosta-catalog.entity";
+import type { CarrierConnectionView } from "../../domain/carrier-connection.entity";
 import type { BulkShipmentResult, ShipmentView } from "../../domain/shipment.entity";
 import { SHIPMENT_STATUSES, type ShipmentStatus } from "../../domain/shipment-status";
 
@@ -16,6 +20,16 @@ import { SHIPMENT_STATUSES, type ShipmentStatus } from "../../domain/shipment-st
 export const BULK_MAX = 200;
 
 // ---- Request DTOs ----------------------------------------------------------
+
+/** Connect-carrier payload: the raw API key (encrypted at rest, never echoed back). */
+export class ConnectCarrierDto {
+  @ApiProperty({ minLength: 1, maxLength: 500 })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(1)
+  @MaxLength(500)
+  apiKey!: string;
+}
 
 /** Create-shipment payload. */
 export class CreateShipmentDto {
@@ -91,10 +105,19 @@ export class ShipmentDto {
   }
 }
 
-/** An available carrier (behind the {@link CarrierPort} abstraction). */
+/** An available carrier (behind the {@link CarrierPort} abstraction) + this tenant's connection state. */
 export class CarrierDto {
-  @ApiProperty({ example: "manual" })
+  @ApiProperty({ example: "bosta" })
   key!: string;
+
+  @ApiProperty({ description: "`manual` is always true; a real carrier reflects the connection." })
+  connected!: boolean;
+
+  @ApiProperty({ description: "True when connected but no pickup location is configured yet." })
+  pickupLocationWarning!: boolean;
+
+  @ApiProperty({ nullable: true, format: "date-time" })
+  connectedAt!: string | null;
 }
 
 /** The list of available carriers. */
@@ -102,9 +125,14 @@ export class CarrierListDto {
   @ApiProperty({ type: [CarrierDto] })
   data!: CarrierDto[];
 
-  static from(carriers: readonly { key: string }[]): CarrierListDto {
+  static from(carriers: readonly CarrierConnectionView[]): CarrierListDto {
     const dto = new CarrierListDto();
-    dto.data = carriers.map((c) => ({ key: c.key }));
+    dto.data = carriers.map((c) => ({
+      key: c.carrier,
+      connected: c.connected,
+      pickupLocationWarning: c.pickupLocationWarning,
+      connectedAt: c.connectedAt,
+    }));
     return dto;
   }
 }
@@ -160,6 +188,69 @@ export class WaybillDto {
     dto.shipmentId = result.shipment.id;
     dto.carrier = result.carrier;
     dto.trackingNumber = result.trackingNumber;
+    return dto;
+  }
+}
+
+/** A Bosta city (address-mapping picker, Phase C). */
+export class BostaCityDto {
+  @ApiProperty({ example: "FceDyHXwpSYYF9zGW" })
+  id!: string;
+  @ApiProperty({ example: "Cairo" })
+  name!: string;
+  @ApiProperty({ nullable: true, example: "القاهرة" })
+  nameAr!: string | null;
+
+  static from(view: BostaCityView): BostaCityDto {
+    const dto = new BostaCityDto();
+    dto.id = view.id;
+    dto.name = view.name;
+    dto.nameAr = view.nameAr;
+    return dto;
+  }
+}
+
+/** A list of Bosta cities. */
+export class BostaCityListDto {
+  @ApiProperty({ type: [BostaCityDto] })
+  data!: BostaCityDto[];
+
+  static from(views: readonly BostaCityView[]): BostaCityListDto {
+    const dto = new BostaCityListDto();
+    dto.data = views.map((v) => BostaCityDto.from(v));
+    return dto;
+  }
+}
+
+/** A Bosta district within a city (address-mapping picker, Phase C). */
+export class BostaDistrictDto {
+  @ApiProperty({ example: "wY_JL43TilR" })
+  districtId!: string;
+  @ApiProperty({ example: "1st Settlement - District 10" })
+  districtName!: string;
+  @ApiProperty({ example: "g3jl3V8FMN" })
+  zoneId!: string;
+  @ApiProperty({ example: "New Cairo" })
+  zoneName!: string;
+
+  static from(view: BostaDistrictView): BostaDistrictDto {
+    const dto = new BostaDistrictDto();
+    dto.districtId = view.districtId;
+    dto.districtName = view.districtName;
+    dto.zoneId = view.zoneId;
+    dto.zoneName = view.zoneName;
+    return dto;
+  }
+}
+
+/** A list of Bosta districts. */
+export class BostaDistrictListDto {
+  @ApiProperty({ type: [BostaDistrictDto] })
+  data!: BostaDistrictDto[];
+
+  static from(views: readonly BostaDistrictView[]): BostaDistrictListDto {
+    const dto = new BostaDistrictListDto();
+    dto.data = views.map((v) => BostaDistrictDto.from(v));
     return dto;
   }
 }

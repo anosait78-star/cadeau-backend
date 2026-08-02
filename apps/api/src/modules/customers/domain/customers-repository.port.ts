@@ -51,6 +51,9 @@ export interface CreateAddressInput {
   readonly landmark?: string | null;
   readonly notes?: string | null;
   readonly governorateId?: string | null;
+  readonly bostaCityId?: string | null;
+  readonly bostaDistrictId?: string | null;
+  readonly bostaCityName?: string | null;
   readonly isDefault?: boolean;
 }
 
@@ -60,6 +63,9 @@ export interface UpdateAddressInput {
   readonly landmark?: string | null;
   readonly notes?: string | null;
   readonly governorateId?: string | null;
+  readonly bostaCityId?: string | null;
+  readonly bostaDistrictId?: string | null;
+  readonly bostaCityName?: string | null;
   readonly isDefault?: boolean;
   readonly active?: boolean;
 }

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -15,6 +16,7 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiHeader,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -27,9 +29,13 @@ import { CurrentUser } from "../../../shared/auth/current-user.decorator";
 import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
 import { ShippingService } from "../application/shipping.service";
 import {
+  BostaCityListDto,
+  BostaDistrictListDto,
   BulkCreateShipmentDto,
   BulkShipmentResultDto,
+  CarrierDto,
   CarrierListDto,
+  ConnectCarrierDto,
   CreateShipmentDto,
   ShipmentDto,
   TransitionShipmentDto,
@@ -63,10 +69,68 @@ export class ShippingController {
 
   @Get("carriers")
   @RequireCapability({ feature: SHIPPING_FEATURE, permission: "shipping.read" })
-  @ApiOperation({ summary: "Available carriers", operationId: "listCarriers" })
+  @ApiOperation({ summary: "Available carriers + connection state", operationId: "listCarriers" })
   @ApiOkResponse({ type: CarrierListDto })
-  listCarriers(@CurrentUser() principal: RequestPrincipal): CarrierListDto {
-    return CarrierListDto.from(this.service.listCarriers(principal));
+  async listCarriers(@CurrentUser() principal: RequestPrincipal): Promise<CarrierListDto> {
+    return CarrierListDto.from(await this.service.listCarriers(principal));
+  }
+
+  @Post("carriers/:carrier/connect")
+  @RequireCapability({ feature: SHIPPING_FEATURE, permission: "shipping.manage" })
+  @ApiOperation({
+    summary: "Connect a real carrier with an API key (validated before saving)",
+    operationId: "connectCarrier",
+  })
+  @ApiOkResponse({ type: CarrierDto })
+  async connectCarrier(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("carrier") carrier: string,
+    @Body() body: ConnectCarrierDto,
+  ): Promise<CarrierDto> {
+    const view = await this.service.connectCarrier(principal, carrier, body.apiKey);
+    return {
+      key: view.carrier,
+      connected: view.connected,
+      pickupLocationWarning: view.pickupLocationWarning,
+      connectedAt: view.connectedAt,
+    };
+  }
+
+  @Delete("carriers/:carrier/connect")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireCapability({ feature: SHIPPING_FEATURE, permission: "shipping.manage" })
+  @ApiOperation({ summary: "Disconnect a carrier", operationId: "disconnectCarrier" })
+  @ApiNoContentResponse()
+  async disconnectCarrier(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("carrier") carrier: string,
+  ): Promise<void> {
+    await this.service.disconnectCarrier(principal, carrier);
+  }
+
+  @Get("bosta/cities")
+  @RequireCapability({ feature: SHIPPING_FEATURE, permission: "shipping.read" })
+  @ApiOperation({
+    summary: "Bosta's city catalog (address-mapping picker)",
+    operationId: "listBostaCities",
+  })
+  @ApiOkResponse({ type: BostaCityListDto })
+  async listBostaCities(@CurrentUser() principal: RequestPrincipal): Promise<BostaCityListDto> {
+    return BostaCityListDto.from(await this.service.listBostaCities(principal));
+  }
+
+  @Get("bosta/cities/:cityId/districts")
+  @RequireCapability({ feature: SHIPPING_FEATURE, permission: "shipping.read" })
+  @ApiOperation({
+    summary: "Bosta's districts for a city (address-mapping picker)",
+    operationId: "listBostaDistricts",
+  })
+  @ApiOkResponse({ type: BostaDistrictListDto })
+  async listBostaDistricts(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("cityId") cityId: string,
+  ): Promise<BostaDistrictListDto> {
+    return BostaDistrictListDto.from(await this.service.listBostaDistricts(principal, cityId));
   }
 
   @Post("shipments")

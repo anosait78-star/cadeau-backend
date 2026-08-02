@@ -36,4 +36,8 @@ export const AppErrors = {
   notFound: (message = "Not found") => new AppException(HttpStatus.NOT_FOUND, "NOT_FOUND", message),
   conflict: (message: string, details?: unknown) =>
     new AppException(HttpStatus.CONFLICT, "CONFLICT", message, details),
+  unprocessable: (message: string, details?: unknown) =>
+    new AppException(HttpStatus.UNPROCESSABLE_ENTITY, "UNPROCESSABLE_ENTITY", message, details),
+  serviceUnavailable: (message = "Service temporarily unavailable") =>
+    new AppException(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", message),
 } as const;

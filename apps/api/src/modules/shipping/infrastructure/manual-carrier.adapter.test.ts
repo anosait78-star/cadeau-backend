@@ -20,17 +20,17 @@ describe("ManualCarrierAdapter", () => {
   });
 
   it("has no upstream to poll for tracking", async () => {
-    await expect(adapter.getTracking("MAN-ABC123")).rejects.toThrow(
+    await expect(adapter.getTracking("c1", "MAN-ABC123")).rejects.toThrow(
       "The manual carrier has no upstream to poll for tracking.",
     );
   });
 
   it("generates waybill metadata only (decision D3)", async () => {
-    const waybill = await adapter.generateWaybill("MAN-ABC123");
+    const waybill = await adapter.generateWaybill("c1", "MAN-ABC123");
     expect(waybill).toEqual({ trackingNumber: "MAN-ABC123", carrier: "manual" });
   });
 
   it("resolves cancelShipment (no external call)", async () => {
-    await expect(adapter.cancelShipment("MAN-ABC123")).resolves.toBeUndefined();
+    await expect(adapter.cancelShipment("c1", "MAN-ABC123")).resolves.toBeUndefined();
   });
 });

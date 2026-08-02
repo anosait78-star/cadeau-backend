@@ -113,6 +113,28 @@ export class CreateAddressDto {
   @IsUUID()
   governorateId?: string | null;
 
+  @ApiPropertyOptional({ nullable: true, maxLength: 100, description: "Bosta's own city id." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  bostaCityId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, maxLength: 100, description: "Bosta's own district id." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  bostaDistrictId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 200,
+    description: "Bosta's city display name.",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  bostaCityName?: string | null;
+
   @ApiPropertyOptional({ description: "At most one address per customer is the default." })
   @IsOptional()
   @IsBoolean()
@@ -144,6 +166,24 @@ export class UpdateAddressDto {
   @IsOptional()
   @IsUUID()
   governorateId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  bostaCityId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  bostaDistrictId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  bostaCityName?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -336,6 +376,15 @@ export class CustomerAddressDto {
   @ApiProperty({ format: "uuid", nullable: true })
   governorateId!: string | null;
 
+  @ApiProperty({ nullable: true, description: "Bosta's own city id." })
+  bostaCityId!: string | null;
+
+  @ApiProperty({ nullable: true, description: "Bosta's own district id." })
+  bostaDistrictId!: string | null;
+
+  @ApiProperty({ nullable: true, description: "Bosta's city display name." })
+  bostaCityName!: string | null;
+
   @ApiProperty({ description: "At most one per customer." })
   isDefault!: boolean;
 
@@ -356,6 +405,9 @@ export class CustomerAddressDto {
     dto.landmark = view.landmark;
     dto.notes = view.notes;
     dto.governorateId = view.governorateId;
+    dto.bostaCityId = view.bostaCityId;
+    dto.bostaDistrictId = view.bostaDistrictId;
+    dto.bostaCityName = view.bostaCityName;
     dto.isDefault = view.isDefault;
     dto.active = view.active;
     dto.createdAt = view.createdAt;

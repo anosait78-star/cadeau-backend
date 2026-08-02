@@ -41,7 +41,13 @@ interface Harness {
 
 function makeHarness(): Harness {
   const service = {
-    listCarriers: vi.fn().mockReturnValue([{ key: "manual" }]),
+    listCarriers: vi
+      .fn()
+      .mockResolvedValue([
+        { carrier: "manual", connected: true, pickupLocationWarning: false, connectedAt: null },
+      ]),
+    connectCarrier: vi.fn(),
+    disconnectCarrier: vi.fn(),
     getOne: vi.fn().mockResolvedValue(shipment()),
     getByOrder: vi.fn().mockResolvedValue(shipment()),
     create: vi.fn().mockResolvedValue({ shipment: shipment(), replayed: false }),
@@ -64,8 +70,32 @@ describe("ShippingController", () => {
     h = makeHarness();
   });
 
-  it("lists carriers", () => {
-    expect(h.controller.listCarriers(principal)).toEqual({ data: [{ key: "manual" }] });
+  it("lists carriers with connection state", async () => {
+    expect(await h.controller.listCarriers(principal)).toEqual({
+      data: [{ key: "manual", connected: true, pickupLocationWarning: false, connectedAt: null }],
+    });
+  });
+
+  it("connects a carrier and returns its connection state", async () => {
+    h.service.connectCarrier.mockResolvedValueOnce({
+      carrier: "bosta",
+      connected: true,
+      pickupLocationWarning: false,
+      connectedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const dto = await h.controller.connectCarrier(principal, "bosta", { apiKey: "secret" });
+    expect(h.service.connectCarrier).toHaveBeenCalledWith(principal, "bosta", "secret");
+    expect(dto).toEqual({
+      key: "bosta",
+      connected: true,
+      pickupLocationWarning: false,
+      connectedAt: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("disconnects a carrier", async () => {
+    await h.controller.disconnectCarrier(principal, "bosta");
+    expect(h.service.disconnectCarrier).toHaveBeenCalledWith(principal, "bosta");
   });
 
   it("creates a shipment, sets 201 + Location, and forwards the idempotency key", async () => {

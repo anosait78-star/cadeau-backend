@@ -121,6 +121,36 @@ describe("CustomersRepository — PII storage", () => {
     expect(JSON.stringify(data)).not.toContain("12 Nile St");
   });
 
+  it("passes the Bosta city/district fields through on create and update", async () => {
+    const { repo, models } = makeRepo();
+    models.customer.findFirst.mockResolvedValue({ id: "c1" });
+    models.customerAddress.create.mockResolvedValue(addressRow());
+    await repo.createAddress(actor, "c1", {
+      line: "12 Nile St",
+      bostaCityId: "city1",
+      bostaDistrictId: "district1",
+      bostaCityName: "Cairo",
+    });
+    const created = models.customerAddress.create.mock.calls[0]?.[0]?.data as Record<
+      string,
+      unknown
+    >;
+    expect(created).toMatchObject({
+      bostaCityId: "city1",
+      bostaDistrictId: "district1",
+      bostaCityName: "Cairo",
+    });
+
+    models.customerAddress.updateMany.mockResolvedValue({ count: 1 });
+    models.customerAddress.findFirst.mockResolvedValue(addressRow());
+    await repo.updateAddress(actor, "c1", "a1", { bostaCityId: null, bostaDistrictId: null });
+    const updated = models.customerAddress.updateMany.mock.calls[0]?.[0]?.data as Record<
+      string,
+      unknown
+    >;
+    expect(updated).toMatchObject({ bostaCityId: null, bostaDistrictId: null });
+  });
+
   it("re-derives BOTH phone columns together on update", async () => {
     // A ciphertext that no longer matches its blind index would make the
     // customer unfindable, so neither may be written without the other.

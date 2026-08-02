@@ -86,6 +86,9 @@ const ADDRESS_SELECT = {
   landmark: true,
   notes: true,
   governorateId: true,
+  bostaCityId: true,
+  bostaDistrictId: true,
+  bostaCityName: true,
   isDefault: true,
   isActive: true,
   createdAt: true,
@@ -113,6 +116,9 @@ type AddressRow = {
   landmark: string | null;
   notes: string | null;
   governorateId: string | null;
+  bostaCityId: string | null;
+  bostaDistrictId: string | null;
+  bostaCityName: string | null;
   isDefault: boolean;
   isActive: boolean;
   createdAt: Date;
@@ -313,6 +319,9 @@ export class CustomersRepository implements CustomersRepositoryPort {
           landmark: data.landmark ?? null,
           notes: data.notes ?? null,
           governorateId: data.governorateId ?? null,
+          bostaCityId: data.bostaCityId ?? null,
+          bostaDistrictId: data.bostaDistrictId ?? null,
+          bostaCityName: data.bostaCityName ?? null,
           isDefault: data.isDefault ?? false,
         }) as Prisma.CustomerAddressUncheckedCreateInput,
         select: ADDRESS_SELECT,
@@ -339,6 +348,9 @@ export class CustomersRepository implements CustomersRepositoryPort {
       if (data.landmark !== undefined) patch["landmark"] = data.landmark;
       if (data.notes !== undefined) patch["notes"] = data.notes;
       if (data.governorateId !== undefined) patch["governorateId"] = data.governorateId;
+      if (data.bostaCityId !== undefined) patch["bostaCityId"] = data.bostaCityId;
+      if (data.bostaDistrictId !== undefined) patch["bostaDistrictId"] = data.bostaDistrictId;
+      if (data.bostaCityName !== undefined) patch["bostaCityName"] = data.bostaCityName;
       if (data.isDefault !== undefined) patch["isDefault"] = data.isDefault;
       if (data.active !== undefined) patch["isActive"] = data.active;
 
@@ -615,6 +627,9 @@ export class CustomersRepository implements CustomersRepositoryPort {
       landmark: row.landmark,
       notes: row.notes,
       governorateId: row.governorateId,
+      bostaCityId: row.bostaCityId,
+      bostaDistrictId: row.bostaDistrictId,
+      bostaCityName: row.bostaCityName,
       isDefault: row.isDefault,
       active: row.isActive,
       createdAt: row.createdAt.toISOString(),

@@ -2,11 +2,16 @@ import { Module } from "@nestjs/common";
 import { systemClockProvider } from "../../shared/time/clock";
 import { ShippingService } from "./application/shipping.service";
 import { WebhookProcessorService } from "./application/webhook-processor.service";
+import { CARRIER_CONNECTIONS_REPOSITORY } from "./domain/carrier-connections-repository.port";
 import { CARRIER_PORT } from "./domain/carrier.port";
 import { SHIPPING_AUDIT } from "./domain/shipping-audit.port";
 import { SHIPPING_REPOSITORY } from "./domain/shipping-repository.port";
 import { WEBHOOK_INBOX } from "./domain/webhook-inbox.port";
 import { ShippingAuditLogAdapter } from "./infrastructure/audit-log.adapter";
+import { BostaCarrierAdapter } from "./infrastructure/bosta-carrier.adapter";
+import { BostaCatalogCache } from "./infrastructure/bosta-catalog-cache";
+import { CarrierConnectionsRepository } from "./infrastructure/carrier-connections.repository";
+import { CarrierRouter } from "./infrastructure/carrier-router";
 import { ManualCarrierAdapter } from "./infrastructure/manual-carrier.adapter";
 import { shippingPrismaClientProvider } from "./infrastructure/prisma-client.provider";
 import { ShippingRepository } from "./infrastructure/shipping.repository";
@@ -24,9 +29,10 @@ import { ShippingWebhooksController } from "./presentation/shipping-webhooks.con
  * (signature-verified ingestion) → `WebhookInboxRepository` (durable,
  * idempotent inbox) → `WebhookRetryWorker` (polls + backs off) →
  * `WebhookProcessorService` (applies the transition via `ShippingService`).
- * The only {@link CarrierPort} bound today is {@link ManualCarrierAdapter}
- * (decision D1) — a real carrier is an additive provider swap, never a
- * caller change. The three-layer resolver + guards come from the global
+ * {@link CarrierPort} is bound to {@link CarrierRouter}, which dispatches
+ * per company between {@link ManualCarrierAdapter} (default) and
+ * {@link BostaCarrierAdapter} (once connected via settings) — the interface
+ * itself never changed to add Bosta (decision D1). The three-layer resolver + guards come from the global
  * {@link AccessCoreModule}; the event bus from {@link EventBusModule}; the
  * validated config `WebhookSignatureGuard`/`WebhookRetryWorker` inject comes
  * from the global {@link ConfigModule}.
@@ -39,10 +45,14 @@ import { ShippingWebhooksController } from "./presentation/shipping-webhooks.con
     WebhookRetryWorker,
     systemClockProvider,
     shippingPrismaClientProvider,
-    { provide: CARRIER_PORT, useClass: ManualCarrierAdapter },
+    ManualCarrierAdapter,
+    BostaCarrierAdapter,
+    BostaCatalogCache,
+    { provide: CARRIER_PORT, useClass: CarrierRouter },
     { provide: SHIPPING_REPOSITORY, useClass: ShippingRepository },
     { provide: SHIPPING_AUDIT, useClass: ShippingAuditLogAdapter },
     { provide: WEBHOOK_INBOX, useClass: WebhookInboxRepository },
+    { provide: CARRIER_CONNECTIONS_REPOSITORY, useClass: CarrierConnectionsRepository },
   ],
   exports: [ShippingService],
 })

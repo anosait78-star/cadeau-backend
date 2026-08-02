@@ -6,9 +6,15 @@ export interface CarrierCreateShipmentInput {
   readonly orderId: string;
 }
 
-/** What a carrier hands back once a shipment is booked with it. */
+/**
+ * What a carrier hands back once a shipment is booked with it. `carrier` is
+ * the adapter's own key — the repository stamps `shipments.carrier` from
+ * here (never from `CarrierPort.name`), so a router that dispatches between
+ * several adapters stamps the *actual* carrier that handled the call.
+ */
 export interface CarrierShipmentHandle {
   readonly trackingNumber: string;
+  readonly carrier: string;
 }
 
 /** A carrier's tracking read, mapped onto our own {@link ShipmentStatus} lifecycle. */
@@ -37,9 +43,10 @@ export interface CarrierPort {
   /** The carrier key this adapter implements (matches `shipments.carrier`). */
   readonly name: string;
   createShipment(input: CarrierCreateShipmentInput): Promise<CarrierShipmentHandle>;
-  getTracking(trackingNumber: string): Promise<CarrierTrackingInfo>;
-  generateWaybill(trackingNumber: string): Promise<CarrierWaybillInfo>;
-  cancelShipment(trackingNumber: string): Promise<void>;
+  /** `companyId` is always in scope at every call site (the repository's own tenant lock). */
+  getTracking(companyId: string, trackingNumber: string): Promise<CarrierTrackingInfo>;
+  generateWaybill(companyId: string, trackingNumber: string): Promise<CarrierWaybillInfo>;
+  cancelShipment(companyId: string, trackingNumber: string): Promise<void>;
 }
 
 /** DI token for {@link CarrierPort}. */

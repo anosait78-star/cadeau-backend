@@ -43,7 +43,7 @@ function shipmentRow(extra: Record<string, unknown> = {}) {
 function makeCarrier() {
   return {
     name: "manual" as const,
-    createShipment: vi.fn().mockResolvedValue({ trackingNumber: "MAN-ABC123" }),
+    createShipment: vi.fn().mockResolvedValue({ trackingNumber: "MAN-ABC123", carrier: "manual" }),
     getTracking: vi.fn(),
     generateWaybill: vi.fn().mockResolvedValue({ trackingNumber: "MAN-ABC123", carrier: "manual" }),
     cancelShipment: vi.fn().mockResolvedValue(undefined),
@@ -79,6 +79,9 @@ function makeRepo(
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     order: {
+      findFirst: vi
+        .fn()
+        .mockResolvedValue(state.orderMissing ? null : { status: state.orderStatus }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     orderActivity: {
@@ -202,9 +205,11 @@ describe("ShippingRepository — create", () => {
   it("treats a P2002 race on the idempotency key as a replay", async () => {
     const { repo, models } = makeRepo();
     models.shipment.findFirst
-      .mockResolvedValueOnce(null) // pre-check: no replay yet
-      .mockResolvedValueOnce(null) // active-shipment check: none held
-      .mockResolvedValueOnce(shipmentRow()); // post-race: the concurrent insert won
+      .mockResolvedValueOnce(null) // phase 1 pre-check: no replay yet
+      .mockResolvedValueOnce(null) // phase 1 active-shipment check: none held
+      .mockResolvedValueOnce(null) // phase 3 pre-check: still no replay
+      .mockResolvedValueOnce(null) // phase 3 active-shipment check: still none held
+      .mockResolvedValueOnce(shipmentRow()); // post-race replay lookup: the concurrent insert won
     models.shipment.create.mockRejectedValueOnce(uniqueViolation("shipments_idempotency_key"));
     const result = await repo.create(actor, { orderId: ORDER, idempotencyKey: "k1" });
     expect(result.replayed).toBe(true);
@@ -304,7 +309,7 @@ describe("ShippingRepository — transition", () => {
   it("calls the carrier to cancel on a cancel transition", async () => {
     const { repo, carrier } = makeRepo({ shipmentStatus: "created" });
     await repo.transition(actor, "s1", { toStatus: "cancelled" });
-    expect(carrier.cancelShipment).toHaveBeenCalledWith("MAN-ABC123");
+    expect(carrier.cancelShipment).toHaveBeenCalledWith(COMPANY, "MAN-ABC123");
   });
 
   it("deducts the fee from the order's collectedAmount on delivery (D4)", async () => {

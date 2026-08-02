@@ -110,39 +110,49 @@ export class ShippingRepository implements ShippingRepositoryPort {
     return row === null ? null : this.toView(row);
   }
 
+  /**
+   * Books a shipment. Split into three short phases so no DB lock is held
+   * across the external carrier call (an HTTP round-trip that can take
+   * seconds or time out): (1) a brief transaction takes an advisory lock on
+   * the order id and validates it's shippable with no active shipment yet,
+   * (2) the carrier is called with **no transaction open**, (3) a second
+   * short transaction re-validates (closing the narrow race a concurrent
+   * request could open between phases 1 and 3) and persists the shipment.
+   * If phase 3's re-check fails after the carrier already created a real
+   * shipment, the booking is orphaned carrier-side — an accepted trade-off
+   * versus holding a row lock for the duration of an outbound HTTP call.
+   */
   async create(actor: WriteActor, data: CreateShipmentInput): Promise<ShipmentWriteResult> {
+    const early = await this.tenantTx(actor.companyId, async (tx) => {
+      const replay = await this.findByIdempotencyKey(tx, actor.companyId, data.idempotencyKey);
+      if (replay !== null) return { shipment: this.toView(replay), replayed: true };
+
+      // Transaction-scoped advisory lock: serializes concurrent create calls
+      // for the same order without blocking unrelated reads/writes on the
+      // `orders` row, and is released automatically at commit.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${data.orderId}))`;
+      await this.assertShippable(tx, actor, data.orderId);
+      return null;
+    });
+    if (early !== null) return early;
+
+    const handle = await this.carrier.createShipment({
+      companyId: actor.companyId,
+      orderId: data.orderId,
+    });
+
     return this.tenantTx(actor.companyId, async (tx) => {
       const replay = await this.findByIdempotencyKey(tx, actor.companyId, data.idempotencyKey);
       if (replay !== null) return { shipment: this.toView(replay), replayed: true };
 
-      const lockedOrder = await tx.$queryRaw<{ id: string; status: string }[]>`
-        SELECT id, status FROM public.orders
-         WHERE id = ${data.orderId}::uuid AND company_id = ${actor.companyId}::uuid
-         FOR UPDATE`;
-      const order = lockedOrder[0];
-      if (order === undefined) throw new ReferenceNotFoundError("orderId");
-      if (!isShippableOrderStatus(order.status)) throw new OrderNotShippableError(order.status);
-
-      const active = await tx.shipment.findFirst({
-        where: {
-          orderId: data.orderId,
-          companyId: actor.companyId,
-          status: { in: [...ACTIVE_SHIPMENT_STATUSES] },
-        },
-        select: { id: true },
-      });
-      if (active !== null) throw new DuplicateActiveShipmentError();
-
-      const handle = await this.carrier.createShipment({
-        companyId: actor.companyId,
-        orderId: data.orderId,
-      });
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${data.orderId}))`;
+      await this.assertShippable(tx, actor, data.orderId);
 
       try {
         const created = await tx.shipment.create({
           data: stampForCreate(actor, {
             orderId: data.orderId,
-            carrier: this.carrier.name,
+            carrier: handle.carrier,
             trackingNumber: handle.trackingNumber,
             status: "created",
             idempotencyKey: data.idempotencyKey ?? null,
@@ -161,6 +171,26 @@ export class ShippingRepository implements ShippingRepositoryPort {
         throw this.mapWriteError(error);
       }
     });
+  }
+
+  /** Order exists, is shippable, and has no active shipment yet — or throws. */
+  private async assertShippable(tx: Tx, actor: WriteActor, orderId: string): Promise<void> {
+    const order = await tx.order.findFirst({
+      where: { id: orderId, companyId: actor.companyId },
+      select: { status: true },
+    });
+    if (order === null) throw new ReferenceNotFoundError("orderId");
+    if (!isShippableOrderStatus(order.status)) throw new OrderNotShippableError(order.status);
+
+    const active = await tx.shipment.findFirst({
+      where: {
+        orderId,
+        companyId: actor.companyId,
+        status: { in: [...ACTIVE_SHIPMENT_STATUSES] },
+      },
+      select: { id: true },
+    });
+    if (active !== null) throw new DuplicateActiveShipmentError();
   }
 
   async bulkCreate(
@@ -205,7 +235,8 @@ export class ShippingRepository implements ShippingRepositoryPort {
       if (from === to) throw new IllegalTransitionError(from, to);
       if (!canTransition(from, to)) throw new IllegalTransitionError(from, to);
 
-      if (to === "cancelled") await this.carrier.cancelShipment(row.tracking_number);
+      if (to === "cancelled")
+        await this.carrier.cancelShipment(actor.companyId, row.tracking_number);
 
       let feeDeducted = 0;
       const patch: Record<string, unknown> = { status: to };

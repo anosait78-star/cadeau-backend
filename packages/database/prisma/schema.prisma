@@ -111,6 +111,7 @@ model Company {
   orderActivities             OrderActivity[]
   orderSequence               OrderSequence?
   shipments                   Shipment[]
+  carrierConnections          CarrierConnection[]
   shippingWebhookEvents       ShippingWebhookEvent[]
   suppliers                   Supplier[]
   purchaseOrderSequence       PurchaseOrderSequence?
@@ -892,6 +893,11 @@ model CustomerAddress {
   landmark      String?
   notes         String?
   governorateId String? @map("governorate_id") @db.Uuid
+  /// Bosta's own city/district ids (real-carrier integration, not our internal governorate).
+  bostaCityId     String? @map("bosta_city_id")
+  bostaDistrictId String? @map("bosta_district_id")
+  /// Bosta's create-delivery API requires the city's display name alongside its id.
+  bostaCityName   String? @map("bosta_city_name")
   isDefault     Boolean @default(false) @map("is_default")
   isActive      Boolean @default(true) @map("is_active")
   createdBy     String? @map("created_by") @db.Uuid
@@ -1082,6 +1088,32 @@ model Shipment {
   @@index([orderId], map: "shipments_order_idx")
   @@index([companyId, status], map: "shipments_status_idx")
   @@map("shipments")
+}
+
+/// A tenant's connection to a real carrier (e.g. Bosta). `apiKeyEncrypted` is
+/// AES-256-GCM ciphertext, never plaintext. `webhookTokenHash` authenticates
+/// inbound webhooks from carriers with no signing scheme of their own — the
+/// raw token is shown once at connect time and never stored.
+model CarrierConnection {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId              String    @map("company_id") @db.Uuid
+  carrier                String
+  apiKeyEncrypted        String    @map("api_key_encrypted")
+  webhookTokenHash       String    @map("webhook_token_hash")
+  pickupLocationWarning  Boolean   @default(false) @map("pickup_location_warning")
+  isActive               Boolean   @default(true) @map("is_active")
+  connectedBy            String?   @map("connected_by") @db.Uuid
+  connectedAt            DateTime  @default(now()) @map("connected_at") @db.Timestamptz(6)
+  createdBy              String?   @map("created_by") @db.Uuid
+  updatedBy              String?   @map("updated_by") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, carrier], map: "carrier_connections_company_carrier_key")
+  @@index([companyId, carrier], map: "carrier_connections_company_idx")
+  @@map("carrier_connections")
 }
 
 /// Durable inbox for inbound carrier webhooks (EPIC-12), keyed

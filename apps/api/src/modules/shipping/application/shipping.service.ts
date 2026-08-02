@@ -1,9 +1,18 @@
+import { randomBytes, createHash } from "node:crypto";
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { encrypt } from "@cadeau/crypto";
+import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
+import type { CarrierConnectionView } from "../domain/carrier-connection.entity";
+import {
+  CARRIER_CONNECTIONS_REPOSITORY,
+  type CarrierConnectionsRepositoryPort,
+} from "../domain/carrier-connections-repository.port";
 import { CARRIER_PORT, type CarrierPort } from "../domain/carrier.port";
+import type { BostaCityView, BostaDistrictView } from "../domain/bosta-catalog.entity";
 import type {
   BulkShipmentResult,
   ShipmentStatusChangeResult,
@@ -18,12 +27,23 @@ import {
   type WriteActor,
 } from "../domain/shipping-repository.port";
 import {
+  CarrierAuthError,
+  CarrierNotConnectedError,
+  CarrierUnavailableError,
+  CodLimitExceededError,
+  CustomerAddressMissingError,
+  CustomerAddressNotMappedError,
   DuplicateActiveShipmentError,
   DuplicateShipmentError,
   IllegalTransitionError,
   OrderNotShippableError,
   ReferenceNotFoundError,
 } from "../domain/shipping.errors";
+import { BostaCatalogCache } from "../infrastructure/bosta-catalog-cache";
+import { BostaHttpClient } from "../infrastructure/bosta-http-client";
+
+/** The carrier keys this deployment knows about, in display order. */
+const KNOWN_CARRIERS = ["manual", "bosta"] as const;
 
 /** A status transition request as it reaches the service. */
 export interface TransitionCommand {
@@ -47,12 +67,176 @@ export class ShippingService {
     @Inject(EVENT_BUS) private readonly events: EventBusPort,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(CARRIER_PORT) private readonly carrier: CarrierPort,
+    @Inject(CARRIER_CONNECTIONS_REPOSITORY)
+    private readonly connections: CarrierConnectionsRepositoryPort,
+    @Inject(APP_CONFIG) private readonly config: InjectedAppConfig,
+    private readonly bostaCatalog: BostaCatalogCache,
   ) {}
 
-  /** The carriers available behind the abstraction (today: `manual` only, D1). */
-  listCarriers(principal: RequestPrincipal): readonly { key: string }[] {
+  /**
+   * The carriers this deployment knows about, with each tenant's connection
+   * state. `manual` needs no connection (it's always available); `bosta`
+   * reflects the caller's `carrier_connections` row, if any.
+   */
+  async listCarriers(principal: RequestPrincipal): Promise<CarrierConnectionView[]> {
+    const companyId = this.requireTenant(principal);
+    const rows = await this.connections.list(companyId);
+    return KNOWN_CARRIERS.map((key) => {
+      if (key === "manual") {
+        return {
+          id: null,
+          carrier: "manual",
+          connected: true,
+          pickupLocationWarning: false,
+          connectedAt: null,
+        };
+      }
+      const row = rows.find((r) => r.carrier === key);
+      return (
+        row ?? {
+          id: null,
+          carrier: key,
+          connected: false,
+          pickupLocationWarning: false,
+          connectedAt: null,
+        }
+      );
+    });
+  }
+
+  /**
+   * Connect the caller's active company to a real carrier. Validates the key
+   * against the carrier before persisting anything (no half-connected state)
+   * by probing an authenticated read; the key is then encrypted at rest and
+   * never returned. A random webhook token is minted and only its hash is
+   * stored (mirrors `Invitation.codeHash`) — the raw token is embedded in the
+   * `webhookUrl` the carrier adapter registers on each shipment, never shown
+   * to the caller.
+   */
+  async connectCarrier(
+    principal: RequestPrincipal,
+    carrier: string,
+    apiKey: string,
+  ): Promise<CarrierConnectionView> {
+    const companyId = this.requireTenant(principal);
+    if (carrier !== "bosta") {
+      throw AppErrors.badRequest(`Unknown or unsupported carrier '${carrier}'.`);
+    }
+
+    let pickupLocationWarning: boolean;
+    try {
+      pickupLocationWarning = await this.probeBosta(apiKey);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+
+    const webhookToken = randomBytes(32).toString("base64url");
+    const webhookTokenHash = createHash("sha256").update(webhookToken).digest("hex");
+    const apiKeyEncrypted = encrypt(apiKey, this.config.encryption.key);
+
+    const view = await this.connections.upsert({
+      companyId,
+      carrier,
+      apiKeyEncrypted,
+      webhookTokenHash,
+      pickupLocationWarning,
+      actorId: principal.userId,
+    });
+
+    // upsert() always creates/updates a row, so it always returns an id.
+    await this.audit.record({
+      companyId,
+      actorId: principal.userId,
+      action: "carrier.connected",
+      entityType: "carrier_connection",
+      entityId: view.id as string,
+    });
+    return view;
+  }
+
+  async disconnectCarrier(principal: RequestPrincipal, carrier: string): Promise<void> {
+    const companyId = this.requireTenant(principal);
+    const removedId = await this.connections.deactivate(companyId, carrier, principal.userId);
+    if (removedId === null) throw AppErrors.notFound("No active connection for that carrier.");
+    await this.audit.record({
+      companyId,
+      actorId: principal.userId,
+      action: "carrier.disconnected",
+      entityType: "carrier_connection",
+      entityId: removedId,
+    });
+  }
+
+  /**
+   * Bosta's city catalog (public, unauthenticated — Phase C's address
+   * picker). Cached for a few hours; requires no carrier connection since
+   * the endpoint needs no API key.
+   */
+  async listBostaCities(principal: RequestPrincipal): Promise<BostaCityView[]> {
     this.requireTenant(principal);
-    return [{ key: this.carrier.name }];
+    const cached = this.bostaCatalog.get<BostaCityView[]>("cities");
+    if (cached !== null) return cached;
+
+    const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
+    let response: { data?: { list?: { _id: string; name: string; nameAr?: string }[] } };
+    try {
+      response = await client.request("GET", "cities");
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    const cities = (response.data?.list ?? []).map((c) => ({
+      id: c._id,
+      name: c.name,
+      nameAr: c.nameAr ?? null,
+    }));
+    this.bostaCatalog.set("cities", cities);
+    return cities;
+  }
+
+  /** Bosta's districts for one city (public, unauthenticated). Cached per city. */
+  async listBostaDistricts(
+    principal: RequestPrincipal,
+    cityId: string,
+  ): Promise<BostaDistrictView[]> {
+    this.requireTenant(principal);
+    const cacheKey = `districts:${cityId}`;
+    const cached = this.bostaCatalog.get<BostaDistrictView[]>(cacheKey);
+    if (cached !== null) return cached;
+
+    const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
+    let response: {
+      data?: readonly {
+        districtId: string;
+        districtName: string;
+        zoneId: string;
+        zoneName: string;
+      }[];
+    };
+    try {
+      response = await client.request("GET", `cities/${encodeURIComponent(cityId)}/districts`);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    const districts = (response.data ?? []).map((d) => ({
+      districtId: d.districtId,
+      districtName: d.districtName,
+      zoneId: d.zoneId,
+      zoneName: d.zoneName,
+    }));
+    this.bostaCatalog.set(cacheKey, districts);
+    return districts;
+  }
+
+  /** `GET /pickup-locations` — proves the key works; an empty list is a warning, not a failure. */
+  private async probeBosta(apiKey: string): Promise<boolean> {
+    const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
+    const response = await client.request<{ data?: { list?: unknown[] } }>(
+      "GET",
+      "pickup-locations",
+      apiKey,
+    );
+    const list = response.data?.list ?? [];
+    return list.length === 0;
   }
 
   async getOne(principal: RequestPrincipal, id: string): Promise<ShipmentView> {
@@ -221,7 +405,7 @@ export class ShippingService {
     const shipment = await this.repo.issueWaybill({ companyId, actorId: principal.userId }, id);
     if (shipment === null) throw AppErrors.notFound("Shipment not found.");
 
-    const waybill = await this.carrier.generateWaybill(shipment.trackingNumber);
+    const waybill = await this.carrier.generateWaybill(companyId, shipment.trackingNumber);
     await this.audit.record({
       companyId,
       actorId: principal.userId,
@@ -315,6 +499,22 @@ export class ShippingService {
         error.message,
         [{ field, messages: [error.message] }],
       );
+    }
+    if (error instanceof CarrierAuthError) {
+      return AppErrors.unprocessable(
+        `${error.carrier} rejected the API key — reconnect it in settings.`,
+      );
+    }
+    if (
+      error instanceof CarrierNotConnectedError ||
+      error instanceof CustomerAddressMissingError ||
+      error instanceof CustomerAddressNotMappedError ||
+      error instanceof CodLimitExceededError
+    ) {
+      return AppErrors.unprocessable(error.message);
+    }
+    if (error instanceof CarrierUnavailableError) {
+      return AppErrors.serviceUnavailable(error.message);
     }
     return error;
   }

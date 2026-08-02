@@ -13,9 +13,11 @@ export interface ShippingAuditRecord {
     | "shipment.created"
     | "shipment.status_changed"
     | "shipment.cancelled"
-    | "shipment.waybill_issued";
-  readonly entityType: "shipment";
-  /** The affected shipment's id. */
+    | "shipment.waybill_issued"
+    | "carrier.connected"
+    | "carrier.disconnected";
+  readonly entityType: "shipment" | "carrier_connection";
+  /** The affected shipment's or carrier connection's id (carrier key for a connection). */
   readonly entityId: string;
   /** A PII-free description of the change (e.g. `{ from: "created", to: "picked_up" }`). */
   readonly changes?: unknown;
