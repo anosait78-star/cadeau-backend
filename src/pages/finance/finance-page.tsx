@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { EmptyState } from "@/components/states/empty-state";
+import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { listSuppliers } from "@/features/finance/finance-api";
 import { listProducts, listVariants } from "@/features/products/products-api";
@@ -66,16 +67,13 @@ export function FinancePage(): ReactNode {
 
 function FinanceScreen(): ReactNode {
   const { t } = useI18n();
+  const toast = useToast();
   const [tab, setTab] = useState<Tab>("suppliers");
-  const [notice, setNotice] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Option[]>([]);
   const [variants, setVariants] = useState<Option[]>([]);
   const [warehouses, setWarehouses] = useState<Option[]>([]);
 
-  const flash = useCallback((text: string): void => {
-    setNotice(text);
-    window.setTimeout(() => setNotice(null), 2500);
-  }, []);
+  const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
   const loadSuppliers = useCallback(async (): Promise<void> => {
     try {
@@ -148,12 +146,6 @@ function FinanceScreen(): ReactNode {
           </Button>
         ))}
       </div>
-
-      {notice !== null ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {notice}
-        </p>
-      ) : null}
 
       {tab === "suppliers" ? (
         <SuppliersTab

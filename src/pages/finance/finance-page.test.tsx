@@ -7,6 +7,7 @@ import {
   type CapabilitiesContextValue,
   type CapabilityRequirement,
 } from "@/features/access/capabilities-context";
+import { ToastProvider } from "@/components/toast/toast";
 import { I18nProvider } from "@/i18n/i18n-provider";
 import { FinancePage } from "./finance-page";
 
@@ -32,7 +33,11 @@ function caps(features: string[], permissions: string[], children: ReactNode): R
 }
 
 function renderPage(features = ["finance"], permissions = ["finance.read", "finance.manage"]) {
-  return render(<I18nProvider>{caps(features, permissions, <FinancePage />)}</I18nProvider>);
+  return render(
+    <I18nProvider>
+      <ToastProvider>{caps(features, permissions, <FinancePage />)}</ToastProvider>
+    </I18nProvider>,
+  );
 }
 
 const SUPPLIER = "11111111-1111-1111-1111-111111111111";
