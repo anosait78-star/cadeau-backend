@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { DataGrid } from "@/components/data-grid/data-grid";
+import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { LoadingState } from "@/components/states/loading-state";
+import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,7 +17,9 @@ import {
   type CreateReconciliationLineInput,
   type ReconciliationListItem,
 } from "@/features/finance/finance-api";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
+import { buildReconciliationColumns } from "./reconciliations-columns";
 import { Field, formatMoney } from "./finance-shared";
 
 type State =
@@ -29,8 +34,10 @@ type State =
 /** Shipping reconciliation — match a carrier statement to shipments by tracking number (D5). */
 export function ReconciliationsTab({ onNotify }: { onNotify: (text: string) => void }): ReactNode {
   const { t, locale } = useI18n();
+  const isDesktop = useIsDesktop();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState<ReconciliationListItem | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
@@ -56,15 +63,23 @@ export function ReconciliationsTab({ onNotify }: { onNotify: (text: string) => v
     });
   };
 
+  const columns = useMemo(() => buildReconciliationColumns({ t, locale }), [t, locale]);
+
+  const renderReconciliationCard = (r: ReconciliationListItem): ReactNode => (
+    <ReconciliationCard reconciliation={r} />
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <PermissionGate permission="finance.manage">
-        {creating ? null : (
-          <div>
-            <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
-          </div>
-        )}
-      </PermissionGate>
+      <TableToolbar
+        primaryActions={
+          <PermissionGate permission="finance.manage">
+            {creating ? null : (
+              <Button onClick={() => setCreating(true)}>{t("finance.actions.create")}</Button>
+            )}
+          </PermissionGate>
+        }
+      />
 
       {creating ? (
         <PermissionGate permission="finance.manage">
@@ -80,57 +95,93 @@ export function ReconciliationsTab({ onNotify }: { onNotify: (text: string) => v
         </PermissionGate>
       ) : null}
 
-      {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
-      {state.kind === "ready" && state.items.length === 0 ? (
-        <EmptyState title={t("finance.reconciliations.empty")} />
+
+      {state.kind !== "error" ? (
+        isDesktop ? (
+          <DataGrid<ReconciliationListItem>
+            columns={columns}
+            rows={state.kind === "ready" ? state.items : []}
+            getRowId={(row) => row.id}
+            loading={state.kind === "loading"}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            onRowClick={setSelected}
+            emptyState={<EmptyState title={t("finance.reconciliations.empty")} />}
+          />
+        ) : (
+          <MobileCardList<ReconciliationListItem>
+            items={state.kind === "ready" ? state.items : []}
+            loading={state.kind === "loading"}
+            getRowId={(row) => row.id}
+            renderCard={renderReconciliationCard}
+            emptyTitle={t("finance.reconciliations.empty")}
+            hasMore={state.kind === "ready" && state.nextCursor !== null}
+            onLoadMore={loadMore}
+            loadMoreLabel={t("finance.loadMore")}
+          />
+        )
       ) : null}
 
-      {state.kind === "ready" && state.items.length > 0 ? (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((r) => (
-            <li key={r.id}>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                    <span>{r.carrier}</span>
-                    <span className="text-sm font-normal text-muted-foreground">
-                      {r.statementRef} · {r.periodKey}
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm">
-                    <div className="flex flex-col">
-                      <dt className="text-xs text-muted-foreground">
-                        {t("finance.reconciliations.field.statementAmount")}
-                      </dt>
-                      <dd className="tabular-nums">{formatMoney(r.totalStatementMinor, locale)}</dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-xs text-muted-foreground">{t("shipping.field.fee")}</dt>
-                      <dd className="tabular-nums">{formatMoney(r.totalFeeMinor, locale)}</dd>
-                    </div>
-                    <div className="flex flex-col">
-                      <dt className="text-xs text-muted-foreground">
-                        {t("finance.reconciliations.detail.variance")}
-                      </dt>
-                      <dd className="tabular-nums">{formatMoney(r.totalVarianceMinor, locale)}</dd>
-                    </div>
-                  </dl>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {state.kind === "ready" && state.nextCursor !== null ? (
-        <Button variant="outline" onClick={() => void loadMore()} className="self-center">
-          {t("finance.loadMore")}
-        </Button>
-      ) : null}
+      <DetailPanel
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+        title={selected !== null ? selected.carrier : ""}
+        sections={
+          selected === null
+            ? []
+            : [
+                {
+                  key: "details",
+                  label: t("finance.reconciliations.field.statementRef"),
+                  content: renderReconciliationCard(selected),
+                },
+              ]
+        }
+      />
     </div>
+  );
+}
+
+function ReconciliationCard({
+  reconciliation: r,
+}: {
+  reconciliation: ReconciliationListItem;
+}): ReactNode {
+  const { t, locale } = useI18n();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <span>{r.carrier}</span>
+          <span className="text-sm font-normal text-muted-foreground">
+            {r.statementRef} · {r.periodKey}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm">
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">
+              {t("finance.reconciliations.field.statementAmount")}
+            </dt>
+            <dd className="tabular-nums">{formatMoney(r.totalStatementMinor, locale)}</dd>
+          </div>
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">{t("shipping.field.fee")}</dt>
+            <dd className="tabular-nums">{formatMoney(r.totalFeeMinor, locale)}</dd>
+          </div>
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">
+              {t("finance.reconciliations.detail.variance")}
+            </dt>
+            <dd className="tabular-nums">{formatMoney(r.totalVarianceMinor, locale)}</dd>
+          </div>
+        </dl>
+      </CardContent>
+    </Card>
   );
 }
 
