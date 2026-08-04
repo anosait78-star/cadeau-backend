@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/states/error-state";
 import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
   createPurchaseOrder,
@@ -431,7 +432,7 @@ function ReceiveForm({
     <Card>
       <CardContent className="flex flex-col gap-3 pt-6">
         <p className="text-xs text-muted-foreground">{t("finance.po.receive.note")}</p>
-        <Field id="receive-warehouse" label={t("finance.po.receive.warehouse")}>
+        <Field id="receive-warehouse" label={t("finance.po.receive.warehouse")} required>
           <OptionSelect
             id="receive-warehouse"
             value={warehouseId}
@@ -496,7 +497,7 @@ function PayForm({
     <Card>
       <CardContent className="flex flex-col gap-3 pt-6">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field id="pay-amount" label={t("finance.po.pay.amount")}>
+          <Field id="pay-amount" label={t("finance.po.pay.amount")} required>
             <Input
               id="pay-amount"
               type="number"
@@ -507,7 +508,7 @@ function PayForm({
               aria-label={t("finance.po.pay.amount")}
             />
           </Field>
-          <Field id="pay-method" label={t("finance.po.pay.method")}>
+          <Field id="pay-method" label={t("finance.po.pay.method")} required>
             <Input
               id="pay-method"
               value={method}
@@ -590,9 +591,9 @@ function CreatePurchaseOrderForm({
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 pt-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field id="po-create-supplier" label={t("finance.po.field.supplier")}>
+      <CardContent className="card-padding flex flex-col gap-4 pt-6">
+        <div className="form-gap grid grid-cols-1 sm:grid-cols-2">
+          <Field id="po-create-supplier" label={t("finance.po.field.supplier")} required>
             <OptionSelect
               id="po-create-supplier"
               value={supplierId}
@@ -601,16 +602,15 @@ function CreatePurchaseOrderForm({
               ariaLabel={t("finance.po.field.supplier")}
             />
           </Field>
-          <Field id="po-create-expected" label={t("finance.po.field.expectedDate")}>
-            <Input
+          <Field id="po-create-expected" label={t("finance.po.field.expectedDate")} optional>
+            <DatePicker
               id="po-create-expected"
-              type="date"
-              value={expectedDate}
-              onChange={(e) => setExpectedDate(e.target.value)}
-              aria-label={t("finance.po.field.expectedDate")}
+              value={expectedDate.length > 0 ? expectedDate : null}
+              onChange={(v) => setExpectedDate(v ?? "")}
+              ariaLabel={t("finance.po.field.expectedDate")}
             />
           </Field>
-          <Field id="po-create-notes" label={t("finance.po.field.notes")} wide>
+          <Field id="po-create-notes" label={t("finance.po.field.notes")} optional wide>
             <Input
               id="po-create-notes"
               value={notes}

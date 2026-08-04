@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Label } from "@/components/ui/label";
+import { Combobox } from "@/components/ui/combobox";
+import { FormField } from "@/components/ui/form-field";
 
 /** Placeholder for a missing optional value. */
 export const DASH = "—";
@@ -17,33 +18,53 @@ export function formatDate(iso: string | null | undefined, locale: string): stri
   return iso === null || iso === undefined ? DASH : new Date(iso).toLocaleDateString(locale);
 }
 
-/** A labeled form field wrapper, optionally spanning both grid columns. */
+/**
+ * A labeled form field wrapper, optionally spanning both grid columns.
+ * Thin finance-domain adapter over the shared FormField (label + reserved
+ * helper/error row, roadmap §4.1) — kept as its own export so the ~30 call
+ * sites across the finance tabs don't need to change their import.
+ */
 export function Field({
   id,
   label,
   wide = false,
+  required = false,
+  optional = false,
+  hint,
+  error,
   children,
 }: {
   id: string;
   label: string;
   wide?: boolean;
+  required?: boolean;
+  optional?: boolean;
+  hint?: string;
+  error?: string;
   children: ReactNode;
 }): ReactNode {
   return (
-    <div className={`flex flex-col gap-1${wide ? " sm:col-span-2" : ""}`}>
-      <Label htmlFor={id}>{label}</Label>
+    <FormField
+      label={label}
+      htmlFor={id}
+      required={required}
+      optional={optional}
+      {...(hint !== undefined ? { hint } : {})}
+      {...(error !== undefined ? { error } : {})}
+      {...(wide ? { className: "sm:col-span-2" } : {})}
+    >
       {children}
-    </div>
+    </FormField>
   );
 }
 
-/** A selectable option (for a plain `<select>`). */
+/** A selectable option (for the shared Combobox). */
 export interface Option {
   readonly id: string;
   readonly name: string;
 }
 
-/** A select over a set of options, with a blank ("none") entry. */
+/** A searchable select over a set of options, with a blank ("none") entry. */
 export function OptionSelect({
   id,
   value,
@@ -58,19 +79,16 @@ export function OptionSelect({
   ariaLabel: string;
 }): ReactNode {
   return (
-    <select
+    <Combobox
       id={id}
-      aria-label={ariaLabel}
+      ariaLabel={ariaLabel}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-    >
-      <option value="">—</option>
-      {options.map((opt) => (
-        <option key={opt.id} value={opt.id}>
-          {opt.name}
-        </option>
-      ))}
-    </select>
+      onChange={onChange}
+      placeholder={DASH}
+      options={[
+        { value: "", label: DASH },
+        ...options.map((o) => ({ value: o.id, label: o.name })),
+      ]}
+    />
   );
 }
