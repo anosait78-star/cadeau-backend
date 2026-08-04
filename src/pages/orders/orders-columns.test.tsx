@@ -15,6 +15,7 @@ const ORDER: OrderListItem = {
   labelId: "l1",
   reasonId: null,
   governorateId: null,
+  warehouseId: null,
   itemCount: 2,
   subtotal: 30000,
   shippingFee: 5000,

@@ -105,9 +105,34 @@ export async function getShipmentForOrder(orderId: string): Promise<Shipment | n
   }
 }
 
-/** `POST /v1/shipping/shipments` — create a shipment for an order. */
-export function createShipment(orderId: string): Promise<Shipment> {
-  return apiFetch<Shipment>("/shipping/shipments", { method: "POST", body: { orderId } });
+/**
+ * `POST /v1/shipping/shipments` — create a shipment for an order. `carrier`
+ * is the client's choice from the carrier-select step; omitted, the server
+ * auto-detects (the company's active connection, else `manual`).
+ */
+export function createShipment(orderId: string, carrier?: string): Promise<Shipment> {
+  return apiFetch<Shipment>("/shipping/shipments", {
+    method: "POST",
+    body: { orderId, ...(carrier !== undefined ? { carrier } : {}) },
+  });
+}
+
+/** One order's outcome in a bulk shipment-creation call. */
+export interface BulkShipmentResultItem {
+  readonly orderId: string;
+  readonly ok: boolean;
+  readonly shipmentId?: string;
+  readonly error?: { readonly code: string; readonly message: string };
+}
+
+/** `POST /v1/shipping/shipments/bulk` — create shipments for several orders at once. */
+export function bulkCreateShipments(
+  orderIds: string[],
+): Promise<{ results: BulkShipmentResultItem[] }> {
+  return apiFetch<{ results: BulkShipmentResultItem[] }>("/shipping/shipments/bulk", {
+    method: "POST",
+    body: { orderIds },
+  });
 }
 
 /** `POST /v1/shipping/shipments/{id}/status` — transition status (also used to cancel). */
@@ -120,6 +145,14 @@ export function transitionShipment(
     method: "POST",
     body: { toStatus, ...(note !== undefined && note !== null ? { note } : {}) },
   });
+}
+
+/**
+ * `POST /v1/shipping/shipments/{id}/status` with `toStatus: "cancelled"` —
+ * cancels the shipment through the official carrier API (no local faking).
+ */
+export function cancelShipment(id: string, note?: string | null): Promise<Shipment> {
+  return transitionShipment(id, "cancelled", note);
 }
 
 /** `POST /v1/shipping/shipments/{id}/waybill` — waybill metadata (no PDF in this epic). */

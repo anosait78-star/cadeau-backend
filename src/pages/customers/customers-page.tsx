@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useSearchParams } from "react-router";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
 import { DataGrid } from "@/components/data-grid/data-grid";
@@ -30,13 +31,7 @@ import {
   type CustomerListItem,
 } from "@/features/customers/customers-api";
 import { listItems, type MasterDataItem } from "@/features/master-data/master-data-api";
-import {
-  listBostaCities,
-  listBostaDistricts,
-  listCarriers,
-  type BostaCity,
-  type BostaDistrict,
-} from "@/features/shipping/shipping-api";
+import { CarrierShippingFields } from "@/features/shipping/carrier-shipping-fields";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
@@ -95,8 +90,19 @@ function CustomersScreen(): ReactNode {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerListItem | null>(null);
   const [governorates, setGovernorates] = useState<RefOption[]>([]);
+  const [searchParams] = useSearchParams();
 
   const flash = useCallback((text: string): void => toast.show(text), [toast]);
+
+  // A deep link (e.g. the "Edit customer details" shortcut from the
+  // create-shipment flow) opens that customer's detail panel directly.
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (editId === null) return;
+    void getCustomer(editId)
+      .then((detail) => setSelectedCustomer(toListItem(detail)))
+      .catch(() => undefined);
+  }, [searchParams]);
 
   const load = useCallback(async (q: string): Promise<void> => {
     setState({ kind: "loading" });
@@ -664,37 +670,17 @@ function AddressForm({
   const [active, setActive] = useState(address?.active ?? true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Bosta mapping (settings > shipping must be connected for this to matter —
-  // BostaCarrierAdapter refuses to ship without it, deliberately, rather than
-  // guessing a city).
-  const [bostaConnected, setBostaConnected] = useState(false);
-  const [cities, setCities] = useState<BostaCity[]>([]);
-  const [districts, setDistricts] = useState<BostaDistrict[]>([]);
+  // Shipping mapping (Bosta city/district today; carrier-agnostic — see
+  // CarrierShippingFields). BostaCarrierAdapter refuses to ship without a
+  // mapped city/district, deliberately, rather than guessing one.
+  const [carrier, setCarrier] = useState(
+    address !== undefined && address.bostaCityId !== null ? "bosta" : "",
+  );
   const [bostaCityId, setBostaCityId] = useState(address?.bostaCityId ?? "");
   const [bostaDistrictId, setBostaDistrictId] = useState(address?.bostaDistrictId ?? "");
-
-  useEffect(() => {
-    listCarriers()
-      .then(({ data }) => {
-        const bosta = data.find((c) => c.key === "bosta");
-        if (bosta?.connected === true) {
-          setBostaConnected(true);
-          void listBostaCities().then(({ data }) => setCities(data));
-        }
-      })
-      .catch(() => setBostaConnected(false));
-  }, []);
-
-  useEffect(() => {
-    if (bostaCityId.length === 0) {
-      setDistricts([]);
-      return;
-    }
-    void listBostaDistricts(bostaCityId).then(({ data }) => setDistricts(data));
-  }, [bostaCityId]);
+  const [bostaCityName, setBostaCityName] = useState(address?.bostaCityName ?? null);
 
   const submit = async (): Promise<void> => {
-    const selectedCity = cities.find((c) => c.id === bostaCityId);
     const body: AddressInput = {
       line: line.trim(),
       ...(landmark.trim().length > 0
@@ -703,13 +689,15 @@ function AddressForm({
           ? { landmark: null }
           : {}),
       ...(governorateId.length > 0 ? { governorateId } : editing ? { governorateId: null } : {}),
-      ...(bostaConnected
+      ...(carrier === "bosta"
         ? {
             bostaCityId: bostaCityId.length > 0 ? bostaCityId : null,
             bostaDistrictId: bostaDistrictId.length > 0 ? bostaDistrictId : null,
-            bostaCityName: selectedCity?.name ?? null,
+            bostaCityName,
           }
-        : {}),
+        : editing
+          ? { bostaCityId: null, bostaDistrictId: null, bostaCityName: null }
+          : {}),
       isDefault,
       ...(editing ? { active } : {}),
     };
@@ -758,50 +746,15 @@ function AddressForm({
         </div>
       </div>
 
-      {bostaConnected ? (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="address-bosta-city">{t("customers.address.field.bostaCity")}</Label>
-            <select
-              id="address-bosta-city"
-              aria-label={t("customers.address.field.bostaCity")}
-              value={bostaCityId}
-              onChange={(e) => {
-                setBostaCityId(e.target.value);
-                setBostaDistrictId("");
-              }}
-              className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              <option value="">{DASH}</option>
-              {cities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="address-bosta-district">
-              {t("customers.address.field.bostaDistrict")}
-            </Label>
-            <select
-              id="address-bosta-district"
-              aria-label={t("customers.address.field.bostaDistrict")}
-              value={bostaDistrictId}
-              onChange={(e) => setBostaDistrictId(e.target.value)}
-              disabled={bostaCityId.length === 0}
-              className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              <option value="">{DASH}</option>
-              {districts.map((d) => (
-                <option key={d.districtId} value={d.districtId}>
-                  {d.districtName}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      ) : null}
+      <CarrierShippingFields
+        value={{ carrier, bostaCityId, bostaDistrictId }}
+        onChange={(next) => {
+          setCarrier(next.carrier);
+          setBostaCityId(next.bostaCityId);
+          setBostaDistrictId(next.bostaDistrictId);
+          setBostaCityName(next.bostaCityName);
+        }}
+      />
 
       <label className="flex items-center gap-2 text-sm">
         <input

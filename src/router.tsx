@@ -5,8 +5,8 @@ import { RequireSuperAdmin } from "@/features/access/require-super-admin";
 import { AdminPage } from "@/pages/admin/admin-page";
 import { AnalyticsPage } from "@/pages/analytics/analytics-page";
 import { CustomersPage } from "@/pages/customers/customers-page";
+import { DashboardPage } from "@/pages/dashboard/dashboard-page";
 import { FinancePage } from "@/pages/finance/finance-page";
-import { HomePage } from "@/pages/home-page";
 import { InventoryPage } from "@/pages/inventory/inventory-page";
 import { MasterDataPage } from "@/pages/master-data/master-data-page";
 import { OrdersPage } from "@/pages/orders/orders-page";
@@ -38,7 +38,7 @@ export const router = createBrowserRouter([
       {
         element: <AppShell />,
         children: [
-          { index: true, element: <HomePage /> },
+          { index: true, element: <DashboardPage /> },
           { path: "orders", element: <OrdersPage /> },
           { path: "customers", element: <CustomersPage /> },
           { path: "products", element: <ProductsPage /> },
