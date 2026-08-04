@@ -15,8 +15,8 @@ import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   archiveCustomer,
   createAddress,
@@ -590,22 +590,24 @@ function CustomerForm({
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 pt-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="customer-name">{t("customers.field.name")} *</Label>
+      <CardContent className="card-padding flex flex-col gap-4 pt-6">
+        <h3 className="text-h3">{t("customers.form.sectionBasic")}</h3>
+        <div className="form-gap grid grid-cols-1 sm:grid-cols-2">
+          <FormField label={t("customers.field.name")} htmlFor="customer-name" required>
             <Input
               id="customer-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               aria-label={t("customers.field.name")}
             />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="customer-phone">
-              {t("customers.field.phone")}
-              {editing ? "" : " *"}
-            </Label>
+          </FormField>
+          <FormField
+            label={t("customers.field.phone")}
+            htmlFor="customer-phone"
+            required={!editing}
+            optional={editing}
+            hint={editing ? t("customers.field.phoneEditHint") : t("customers.field.phoneHint")}
+          >
             <Input
               id="customer-phone"
               dir="ltr"
@@ -614,28 +616,23 @@ function CustomerForm({
               onChange={(e) => setPhone(e.target.value)}
               aria-label={t("customers.field.phone")}
             />
-            <p className="text-xs text-muted-foreground">
-              {editing ? t("customers.field.phoneEditHint") : t("customers.field.phoneHint")}
-            </p>
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="customer-email">{t("customers.field.email")}</Label>
+          </FormField>
+          <FormField label={t("customers.field.email")} htmlFor="customer-email" optional>
             <Input
               id="customer-email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               aria-label={t("customers.field.email")}
             />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="customer-notes">{t("customers.field.notes")}</Label>
+          </FormField>
+          <FormField label={t("customers.field.notes")} htmlFor="customer-notes" optional>
             <Input
               id="customer-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               aria-label={t("customers.field.notes")}
             />
-          </div>
+          </FormField>
         </div>
         <div className="flex gap-2">
           <Button size="sm" disabled={submitting || invalid} onClick={() => void submit()}>
@@ -708,19 +705,27 @@ function AddressForm({
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <div className="flex flex-col gap-1 sm:col-span-2">
-          <Label htmlFor="address-line">{t("customers.address.field.line")} *</Label>
+    <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+      <h3 className="text-h3">{t("customers.form.sectionAddress")}</h3>
+      <div className="form-gap grid grid-cols-1 sm:grid-cols-3">
+        <FormField
+          label={t("customers.address.field.line")}
+          htmlFor="address-line"
+          required
+          className="sm:col-span-2"
+        >
           <Input
             id="address-line"
             value={line}
             onChange={(e) => setLine(e.target.value)}
             aria-label={t("customers.address.field.line")}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="address-governorate">{t("customers.address.field.governorate")}</Label>
+        </FormField>
+        <FormField
+          label={t("customers.address.field.governorate")}
+          htmlFor="address-governorate"
+          optional
+        >
           <Combobox
             id="address-governorate"
             ariaLabel={t("customers.address.field.governorate")}
@@ -732,16 +737,19 @@ function AddressForm({
               ...governorates.map((g) => ({ value: g.id, label: g.name })),
             ]}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="address-landmark">{t("customers.address.field.landmark")}</Label>
+        </FormField>
+        <FormField
+          label={t("customers.address.field.landmark")}
+          htmlFor="address-landmark"
+          optional
+        >
           <Input
             id="address-landmark"
             value={landmark}
             onChange={(e) => setLandmark(e.target.value)}
             aria-label={t("customers.address.field.landmark")}
           />
-        </div>
+        </FormField>
       </div>
 
       <CarrierShippingFields
