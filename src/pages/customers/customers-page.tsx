@@ -14,6 +14,7 @@ import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -720,20 +721,17 @@ function AddressForm({
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor="address-governorate">{t("customers.address.field.governorate")}</Label>
-          <select
+          <Combobox
             id="address-governorate"
-            aria-label={t("customers.address.field.governorate")}
+            ariaLabel={t("customers.address.field.governorate")}
             value={governorateId}
-            onChange={(e) => setGovernorateId(e.target.value)}
-            className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-          >
-            <option value="">{DASH}</option>
-            {governorates.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
+            onChange={setGovernorateId}
+            placeholder={DASH}
+            options={[
+              { value: "", label: DASH },
+              ...governorates.map((g) => ({ value: g.id, label: g.name })),
+            ]}
+          />
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor="address-landmark">{t("customers.address.field.landmark")}</Label>
