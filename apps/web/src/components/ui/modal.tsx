@@ -7,12 +7,14 @@ import { cn } from "@/lib/cn";
  * pick one instead of declaring an ad hoc width. `fullscreen` fills the
  * viewport on every breakpoint (wizards, complex multi-step flows); the rest
  * fall back to fullscreen on mobile and cap at their max width from `sm:` up.
+ * `sm`/`md` (confirm dialogs, single-section forms) size to their content
+ * instead of stretching to the `lg`/`xl` scrollable-body height.
  */
 const sizeClassName = {
-  sm: "sm:w-[420px]",
-  md: "sm:w-[560px]",
-  lg: "sm:w-[760px]",
-  xl: "sm:w-[960px]",
+  sm: "sm:w-[420px] sm:h-auto sm:max-h-[90vh]",
+  md: "sm:w-[560px] sm:h-auto sm:max-h-[90vh]",
+  lg: "sm:w-[760px] sm:h-[90vh] sm:max-h-[720px]",
+  xl: "sm:w-[960px] sm:h-[90vh] sm:max-h-[720px]",
   fullscreen: "sm:w-screen sm:h-[100dvh] sm:rounded-none sm:border-0",
 } as const;
 
@@ -51,7 +53,7 @@ export function Modal({
           <Dialog.Content
             className={cn(
               "flex h-[100dvh] w-screen flex-col rounded-none border-0 border-border bg-card text-card-foreground shadow-lg",
-              "sm:h-[90vh] sm:max-h-[720px] sm:rounded-lg sm:border",
+              "sm:rounded-lg sm:border",
               "modal-content-motion",
               sizeClassName[size],
               className,
