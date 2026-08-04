@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Combobox } from "@/components/ui/combobox";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createAddress, createCustomer, listCustomers } from "@/features/customers/customers-api";
@@ -285,43 +287,33 @@ export function OrderForm({
 
         {/* Card 1 — Warehouse. */}
         <Card>
-          <CardContent className="flex flex-col gap-1 pt-4">
-            <Label htmlFor="order-warehouse">{t("orders.form.warehouse")}</Label>
-            <select
-              id="order-warehouse"
-              className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-              value={warehouseId}
-              onChange={(e) => setWarehouseId(e.target.value)}
-            >
-              <option value="">{DASH}</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
+          <CardContent className="card-padding flex flex-col pt-4">
+            <FormField label={t("orders.form.warehouse")} htmlFor="order-warehouse" required>
+              <Combobox
+                id="order-warehouse"
+                ariaLabel={t("orders.form.warehouse")}
+                value={warehouseId}
+                onChange={setWarehouseId}
+                placeholder={DASH}
+                options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+              />
+            </FormField>
           </CardContent>
         </Card>
 
         {/* Card 2 — Customer information. */}
         <Card>
-          <CardContent className="flex flex-col gap-3 pt-4">
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="order-customer">{t("orders.form.customer")}</Label>
-              <select
+          <CardContent className="card-padding flex flex-col gap-4 pt-4">
+            <FormField label={t("orders.form.customer")} htmlFor="order-customer" required>
+              <Combobox
                 id="order-customer"
-                className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+                ariaLabel={t("orders.form.customer")}
                 value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-              >
-                <option value="">{DASH}</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+                onChange={setCustomerId}
+                placeholder={DASH}
+                options={customers.map((c) => ({ value: c.id, label: c.name }))}
+              />
+            </FormField>
 
             <Button
               size="sm"
@@ -333,67 +325,81 @@ export function OrderForm({
             </Button>
 
             {creatingCustomer ? (
-              <fieldset className="flex flex-col gap-2 rounded border border-input p-3">
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="new-customer-name">{t("orders.form.customerName")}</Label>
+              <fieldset className="form-gap flex flex-col rounded border border-input p-3">
+                <FormField
+                  label={t("orders.form.customerName")}
+                  htmlFor="new-customer-name"
+                  required
+                >
                   <Input
                     id="new-customer-name"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
+                    aria-label={t("orders.form.customerName")}
                   />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="new-customer-phone">{t("orders.form.customerPhone")}</Label>
+                </FormField>
+                <FormField
+                  label={t("orders.form.customerPhone")}
+                  htmlFor="new-customer-phone"
+                  required
+                >
                   <Input
                     id="new-customer-phone"
                     value={newPhone}
                     onChange={(e) => setNewPhone(e.target.value)}
+                    aria-label={t("orders.form.customerPhone")}
                   />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="new-customer-secondary-phone">
-                    {t("orders.form.customerSecondaryPhone")}
-                  </Label>
+                </FormField>
+                <FormField
+                  label={t("orders.form.customerSecondaryPhone")}
+                  htmlFor="new-customer-secondary-phone"
+                  optional
+                >
                   <Input
                     id="new-customer-secondary-phone"
                     value={newSecondaryPhone}
                     onChange={(e) => setNewSecondaryPhone(e.target.value)}
+                    aria-label={t("orders.form.customerSecondaryPhone")}
                   />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="new-customer-governorate">
-                    {t("orders.form.customerGovernorate")}
-                  </Label>
-                  <select
+                </FormField>
+                <FormField
+                  label={t("orders.form.customerGovernorate")}
+                  htmlFor="new-customer-governorate"
+                  optional
+                >
+                  <Combobox
                     id="new-customer-governorate"
-                    className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+                    ariaLabel={t("orders.form.customerGovernorate")}
                     value={newGovernorateId}
-                    onChange={(e) => setNewGovernorateId(e.target.value)}
-                  >
-                    <option value="">{DASH}</option>
-                    {governorates.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="new-customer-city">{t("orders.form.customerCity")}</Label>
+                    onChange={setNewGovernorateId}
+                    placeholder={DASH}
+                    options={governorates.map((g) => ({ value: g.id, label: g.name }))}
+                  />
+                </FormField>
+                <FormField
+                  label={t("orders.form.customerCity")}
+                  htmlFor="new-customer-city"
+                  optional
+                >
                   <Input
                     id="new-customer-city"
                     value={newCity}
                     onChange={(e) => setNewCity(e.target.value)}
+                    aria-label={t("orders.form.customerCity")}
                   />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="new-customer-street">{t("orders.form.customerStreet")}</Label>
+                </FormField>
+                <FormField
+                  label={t("orders.form.customerStreet")}
+                  htmlFor="new-customer-street"
+                  optional
+                >
                   <Input
                     id="new-customer-street"
                     value={newStreet}
                     onChange={(e) => setNewStreet(e.target.value)}
+                    aria-label={t("orders.form.customerStreet")}
                   />
-                </div>
+                </FormField>
                 <CarrierShippingFields
                   value={{
                     carrier: newCarrier,
@@ -422,41 +428,41 @@ export function OrderForm({
 
         {/* Card 3 — Products. */}
         <Card>
-          <CardContent className="flex flex-col gap-3 pt-4">
+          <CardContent className="card-padding flex flex-col gap-4 pt-4">
             <fieldset className="flex flex-wrap items-end gap-2 rounded border border-input p-3">
               <div className="flex flex-1 flex-col gap-1">
-                <Label htmlFor="order-variant">{t("orders.form.variant")}</Label>
-                <select
-                  id="order-variant"
-                  className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-                  value={variantId}
-                  onChange={(e) => setVariantId(e.target.value)}
-                >
-                  <option value="">{DASH}</option>
-                  {variants.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.label}
-                    </option>
-                  ))}
-                </select>
+                <FormField label={t("orders.form.variant")} htmlFor="order-variant">
+                  <Combobox
+                    id="order-variant"
+                    ariaLabel={t("orders.form.variant")}
+                    value={variantId}
+                    onChange={setVariantId}
+                    placeholder={DASH}
+                    options={variants.map((v) => ({ value: v.id, label: v.label }))}
+                  />
+                </FormField>
               </div>
               <div className="flex w-20 flex-col gap-1">
-                <Label htmlFor="order-qty">{t("orders.form.quantity")}</Label>
-                <Input
-                  id="order-qty"
-                  value={quantity}
-                  inputMode="numeric"
-                  onChange={(e) => setQuantity(e.target.value)}
-                />
+                <FormField label={t("orders.form.quantity")} htmlFor="order-qty">
+                  <Input
+                    id="order-qty"
+                    value={quantity}
+                    inputMode="numeric"
+                    onChange={(e) => setQuantity(e.target.value)}
+                    aria-label={t("orders.form.quantity")}
+                  />
+                </FormField>
               </div>
               <div className="flex w-24 flex-col gap-1">
-                <Label htmlFor="order-price">{t("orders.form.price")}</Label>
-                <Input
-                  id="order-price"
-                  value={price}
-                  inputMode="decimal"
-                  onChange={(e) => setPrice(e.target.value)}
-                />
+                <FormField label={t("orders.form.price")} htmlFor="order-price">
+                  <Input
+                    id="order-price"
+                    value={price}
+                    inputMode="decimal"
+                    onChange={(e) => setPrice(e.target.value)}
+                    aria-label={t("orders.form.price")}
+                  />
+                </FormField>
               </div>
               <Button size="sm" variant="outline" onClick={addLine} type="button">
                 {t("orders.form.addLine")}
@@ -494,22 +500,26 @@ export function OrderForm({
           <CardContent className="flex flex-col gap-3 pt-4">
             <div className="flex flex-wrap gap-3">
               <div className="flex w-28 flex-col gap-1">
-                <Label htmlFor="order-shipping">{t("orders.form.shipping")}</Label>
-                <Input
-                  id="order-shipping"
-                  value={shipping}
-                  inputMode="decimal"
-                  onChange={(e) => setShipping(e.target.value)}
-                />
+                <FormField label={t("orders.form.shipping")} htmlFor="order-shipping" optional>
+                  <Input
+                    id="order-shipping"
+                    value={shipping}
+                    inputMode="decimal"
+                    onChange={(e) => setShipping(e.target.value)}
+                    aria-label={t("orders.form.shipping")}
+                  />
+                </FormField>
               </div>
               <div className="flex w-28 flex-col gap-1">
-                <Label htmlFor="order-discount">{t("orders.form.discount")}</Label>
-                <Input
-                  id="order-discount"
-                  value={discount}
-                  inputMode="decimal"
-                  onChange={(e) => setDiscount(e.target.value)}
-                />
+                <FormField label={t("orders.form.discount")} htmlFor="order-discount" optional>
+                  <Input
+                    id="order-discount"
+                    value={discount}
+                    inputMode="decimal"
+                    onChange={(e) => setDiscount(e.target.value)}
+                    aria-label={t("orders.form.discount")}
+                  />
+                </FormField>
               </div>
             </div>
 
@@ -530,22 +540,33 @@ export function OrderForm({
             {paymentStatus !== "unpaid" ? (
               <div className="flex flex-wrap gap-3">
                 <div className="flex w-32 flex-col gap-1">
-                  <Label htmlFor="order-paid-amount">{t("orders.form.paidAmount")}</Label>
-                  <Input
-                    id="order-paid-amount"
-                    value={paidAmount}
-                    inputMode="decimal"
-                    onChange={(e) => setPaidAmount(e.target.value)}
-                  />
+                  <FormField
+                    label={t("orders.form.paidAmount")}
+                    htmlFor="order-paid-amount"
+                    required
+                  >
+                    <Input
+                      id="order-paid-amount"
+                      value={paidAmount}
+                      inputMode="decimal"
+                      onChange={(e) => setPaidAmount(e.target.value)}
+                      aria-label={t("orders.form.paidAmount")}
+                    />
+                  </FormField>
                 </div>
                 <div className="flex w-32 flex-col gap-1">
-                  <Label htmlFor="order-remaining-amount">{t("orders.form.remainingAmount")}</Label>
-                  <Input
-                    id="order-remaining-amount"
-                    value={formatMoney(remainingAmount, locale)}
-                    readOnly
-                    dir="ltr"
-                  />
+                  <FormField
+                    label={t("orders.form.remainingAmount")}
+                    htmlFor="order-remaining-amount"
+                  >
+                    <Input
+                      id="order-remaining-amount"
+                      value={formatMoney(remainingAmount, locale)}
+                      readOnly
+                      dir="ltr"
+                      aria-label={t("orders.form.remainingAmount")}
+                    />
+                  </FormField>
                 </div>
                 {!paymentValid ? (
                   <p className="w-full text-sm text-destructive">
@@ -559,14 +580,16 @@ export function OrderForm({
 
         {/* Card 5 — Notes. */}
         <Card>
-          <CardContent className="flex flex-col gap-1 pt-4">
-            <Label htmlFor="order-notes">{t("orders.form.notes")}</Label>
-            <textarea
-              id="order-notes"
-              className="min-h-16 rounded border border-input bg-background px-2 py-1.5 text-sm"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+          <CardContent className="card-padding flex flex-col pt-4">
+            <FormField label={t("orders.form.notes")} htmlFor="order-notes" optional>
+              <textarea
+                id="order-notes"
+                className="min-h-16 rounded border border-input bg-background px-2 py-1.5 text-sm"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                aria-label={t("orders.form.notes")}
+              />
+            </FormField>
           </CardContent>
         </Card>
 
