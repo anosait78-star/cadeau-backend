@@ -424,6 +424,7 @@ function OrdersScreen(): ReactNode {
           onOpenChange={setCreating}
           title={t("orders.actions.create")}
           closeLabel={t("orders.actions.cancel")}
+          size="xl"
         >
           <OrderForm onSubmit={onCreate} onCancel={() => setCreating(false)} />
         </Modal>

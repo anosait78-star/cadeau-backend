@@ -203,6 +203,40 @@ body {
   gap: var(--space-form-gap);
 }
 
+/* Dialog entrance/exit motion (§4.2) — fade + scale 0.96 → 1, 180ms. */
+@keyframes modal-content-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes modal-content-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+.modal-content-motion[data-state="open"] {
+  animation: modal-content-in var(--motion-dialog) var(--ease-standard);
+}
+.modal-content-motion[data-state="closed"] {
+  animation: modal-content-out var(--motion-dialog) var(--ease-standard);
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-content-motion[data-state="open"],
+  .modal-content-motion[data-state="closed"] {
+    animation: none;
+  }
+}
+
 /* Global focus-visible ring (§3 Critical). Components that already define
    their own focus-visible ring (e.g. button.tsx) take precedence via higher
    selector specificity, so this only fills the gap for elements that don't:
