@@ -19,6 +19,13 @@ import {
   type ShipmentStatus,
 } from "../domain/shipment-status";
 import {
+  CarrierAuthError,
+  CarrierNotConnectedError,
+  CarrierRejectedError,
+  CarrierUnavailableError,
+  CodLimitExceededError,
+  CustomerAddressMissingError,
+  CustomerAddressNotMappedError,
   DuplicateActiveShipmentError,
   DuplicateShipmentError,
   IllegalTransitionError,
@@ -130,7 +137,7 @@ export class ShippingRepository implements ShippingRepositoryPort {
       // Transaction-scoped advisory lock: serializes concurrent create calls
       // for the same order without blocking unrelated reads/writes on the
       // `orders` row, and is released automatically at commit.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${data.orderId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${data.orderId}))`;
       await this.assertShippable(tx, actor, data.orderId);
       return null;
     });
@@ -139,13 +146,14 @@ export class ShippingRepository implements ShippingRepositoryPort {
     const handle = await this.carrier.createShipment({
       companyId: actor.companyId,
       orderId: data.orderId,
+      ...(data.carrier !== undefined ? { carrier: data.carrier } : {}),
     });
 
     return this.tenantTx(actor.companyId, async (tx) => {
       const replay = await this.findByIdempotencyKey(tx, actor.companyId, data.idempotencyKey);
       if (replay !== null) return { shipment: this.toView(replay), replayed: true };
 
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${data.orderId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${data.orderId}))`;
       await this.assertShippable(tx, actor, data.orderId);
 
       try {
@@ -370,11 +378,28 @@ export class ShippingRepository implements ShippingRepositoryPort {
   }
 
   private toBulkError(error: unknown): { code: string; message: string } {
-    if (error instanceof OrderNotShippableError || error instanceof DuplicateActiveShipmentError) {
+    if (
+      error instanceof OrderNotShippableError ||
+      error instanceof DuplicateActiveShipmentError ||
+      error instanceof ReferenceNotFoundError ||
+      error instanceof CarrierNotConnectedError ||
+      error instanceof CustomerAddressMissingError ||
+      error instanceof CustomerAddressNotMappedError ||
+      error instanceof CodLimitExceededError
+    ) {
       return { code: "UNPROCESSABLE_ENTITY", message: error.message };
     }
-    if (error instanceof ReferenceNotFoundError) {
+    if (error instanceof CarrierAuthError) {
+      return {
+        code: "UNPROCESSABLE_ENTITY",
+        message: `${error.carrier} rejected the API key — reconnect it in settings.`,
+      };
+    }
+    if (error instanceof CarrierRejectedError) {
       return { code: "UNPROCESSABLE_ENTITY", message: error.message };
+    }
+    if (error instanceof CarrierUnavailableError) {
+      return { code: "SERVICE_UNAVAILABLE", message: error.message };
     }
     return { code: "INTERNAL", message: "The shipment could not be created." };
   }

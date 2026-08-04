@@ -47,15 +47,15 @@ whichever write path first references the `(warehouse, variant)` pair.
 
 ### Warehouse
 
-| Field       | Type     | Notes                                                    |
-| ----------- | -------- | -------------------------------------------------------- |
-| `id`        | uuid     | Server-generated.                                        |
-| `name`      | text     | Required. **Unique per company.**                        |
-| `code`      | text?    | **Unique per company when present** (partial index).     |
-| `address`   | text?    | Free-form.                                               |
-| `isDefault` | boolean  | **At most one `true` per company** (partial unique idx). |
-| `active`    | boolean  | `is_active`; `false` = archived.                         |
-| timestamps  | ISO-8601 | `createdAt` / `updatedAt` (trigger-touched).             |
+| Field       | Type     | Notes                                                                                                                                                                                                                                      |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`        | uuid     | Server-generated.                                                                                                                                                                                                                          |
+| `name`      | text     | Required. **Unique per company.**                                                                                                                                                                                                          |
+| `code`      | text?    | **Unique per company when present** (partial index).                                                                                                                                                                                       |
+| `address`   | text?    | Free-form.                                                                                                                                                                                                                                 |
+| `isDefault` | boolean  | **At most one `true` per company** (partial unique idx). Resolved for stock reservation at `processing` only when the order carries no `warehouseId` of its own (EPIC-11 order-level `warehouseId`, when set at create, takes precedence). |
+| `active`    | boolean  | `is_active`; `false` = archived.                                                                                                                                                                                                           |
+| timestamps  | ISO-8601 | `createdAt` / `updatedAt` (trigger-touched).                                                                                                                                                                                               |
 
 ### StockLevel
 

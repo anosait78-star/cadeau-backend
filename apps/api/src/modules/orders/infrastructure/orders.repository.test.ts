@@ -3,6 +3,7 @@ import { encodeCursor, Prisma, type PrismaClient } from "@cadeau/database";
 import {
   IllegalTransitionError,
   InsufficientStockError,
+  PaymentStatusMismatchError,
   ReasonRequiredError,
 } from "../domain/orders.errors";
 import { OrdersRepository } from "./orders.repository";
@@ -25,6 +26,7 @@ function detailRow(extra: Record<string, unknown> = {}) {
     labelId: null,
     reasonId: null,
     governorateId: null,
+    warehouseId: null,
     subtotal: 30000n,
     shippingFee: 5000n,
     discount: 0n,
@@ -53,7 +55,7 @@ function detailRow(extra: Record<string, unknown> = {}) {
 
 function makeRepo() {
   // Configurable state for the FOR UPDATE order lock and the stock level.
-  const lock = { status: "new", missing: false };
+  const lock = { status: "new", missing: false, warehouseId: null as string | null };
   const level = { onHand: 10n, committed: 0n };
   const models = {
     order: {
@@ -116,7 +118,16 @@ function makeRepo() {
     if (sql.includes("order_sequences")) return Promise.resolve([{ next_number: 2n }]);
     if (sql.includes("FROM public.orders")) {
       return Promise.resolve(
-        lock.missing ? [] : [{ id: "o1", status: lock.status, customer_id: CUSTOMER }],
+        lock.missing
+          ? []
+          : [
+              {
+                id: "o1",
+                status: lock.status,
+                customer_id: CUSTOMER,
+                warehouse_id: lock.warehouseId,
+              },
+            ],
       );
     }
     if (sql.includes("inventory_stock")) {
@@ -176,6 +187,59 @@ describe("OrdersRepository — create", () => {
     const { repo, models } = makeRepo();
     models.productVariant.findFirst.mockResolvedValueOnce(null);
     await expect(repo.create(actor, CREATE)).rejects.toMatchObject({ field: "variantId" });
+  });
+
+  it("persists warehouseId, collectedAmount and paymentStatus when supplied", async () => {
+    const { repo, models } = makeRepo();
+    await repo.create(actor, {
+      ...CREATE,
+      warehouseId: "w1",
+      collectedAmount: 35000,
+      paymentStatus: "paid",
+    });
+    const orderData = models.order.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(orderData["warehouseId"]).toBe("w1");
+    expect(orderData["collectedAmount"]).toBe(35000n);
+    expect(orderData["paymentStatus"]).toBe("paid");
+  });
+
+  it("defaults collectedAmount to 0 and paymentStatus to unpaid when omitted", async () => {
+    const { repo, models } = makeRepo();
+    await repo.create(actor, CREATE);
+    const orderData = models.order.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(orderData["warehouseId"]).toBeNull();
+    expect(orderData["collectedAmount"]).toBe(0n);
+    expect(orderData["paymentStatus"]).toBe("unpaid");
+  });
+
+  it.each([
+    ["paid", 100],
+    ["unpaid", 100],
+    ["partial", 0],
+    ["partial", 35000],
+  ] as const)(
+    "rejects paymentStatus %s with an inconsistent collectedAmount %d",
+    async (paymentStatus, collectedAmount) => {
+      const { repo } = makeRepo();
+      await expect(
+        repo.create(actor, { ...CREATE, paymentStatus, collectedAmount }),
+      ).rejects.toBeInstanceOf(PaymentStatusMismatchError);
+    },
+  );
+
+  it("rejects a collectedAmount greater than the order total", async () => {
+    const { repo } = makeRepo();
+    await expect(repo.create(actor, { ...CREATE, collectedAmount: 99999 })).rejects.toMatchObject({
+      field: "collectedAmount",
+    });
+  });
+
+  it("rejects an unknown warehouseId", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouse.findFirst.mockResolvedValueOnce(null);
+    await expect(repo.create(actor, { ...CREATE, warehouseId: "ghost" })).rejects.toMatchObject({
+      field: "warehouseId",
+    });
   });
 });
 
@@ -267,6 +331,19 @@ describe("OrdersRepository — transition", () => {
       applyStock: false,
     });
     expect(change).toBeNull();
+  });
+
+  it("reserves stock against the order's stored warehouseId instead of the default", async () => {
+    const { repo, models, lock } = makeRepo();
+    lock.warehouseId = "w2";
+    await repo.transition(actor, "o1", { toStatus: "processing", applyStock: true });
+    const resData = models.stockReservation.create.mock.calls[0]![0].data as Record<
+      string,
+      unknown
+    >;
+    expect(resData["warehouseId"]).toBe("w2");
+    // The default-warehouse lookup is skipped entirely when the order carries its own.
+    expect(models.warehouse.findFirst).not.toHaveBeenCalled();
   });
 });
 

@@ -8,7 +8,7 @@ import type {
   StatusChangeResult,
 } from "./order.entity";
 import type { ParsedOrderListQuery } from "./list-query";
-import type { FollowUpState, OrderStatus } from "./order-status";
+import type { FollowUpState, OrderStatus, PaymentStatus } from "./order-status";
 
 /** The tenant + acting member for a write. */
 export interface WriteActor {
@@ -27,6 +27,7 @@ export interface CreateOrderItemInput {
 /** Fields accepted when creating an order. */
 export interface CreateOrderInput {
   readonly customerId: string;
+  readonly warehouseId?: string | null;
   readonly assigneeId?: string | null;
   readonly labelId?: string | null;
   readonly reasonId?: string | null;
@@ -34,6 +35,8 @@ export interface CreateOrderInput {
   readonly followUpState?: FollowUpState;
   readonly shippingFee?: number;
   readonly discount?: number;
+  readonly collectedAmount?: number;
+  readonly paymentStatus?: PaymentStatus;
   readonly notes?: string | null;
   readonly items: readonly CreateOrderItemInput[];
   readonly idempotencyKey?: string | null;

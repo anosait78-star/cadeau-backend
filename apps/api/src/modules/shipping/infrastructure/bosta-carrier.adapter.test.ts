@@ -203,12 +203,26 @@ describe("BostaCarrierAdapter.getTracking / cancelShipment / generateWaybill", (
     expect(info.status).toBe("created");
   });
 
-  it("calls the terminate endpoint to cancel", async () => {
+  it("cancels by resolving the internal id via the v2 business lookup, then DELETEing it on v1", async () => {
     const { adapter } = makeAdapter();
-    fetchMock.mockResolvedValueOnce(json(200, { success: true }));
+    fetchMock
+      .mockResolvedValueOnce(
+        json(200, { data: { _id: "SjY5yDvzHbmzBsm13zlIW", trackingNumber: "5108002" } }),
+      )
+      .mockResolvedValueOnce(
+        json(200, { success: true, message: "Delivery canceled successfully!" }),
+      );
+
     await adapter.cancelShipment(COMPANY, "5108002");
-    const [url] = fetchMock.mock.calls[0] as [URL];
-    expect(String(url)).toContain("/deliveries/business/5108002/terminate");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [lookupUrl, lookupInit] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(String(lookupUrl)).toBe("https://app.bosta.co/api/v2/deliveries/business/5108002");
+    expect(lookupInit.method).toBe("GET");
+
+    const [deleteUrl, deleteInit] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(String(deleteUrl)).toBe("https://app.bosta.co/api/v1/deliveries/SjY5yDvzHbmzBsm13zlIW");
+    expect(deleteInit.method).toBe("DELETE");
   });
 
   it("generateWaybill returns metadata only, requiring a live connection", async () => {

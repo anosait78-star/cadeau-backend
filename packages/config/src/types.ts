@@ -64,6 +64,13 @@ export interface ShippingConfig {
   readonly webhookSigningSecret: string;
   /** Bosta's REST base URL. No vendor sandbox exists — this always points at the real API. */
   readonly bostaBaseUrl: string;
+  /**
+   * Bosta's v1 REST base URL — used only for `DELETE /deliveries/{id}`
+   * (cancellation). Confirmed live against the real API that v2 has no
+   * working cancel route (404/500 on every plausible v2 path); v1's is the
+   * one Bosta's own official SDKs document and that actually works.
+   */
+  readonly bostaApiV1BaseUrl: string;
 }
 
 export interface VapidConfig {

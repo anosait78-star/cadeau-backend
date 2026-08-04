@@ -127,6 +127,10 @@ export const envSchema = z
     // Bosta's REST base URL — overridable for tests/staging; defaults to the
     // real API (there is no vendor-provided sandbox).
     BOSTA_API_BASE_URL: z.string().url().optional(),
+    // Cancellation (`DELETE /deliveries/{id}`) only exists on v1 — v2 has no
+    // working cancel route (verified live against the real API; see
+    // bosta-carrier.adapter.ts). Everything else stays on v2.
+    BOSTA_API_V1_BASE_URL: z.string().url().optional(),
   })
   .superRefine((value, ctx) => {
     // Allowed origins: each must be a valid http(s) URL (or the wildcard).

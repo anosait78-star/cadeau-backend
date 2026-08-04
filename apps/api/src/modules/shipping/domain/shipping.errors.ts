@@ -66,6 +66,23 @@ export class CarrierUnavailableError extends Error {
   }
 }
 
+/**
+ * The carrier's API reached us fine and rejected the request as invalid
+ * (a non-401/403 4xx — e.g. "cannot cancel a delivered shipment"). Distinct
+ * from {@link CarrierUnavailableError}: this is a client-actionable business
+ * rejection, not an outage, and `message` is the carrier's own wording
+ * verbatim — never replaced with a generic summary.
+ */
+export class CarrierRejectedError extends Error {
+  constructor(
+    readonly carrier: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CarrierRejectedError";
+  }
+}
+
 /** No active connection exists for the requested carrier. */
 export class CarrierNotConnectedError extends Error {
   constructor(readonly carrier: string) {

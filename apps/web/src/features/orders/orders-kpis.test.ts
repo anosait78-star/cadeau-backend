@@ -14,6 +14,7 @@ function order(overrides: Partial<OrderListItem> = {}): OrderListItem {
     labelId: null,
     reasonId: null,
     governorateId: null,
+    warehouseId: null,
     itemCount: 1,
     subtotal: 1000,
     shippingFee: 0,

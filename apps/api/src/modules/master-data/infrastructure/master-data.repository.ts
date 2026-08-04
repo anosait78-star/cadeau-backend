@@ -114,7 +114,7 @@ export class MasterDataRepository implements MasterDataRepositoryPort {
     data: Record<string, unknown>,
   ): Promise<ResourceView> {
     return this.tenantTx(actor.companyId, async (host) => {
-      await this.assertTenantRefs(descriptor, host, data);
+      await this.assertTenantRefs(descriptor, actor.companyId, host, data);
       try {
         const row = await this.delegate(host, descriptor.model).create({
           data: stampForCreate(actor, data),
@@ -134,7 +134,7 @@ export class MasterDataRepository implements MasterDataRepositoryPort {
     data: Record<string, unknown>,
   ): Promise<ResourceView | null> {
     return this.tenantTx(actor.companyId, async (host) => {
-      await this.assertTenantRefs(descriptor, host, data);
+      await this.assertTenantRefs(descriptor, actor.companyId, host, data);
       const delegate = this.delegate(host, descriptor.model);
       const where = this.scopedIdWhere(descriptor, actor.companyId, id);
       try {
@@ -288,12 +288,13 @@ export class MasterDataRepository implements MasterDataRepositoryPort {
 
   /**
    * For every provided field that references a row in the same tenant (e.g. a
-   * category's parent), confirm the target exists under the current RLS context;
-   * RLS guarantees it belongs to the same company. Missing → a domain error the
-   * service renders as `422`.
+   * category's parent), confirm the target exists AND belongs to this company —
+   * explicit `companyId` filtering, not just RLS (some tables here only enforce
+   * RLS on writes, not reads). Missing → a domain error the service renders as `422`.
    */
   private async assertTenantRefs(
     descriptor: ResourceDescriptor,
+    companyId: string,
     host: DelegateHost,
     data: Record<string, unknown>,
   ): Promise<void> {
@@ -302,7 +303,7 @@ export class MasterDataRepository implements MasterDataRepositoryPort {
       const value = data[field.name];
       if (value === undefined || value === null) continue;
       const found = await this.delegate(host, field.tenantRefModel).findFirst({
-        where: { id: value },
+        where: { id: value, companyId },
         select: { id: true },
       });
       if (found === null) throw new ReferenceNotFoundError(field.name);

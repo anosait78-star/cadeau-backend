@@ -25,14 +25,15 @@ An `OrderSequence` row per company issues the human-facing `orderNumber`.
 
 ## 2. Entities & fields (highlights)
 
-| Field                                       | Notes                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------- |
-| `orderNumber`                               | Sequential **per company**, unique, race-safe (`order_sequences`).        |
-| `customerId`                                | Pinned (`RESTRICT`) — an order always resolves its customer.              |
-| `status` / `followUpState`                  | Two independent axes; 12 states + a separate follow-up.                   |
-| `subtotal`/`shippingFee`/`discount`/`total` | Integer minor units; `total = subtotal + shippingFee − discount` (CHECK). |
-| `collectedAmount` / `paymentStatus`         | Pivotal COD money; payment status derived (`unpaid`/`partial`/`paid`).    |
-| `OrderItem.costSnapshot`                    | The variant `averageCost` frozen at add time — stable COGS.               |
+| Field                                       | Notes                                                                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orderNumber`                               | Sequential **per company**, unique, race-safe (`order_sequences`).                                                                                                                                |
+| `customerId`                                | Pinned (`RESTRICT`) — an order always resolves its customer.                                                                                                                                      |
+| `status` / `followUpState`                  | Two independent axes; 12 states + a separate follow-up.                                                                                                                                           |
+| `subtotal`/`shippingFee`/`discount`/`total` | Integer minor units; `total = subtotal + shippingFee − discount` (CHECK).                                                                                                                         |
+| `collectedAmount` / `paymentStatus`         | Pivotal COD money; settable at create (cross-validated against `total`) or via `PATCH`; payment status derived (`unpaid`/`partial`/`paid`) either way.                                            |
+| `warehouseId`                               | Optional, set at create only. Nullable — `SET NULL` on warehouse delete. When present, takes precedence over the company's default warehouse when reserving stock at the `processing` transition. |
+| `OrderItem.costSnapshot`                    | The variant `averageCost` frozen at add time — stable COGS.                                                                                                                                       |
 
 ## 3. Invariants
 

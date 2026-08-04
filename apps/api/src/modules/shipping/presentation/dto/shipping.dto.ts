@@ -31,11 +31,23 @@ export class ConnectCarrierDto {
   apiKey!: string;
 }
 
+/** Carrier keys the "select a carrier" step may choose from (mirrors `KNOWN_CARRIERS`). */
+const CREATE_SHIPMENT_CARRIERS = ["manual", "bosta"] as const;
+
 /** Create-shipment payload. */
 export class CreateShipmentDto {
   @ApiProperty({ format: "uuid", description: "orders id." })
   @IsUUID()
   orderId!: string;
+
+  @ApiPropertyOptional({
+    enum: CREATE_SHIPMENT_CARRIERS,
+    description:
+      "The carrier chosen in the client's carrier-select step. Auto-detected when omitted.",
+  })
+  @IsOptional()
+  @IsIn(CREATE_SHIPMENT_CARRIERS)
+  carrier?: string;
 }
 
 /** Bulk-create payload: one shipment per order id. */

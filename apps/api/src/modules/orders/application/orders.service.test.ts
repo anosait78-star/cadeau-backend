@@ -10,6 +10,7 @@ import {
   DuplicateOrderError,
   IllegalTransitionError,
   InvalidListCursorError,
+  PaymentStatusMismatchError,
   ReasonRequiredError,
 } from "../domain/orders.errors";
 import { OrdersService } from "./orders.service";
@@ -35,6 +36,7 @@ function order(extra: Partial<OrderView> = {}): OrderView {
     labelId: null,
     reasonId: null,
     governorateId: null,
+    warehouseId: null,
     itemCount: 1,
     subtotal: 30000,
     shippingFee: 5000,
@@ -144,6 +146,11 @@ describe("OrdersService", () => {
     it("maps a duplicate idempotency key to 409", async () => {
       h.repo.create.mockRejectedValueOnce(new DuplicateOrderError());
       await expect(h.service.create(principal(), body)).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("maps a paymentStatus/collectedAmount mismatch to 422", async () => {
+      h.repo.create.mockRejectedValueOnce(new PaymentStatusMismatchError());
+      await expect(h.service.create(principal(), body)).rejects.toMatchObject({ status: 422 });
     });
   });
 

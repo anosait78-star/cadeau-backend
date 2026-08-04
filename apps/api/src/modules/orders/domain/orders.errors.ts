@@ -85,6 +85,14 @@ export class InvalidAmountError extends Error {
   }
 }
 
+/** The supplied `paymentStatus` is inconsistent with `collectedAmount` vs the order total. */
+export class PaymentStatusMismatchError extends Error {
+  constructor(readonly field: "paymentStatus" = "paymentStatus") {
+    super("paymentStatus does not match collectedAmount for this order's total.");
+    this.name = "PaymentStatusMismatchError";
+  }
+}
+
 /** A supplied keyset cursor was malformed. */
 export class InvalidListCursorError extends Error {
   constructor() {

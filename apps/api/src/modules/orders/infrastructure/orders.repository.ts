@@ -23,6 +23,7 @@ import type {
 } from "../domain/order.entity";
 import {
   derivePaymentStatus,
+  isConsistentPaymentStatus,
   type OrderStatus,
   ORDER_STATUSES,
   canTransition,
@@ -37,6 +38,7 @@ import {
   InsufficientStockError,
   InvalidAmountError,
   InvalidListCursorError,
+  PaymentStatusMismatchError,
   ReasonRequiredError,
   ReferenceNotFoundError,
 } from "../domain/orders.errors";
@@ -67,6 +69,7 @@ const ORDER_LIST_SELECT = {
   labelId: true,
   reasonId: true,
   governorateId: true,
+  warehouseId: true,
   subtotal: true,
   shippingFee: true,
   discount: true,
@@ -158,17 +161,27 @@ export class OrdersRepository implements OrdersRepositoryPort {
       const replay = await this.findByIdempotencyKey(tx, actor.companyId, data.idempotencyKey);
       if (replay !== null) return { order: this.toDetailView(replay), replayed: true };
 
-      await this.assertCustomer(tx, data.customerId);
-      await this.assertReferences(tx, data);
-      const lines = await this.resolveItems(tx, data.items);
+      await this.assertCustomer(tx, actor.companyId, data.customerId);
+      await this.assertReferences(tx, actor.companyId, data);
+      const lines = await this.resolveItems(tx, actor.companyId, data.items);
       const money = this.computeMoney(lines, data.shippingFee ?? 0, data.discount ?? 0);
       const orderNumber = await this.issueNumber(tx, actor.companyId);
+
+      const collectedAmount = data.collectedAmount ?? 0;
+      const paymentStatus = data.paymentStatus ?? "unpaid";
+      if (collectedAmount < 0 || collectedAmount > money.total) {
+        throw new InvalidAmountError("collectedAmount");
+      }
+      if (!isConsistentPaymentStatus(paymentStatus, collectedAmount, money.total)) {
+        throw new PaymentStatusMismatchError();
+      }
 
       try {
         const order = await tx.order.create({
           data: stampForCreate(actor, {
             orderNumber,
             customerId: data.customerId,
+            warehouseId: data.warehouseId ?? null,
             assigneeId: data.assigneeId ?? null,
             labelId: data.labelId ?? null,
             reasonId: data.reasonId ?? null,
@@ -178,7 +191,8 @@ export class OrdersRepository implements OrdersRepositoryPort {
             shippingFee: BigInt(money.shippingFee),
             discount: BigInt(money.discount),
             total: BigInt(money.total),
-            paymentStatus: "unpaid",
+            collectedAmount: BigInt(collectedAmount),
+            paymentStatus,
             notes: data.notes ?? null,
             idempotencyKey: data.idempotencyKey ?? null,
           }) as Prisma.OrderUncheckedCreateInput,
@@ -224,7 +238,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
         },
       });
       if (current === null) return null;
-      await this.assertReferences(tx, data);
+      await this.assertReferences(tx, actor.companyId, data);
 
       const patch: Record<string, unknown> = {};
       if (data.assigneeId !== undefined) patch["assigneeId"] = data.assigneeId;
@@ -238,7 +252,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       let subtotal = Number(current.subtotal);
       if (data.items !== undefined) {
         if (data.items.length === 0) throw new EmptyOrderError();
-        const lines = await this.resolveItems(tx, data.items);
+        const lines = await this.resolveItems(tx, actor.companyId, data.items);
         subtotal = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
         await tx.orderItem.deleteMany({ where: { orderId: id, companyId: actor.companyId } });
         await this.insertItems(tx, actor, id, lines);
@@ -295,8 +309,10 @@ export class OrdersRepository implements OrdersRepositoryPort {
   ): Promise<StatusChangeResult | null> {
     return this.tenantTx(actor.companyId, async (tx) => {
       // Lock the order row for the transition so concurrent transitions serialize.
-      const locked = await tx.$queryRaw<{ id: string; status: string; customer_id: string }[]>`
-        SELECT id, status, customer_id
+      const locked = await tx.$queryRaw<
+        { id: string; status: string; customer_id: string; warehouse_id: string | null }[]
+      >`
+        SELECT id, status, customer_id, warehouse_id
           FROM public.orders
          WHERE id = ${id}::uuid AND company_id = ${actor.companyId}::uuid
          FOR UPDATE`;
@@ -307,9 +323,11 @@ export class OrdersRepository implements OrdersRepositoryPort {
 
       if (from === to) throw new IllegalTransitionError(from, to);
       if (!canTransition(from, to)) throw new IllegalTransitionError(from, to);
-      if (requiresReason(to)) await this.assertCancelReason(tx, data.reasonId);
+      if (requiresReason(to)) await this.assertCancelReason(tx, actor.companyId, data.reasonId);
 
-      if (data.applyStock) await this.applyStockEffect(tx, actor, id, from, to);
+      if (data.applyStock) {
+        await this.applyStockEffect(tx, actor, id, from, to, row.warehouse_id);
+      }
 
       const patch: Record<string, unknown> = { status: to, statusChangedAt: new Date() };
       if (data.reasonId !== undefined && data.reasonId !== null) patch["reasonId"] = data.reasonId;
@@ -466,6 +484,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       labelId: row.labelId,
       reasonId: row.reasonId,
       governorateId: row.governorateId,
+      warehouseId: row.warehouseId,
       itemCount: row._count.items,
       subtotal: Number(row.subtotal),
       shippingFee: Number(row.shippingFee),
@@ -541,6 +560,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
 
   private async resolveItems(
     tx: Tx,
+    companyId: string,
     items: readonly CreateOrderItemInput[],
   ): Promise<ResolvedLine[]> {
     const lines: ResolvedLine[] = [];
@@ -548,7 +568,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       if (item.quantity <= 0) throw new InvalidAmountError("quantity");
       if (item.price < 0) throw new InvalidAmountError("price");
       const variant = await tx.productVariant.findFirst({
-        where: { id: item.variantId, isActive: true },
+        where: { id: item.variantId, companyId, isActive: true },
         select: { id: true, name: true, averageCost: true, product: { select: { name: true } } },
       });
       if (variant === null) throw new ReferenceNotFoundError("variantId");
@@ -609,12 +629,13 @@ export class OrdersRepository implements OrdersRepositoryPort {
     orderId: string,
     from: OrderStatus,
     to: OrderStatus,
+    orderWarehouseId: string | null,
   ): Promise<void> {
     const effect = stockEffectOf(from, to);
     if (effect === "none") return;
 
     if (effect === "reserve") {
-      const warehouseId = await this.defaultWarehouse(tx);
+      const warehouseId = orderWarehouseId ?? (await this.defaultWarehouse(tx, actor.companyId));
       const items = await tx.orderItem.findMany({
         where: { orderId, companyId: actor.companyId },
         select: { variantId: true, quantity: true },
@@ -638,7 +659,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       for (const [variantId, qty] of demandByVariant) {
         const level = await this.lockLevel(tx, actor, warehouseId, variantId);
         levels.set(variantId, level);
-        const allowOversell = await this.variantOversell(tx, variantId);
+        const allowOversell = await this.variantOversell(tx, actor.companyId, variantId);
         const available = level.onHand - level.committed;
         if (!allowOversell && qty > available) {
           const variant = await tx.productVariant.findFirst({
@@ -737,14 +758,14 @@ export class OrdersRepository implements OrdersRepositoryPort {
     return { id: row.id, onHand: Number(row.on_hand), committed: Number(row.committed) };
   }
 
-  private async defaultWarehouse(tx: Tx): Promise<string> {
+  private async defaultWarehouse(tx: Tx, companyId: string): Promise<string> {
     const preferred = await tx.warehouse.findFirst({
-      where: { isActive: true, isDefault: true },
+      where: { companyId, isActive: true, isDefault: true },
       select: { id: true },
     });
     if (preferred !== null) return preferred.id;
     const any = await tx.warehouse.findMany({
-      where: { isActive: true },
+      where: { companyId, isActive: true },
       select: { id: true },
       take: 2,
     });
@@ -753,9 +774,9 @@ export class OrdersRepository implements OrdersRepositoryPort {
     throw new ReferenceNotFoundError("warehouseId");
   }
 
-  private async variantOversell(tx: Tx, variantId: string): Promise<boolean> {
+  private async variantOversell(tx: Tx, companyId: string, variantId: string): Promise<boolean> {
     const found = await tx.productVariant.findFirst({
-      where: { id: variantId },
+      where: { id: variantId, companyId },
       select: { product: { select: { allowOversell: true } } },
     });
     return found?.product.allowOversell ?? false;
@@ -763,41 +784,63 @@ export class OrdersRepository implements OrdersRepositoryPort {
 
   // ---- internals: references, kpis, activity, idempotency ------------------
 
-  private async assertCustomer(tx: Tx, customerId: string): Promise<void> {
-    const found = await tx.customer.findFirst({ where: { id: customerId }, select: { id: true } });
+  private async assertCustomer(tx: Tx, companyId: string, customerId: string): Promise<void> {
+    const found = await tx.customer.findFirst({
+      where: { id: customerId, companyId },
+      select: { id: true },
+    });
     if (found === null) throw new ReferenceNotFoundError("customerId");
   }
 
   private async assertReferences(
     tx: Tx,
+    companyId: string,
     data: {
       labelId?: string | null;
       reasonId?: string | null;
       governorateId?: string | null;
       assigneeId?: string | null;
+      warehouseId?: string | null;
     },
   ): Promise<void> {
     if (data.labelId !== undefined && data.labelId !== null) {
       const found = await tx.orderLabel.findFirst({
-        where: { id: data.labelId },
+        where: { id: data.labelId, companyId },
         select: { id: true },
       });
       if (found === null) throw new ReferenceNotFoundError("labelId");
     }
     if (data.reasonId !== undefined && data.reasonId !== null) {
       const found = await tx.orderReason.findFirst({
-        where: { id: data.reasonId },
+        where: { id: data.reasonId, companyId },
         select: { id: true },
       });
       if (found === null) throw new ReferenceNotFoundError("reasonId");
     }
     if (data.governorateId !== undefined && data.governorateId !== null) {
+      // Governorates are global reference data (no companyId column) — shared across tenants by design.
       const found = await tx.governorate.findFirst({
         where: { id: data.governorateId },
         select: { id: true },
       });
       if (found === null) throw new ReferenceNotFoundError("governorateId");
     }
+    if (data.warehouseId !== undefined && data.warehouseId !== null) {
+      await this.assertWarehouse(tx, companyId, data.warehouseId);
+    }
+  }
+
+  private async assertWarehouse(
+    tx: Tx,
+    companyId: string,
+    id: string,
+    field = "warehouseId",
+  ): Promise<void> {
+    const found = await tx.warehouse.findFirst({
+      where: { id, companyId, isActive: true },
+      select: { id: true },
+    });
+    if (found === null) throw new ReferenceNotFoundError(field);
   }
 
   private async assertAssignee(tx: Tx, companyId: string, userId: string): Promise<void> {
@@ -808,10 +851,14 @@ export class OrdersRepository implements OrdersRepositoryPort {
     if (found === null) throw new ReferenceNotFoundError("assigneeId");
   }
 
-  private async assertCancelReason(tx: Tx, reasonId: string | null | undefined): Promise<void> {
+  private async assertCancelReason(
+    tx: Tx,
+    companyId: string,
+    reasonId: string | null | undefined,
+  ): Promise<void> {
     if (reasonId === null || reasonId === undefined) throw new ReasonRequiredError();
     const found = await tx.orderReason.findFirst({
-      where: { id: reasonId, kind: { in: ["cancel", "cancellation"] } },
+      where: { id: reasonId, companyId, kind: { in: ["cancel", "cancellation"] } },
       select: { id: true },
     });
     if (found === null) throw new ReasonRequiredError();

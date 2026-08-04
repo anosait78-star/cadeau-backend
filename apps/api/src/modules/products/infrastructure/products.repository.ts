@@ -110,7 +110,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
 
   async create(actor: WriteActor, data: CreateProductInput): Promise<ProductView> {
     return this.tenantTx(actor.companyId, async (tx) => {
-      await this.assertProductRefs(tx, data);
+      await this.assertProductRefs(tx, actor.companyId, data);
       try {
         const row = await tx.product.create({
           data: stampForCreate(
@@ -132,7 +132,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
     data: UpdateProductInput,
   ): Promise<ProductView | null> {
     return this.tenantTx(actor.companyId, async (tx) => {
-      await this.assertProductRefs(tx, data);
+      await this.assertProductRefs(tx, actor.companyId, data);
       const where = { id, companyId: actor.companyId };
       try {
         const { count } = await tx.product.updateMany({
@@ -377,18 +377,19 @@ export class ProductsRepository implements ProductsRepositoryPort {
    */
   private async assertProductRefs(
     tx: Tx,
+    companyId: string,
     data: CreateProductInput | UpdateProductInput,
   ): Promise<void> {
     if ("categoryId" in data && data.categoryId !== null && data.categoryId !== undefined) {
       const found = await tx.productCategory.findFirst({
-        where: { id: data.categoryId },
+        where: { id: data.categoryId, companyId },
         select: { id: true },
       });
       if (found === null) throw new ReferenceNotFoundError("categoryId");
     }
     if ("unitId" in data && data.unitId !== null && data.unitId !== undefined) {
       const found = await tx.unit.findFirst({
-        where: { id: data.unitId },
+        where: { id: data.unitId, companyId },
         select: { id: true },
       });
       if (found === null) throw new ReferenceNotFoundError("unitId");

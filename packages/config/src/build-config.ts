@@ -72,6 +72,9 @@ export function buildConfig(env: ValidatedEnv): AppConfig {
       // hitting http here silently turns every call into an unauthenticated
       // one instead of erroring loudly.
       bostaBaseUrl: env.BOSTA_API_BASE_URL ?? "https://app.bosta.co/api/v2/",
+      // v2 has no working cancel endpoint — verified live. v1's
+      // `DELETE /deliveries/{id}` is the one that actually works.
+      bostaApiV1BaseUrl: env.BOSTA_API_V1_BASE_URL ?? "https://app.bosta.co/api/v1/",
     },
     notifications: {
       vapid: {

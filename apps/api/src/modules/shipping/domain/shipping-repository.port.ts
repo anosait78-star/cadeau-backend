@@ -22,6 +22,8 @@ export interface WriteActor {
 export interface CreateShipmentInput {
   readonly orderId: string;
   readonly idempotencyKey?: string | null;
+  /** The client's carrier choice (the "select a carrier" step). Auto-detected when omitted. */
+  readonly carrier?: string;
 }
 
 /** A status transition request. */

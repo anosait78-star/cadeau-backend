@@ -15,6 +15,7 @@ import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,9 +23,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { listCustomers } from "@/features/customers/customers-api";
 import { listItems as listMasterDataItems } from "@/features/master-data/master-data-api";
 import {
   bulkAssign,
@@ -33,29 +31,27 @@ import {
   listOrders,
   orderStatusCounts,
   ORDER_STATUSES,
-  parseOrder,
   transitionOrder,
   type CreateOrderInput,
   type ListOptions,
   type OrderDetail,
-  type OrderItemInput,
   type OrderListItem,
   type OrderStatus,
-  type ParsedDraft,
 } from "@/features/orders/orders-api";
-import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
+import type { buildOrdersKpis } from "@/features/orders/orders-kpis";
+import { fetchOrdersKpis } from "@/features/orders/orders-kpis";
+import { shipmentErrorText } from "@/features/shipping/shipment-section";
+import { bulkCreateShipments } from "@/features/shipping/shipping-api";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
 import { buildOrderColumns, PaymentBadge, StatusBadge, type OrderLabel } from "./orders-columns";
+import { OrderForm } from "./orders-create-form";
 import { buildOrderDetailSections, useOrderDetailData } from "./orders-detail-sections";
 import { downloadCsv, ordersToCsv } from "./orders-export";
-import { buildOrdersKpis } from "./orders-kpis";
 import { OrderRowActions, TRANSITIONS } from "./orders-row-actions";
 import { builtInViews, useSavedViews, type SavedView } from "./orders-saved-views";
-
-const DASH = "—";
 
 type State =
   | { readonly kind: "loading" }
@@ -102,6 +98,7 @@ function OrdersScreen(): ReactNode {
   const [labelsById, setLabelsById] = useState<Map<string, OrderLabel>>(new Map());
   const [selectedOrder, setSelectedOrder] = useState<OrderListItem | null>(null);
   const [kpis, setKpis] = useState<ReturnType<typeof buildOrdersKpis> | null>(null);
+  const [creatingShipments, setCreatingShipments] = useState(false);
 
   const selection = useDataGridSelection();
   const { customViews, save: saveView } = useSavedViews(currentUserId);
@@ -159,24 +156,8 @@ function OrdersScreen(): ReactNode {
   }, []);
 
   useEffect(() => {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const range = { createdAtFrom: startOfToday.toISOString() };
-    void Promise.all([
-      orderStatusCounts({}),
-      orderStatusCounts(range),
-      listOrders({ ...range, sort: "-createdAt" }),
-    ])
-      .then(([all, today, todayOrders]) =>
-        setKpis(
-          buildOrdersKpis({
-            allCounts: all.counts,
-            todayCounts: today.counts,
-            todayOrders: todayOrders.data,
-            todayOrdersHasMore: todayOrders.page.hasMore,
-          }),
-        ),
-      )
+    void fetchOrdersKpis()
+      .then(setKpis)
       .catch(() => setKpis(null));
   }, [state.kind === "ready" ? state.items.length : -1]);
 
@@ -268,6 +249,21 @@ function OrdersScreen(): ReactNode {
       void load();
     } catch (error) {
       flash(saveErrorText(error, t));
+    }
+  };
+
+  const onBulkCreateShipment = async (): Promise<void> => {
+    setCreatingShipments(true);
+    try {
+      const { results } = await bulkCreateShipments([...selection.selectedIds]);
+      const failed = results.filter((r) => !r.ok);
+      selection.clear();
+      flash(failed.length > 0 ? t("shipping.saveFailed") : t("shipping.saved"));
+      void load();
+    } catch (error) {
+      flash(shipmentErrorText(error, t));
+    } finally {
+      setCreatingShipments(false);
     }
   };
 
@@ -422,11 +418,16 @@ function OrdersScreen(): ReactNode {
         }
       />
 
-      {creating ? (
-        <PermissionGate permission="orders.manage">
+      <PermissionGate permission="orders.manage">
+        <Modal
+          open={creating}
+          onOpenChange={setCreating}
+          title={t("orders.actions.create")}
+          closeLabel={t("orders.actions.cancel")}
+        >
           <OrderForm onSubmit={onCreate} onCancel={() => setCreating(false)} />
-        </PermissionGate>
-      ) : null}
+        </Modal>
+      </PermissionGate>
 
       {isDesktop ? (
         <BulkActionsBar
@@ -435,25 +436,37 @@ function OrdersScreen(): ReactNode {
           countLabel={(n) => t("orders.bulk.selected").replace("{{count}}", String(n))}
           clearLabel={t("orders.bulk.clear")}
           actions={
-            <PermissionGate permission="orders.manage">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    {t("orders.bulk.changeStatus")}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {bulkStatusTargets.map((s) => (
-                    <DropdownMenuItem key={s} onSelect={() => void onBulkStatus(s)}>
-                      {t(`orders.status.${s}` as TranslationKey)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button variant="outline" size="sm" onClick={() => void onBulkAssign()}>
-                {t("orders.bulk.assign")}
-              </Button>
-            </PermissionGate>
+            <>
+              <PermissionGate permission="orders.manage">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      {t("orders.bulk.changeStatus")}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {bulkStatusTargets.map((s) => (
+                      <DropdownMenuItem key={s} onSelect={() => void onBulkStatus(s)}>
+                        {t(`orders.status.${s}` as TranslationKey)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button variant="outline" size="sm" onClick={() => void onBulkAssign()}>
+                  {t("orders.bulk.assign")}
+                </Button>
+              </PermissionGate>
+              <PermissionGate permission="shipping.manage" feature="shipping">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={creatingShipments}
+                  onClick={() => void onBulkCreateShipment()}
+                >
+                  {t("shipping.actions.create")}
+                </Button>
+              </PermissionGate>
+            </>
           }
         />
       ) : null}
@@ -650,235 +663,6 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd>{children}</dd>
     </div>
-  );
-}
-
-/** A minimal customer option for the create form. */
-interface CustomerOption {
-  readonly id: string;
-  readonly name: string;
-}
-
-/** A flat variant option (product + variant label) for the line builder. */
-interface VariantOption {
-  readonly id: string;
-  readonly label: string;
-}
-
-/** Create-order form: a customer, one or more variant lines, shipping/discount. */
-function OrderForm({
-  onSubmit,
-  onCancel,
-}: {
-  onSubmit: (body: CreateOrderInput) => void | Promise<void>;
-  onCancel: () => void;
-}): ReactNode {
-  const { t } = useI18n();
-  const [customers, setCustomers] = useState<CustomerOption[]>([]);
-  const [variants, setVariants] = useState<VariantOption[]>([]);
-  const [customerId, setCustomerId] = useState("");
-  const [lines, setLines] = useState<OrderItemInput[]>([]);
-  const [variantId, setVariantId] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [price, setPrice] = useState("0");
-  const [shipping, setShipping] = useState("0");
-  const [discount, setDiscount] = useState("0");
-  const [paste, setPaste] = useState("");
-  const [draft, setDraft] = useState<ParsedDraft | null>(null);
-
-  useEffect(() => {
-    void listCustomers({ active: true })
-      .then((page) => setCustomers(page.data.map((c) => ({ id: c.id, name: c.name }))))
-      .catch(() => setCustomers([]));
-  }, []);
-
-  // Build a flat variant list from the active products (product — variant).
-  useEffect(() => {
-    void listProducts({ active: true })
-      .then(async (page) => {
-        const details = await Promise.all(page.data.slice(0, 20).map((p) => getProduct(p.id)));
-        const flat: VariantOption[] = [];
-        for (const p of details) {
-          for (const v of p.variants as ProductVariant[]) {
-            flat.push({ id: v.id, label: `${p.name} — ${v.name}` });
-          }
-        }
-        setVariants(flat);
-      })
-      .catch(() => setVariants([]));
-  }, []);
-
-  const addLine = (): void => {
-    const qty = Math.max(1, Math.round(Number(quantity)));
-    const unit = Math.max(0, Math.round(Number(price) * 100));
-    if (variantId === "" || !Number.isFinite(qty)) return;
-    setLines((ls) => [...ls, { variantId, quantity: qty, price: unit }]);
-    setVariantId("");
-    setQuantity("1");
-    setPrice("0");
-  };
-
-  const submit = (): void => {
-    if (customerId === "" || lines.length === 0) return;
-    void onSubmit({
-      customerId,
-      items: lines,
-      shippingFee: Math.max(0, Math.round(Number(shipping) * 100)),
-      discount: Math.max(0, Math.round(Number(discount) * 100)),
-    });
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t("orders.actions.create")}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {/* Deterministic smart-paste (no AI): paste a chat, get detected fields. */}
-        <div className="flex flex-col gap-1 rounded border border-dashed border-input p-3">
-          <Label htmlFor="order-paste">{t("orders.paste.label")}</Label>
-          <textarea
-            id="order-paste"
-            className="min-h-16 rounded border border-input bg-background px-2 py-1.5 text-sm"
-            value={paste}
-            onChange={(e) => setPaste(e.target.value)}
-          />
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              type="button"
-              onClick={() => {
-                void parseOrder(paste)
-                  .then(setDraft)
-                  .catch(() => setDraft(null));
-              }}
-            >
-              {t("orders.paste.button")}
-            </Button>
-            {draft !== null ? (
-              <p className="text-xs text-muted-foreground" data-testid="paste-detected">
-                {t("orders.paste.detected")}: {draft.phone ?? DASH}
-                {draft.items.length > 0
-                  ? ` · ${draft.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}`
-                  : ""}
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="order-customer">{t("orders.form.customer")}</Label>
-          <select
-            id="order-customer"
-            className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-          >
-            <option value="">{DASH}</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <fieldset className="flex flex-wrap items-end gap-2 rounded border border-input p-3">
-          <div className="flex flex-1 flex-col gap-1">
-            <Label htmlFor="order-variant">{t("orders.form.variant")}</Label>
-            <select
-              id="order-variant"
-              className="rounded border border-input bg-background px-2 py-1.5 text-sm"
-              value={variantId}
-              onChange={(e) => setVariantId(e.target.value)}
-            >
-              <option value="">{DASH}</option>
-              {variants.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex w-20 flex-col gap-1">
-            <Label htmlFor="order-qty">{t("orders.form.quantity")}</Label>
-            <Input
-              id="order-qty"
-              value={quantity}
-              inputMode="numeric"
-              onChange={(e) => setQuantity(e.target.value)}
-            />
-          </div>
-          <div className="flex w-24 flex-col gap-1">
-            <Label htmlFor="order-price">{t("orders.form.price")}</Label>
-            <Input
-              id="order-price"
-              value={price}
-              inputMode="decimal"
-              onChange={(e) => setPrice(e.target.value)}
-            />
-          </div>
-          <Button size="sm" variant="outline" onClick={addLine} type="button">
-            {t("orders.form.addLine")}
-          </Button>
-        </fieldset>
-
-        {lines.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("orders.form.noLines")}</p>
-        ) : (
-          <ul className="flex flex-col gap-1 text-sm">
-            {lines.map((l, i) => {
-              const v = variants.find((x) => x.id === l.variantId);
-              return (
-                <li key={`${l.variantId}-${i}`} className="flex justify-between gap-2">
-                  <span>
-                    {v?.label ?? l.variantId} × {l.quantity}
-                  </span>
-                  <button
-                    type="button"
-                    className="text-muted-foreground underline"
-                    onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}
-                  >
-                    ✕
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        <div className="flex flex-wrap gap-3">
-          <div className="flex w-28 flex-col gap-1">
-            <Label htmlFor="order-shipping">{t("orders.form.shipping")}</Label>
-            <Input
-              id="order-shipping"
-              value={shipping}
-              inputMode="decimal"
-              onChange={(e) => setShipping(e.target.value)}
-            />
-          </div>
-          <div className="flex w-28 flex-col gap-1">
-            <Label htmlFor="order-discount">{t("orders.form.discount")}</Label>
-            <Input
-              id="order-discount"
-              value={discount}
-              inputMode="decimal"
-              onChange={(e) => setDiscount(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Button onClick={submit} disabled={customerId === "" || lines.length === 0}>
-            {t("orders.actions.save")}
-          </Button>
-          <Button variant="ghost" onClick={onCancel}>
-            {t("orders.actions.cancel")}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

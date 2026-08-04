@@ -4,6 +4,8 @@ import type { ShipmentStatus } from "./shipment-status";
 export interface CarrierCreateShipmentInput {
   readonly companyId: string;
   readonly orderId: string;
+  /** Explicit carrier choice from the client (e.g. the "select a carrier" step before creating a shipment). Falls back to the company's active connection when omitted. */
+  readonly carrier?: string;
 }
 
 /**

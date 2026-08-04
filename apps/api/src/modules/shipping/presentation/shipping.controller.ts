@@ -147,6 +147,7 @@ export class ShippingController {
     const { shipment, replayed } = await this.service.create(principal, {
       orderId: body.orderId,
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      ...(body.carrier === undefined ? {} : { carrier: body.carrier }),
     });
     res.status(replayed ? HttpStatus.OK : HttpStatus.CREATED);
     res.setHeader("Location", `/v1/shipping/shipments/${shipment.id}`);

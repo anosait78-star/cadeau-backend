@@ -42,6 +42,7 @@ export interface OrderListView extends OrderMoney {
   readonly labelId: string | null;
   readonly reasonId: string | null;
   readonly governorateId: string | null;
+  readonly warehouseId: string | null;
   readonly itemCount: number;
   readonly statusChangedAt: string;
   readonly createdAt: string;

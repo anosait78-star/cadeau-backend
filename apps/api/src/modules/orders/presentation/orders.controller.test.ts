@@ -26,6 +26,7 @@ function order(extra: Partial<OrderView> = {}): OrderView {
     labelId: null,
     reasonId: null,
     governorateId: null,
+    warehouseId: null,
     itemCount: 1,
     subtotal: 30000,
     shippingFee: 5000,
@@ -110,6 +111,22 @@ describe("OrdersController", () => {
     expect(h.service.create).toHaveBeenCalledWith(
       principal,
       expect.objectContaining({ idempotencyKey: "key-1" }),
+    );
+  });
+
+  it("passes warehouseId, paymentStatus and collectedAmount through to the service", async () => {
+    const res = fakeResponse();
+    const body = {
+      customerId: "c1",
+      warehouseId: "w1",
+      paymentStatus: "paid",
+      collectedAmount: 35000,
+      items: [{ variantId: "v1", quantity: 1, price: 1000 }],
+    };
+    await h.controller.create(principal, body as never, undefined, res);
+    expect(h.service.create).toHaveBeenCalledWith(
+      principal,
+      expect.objectContaining({ warehouseId: "w1", paymentStatus: "paid", collectedAmount: 35000 }),
     );
   });
 

@@ -748,6 +748,7 @@ model Warehouse {
   transfersOut          StockTransfer[]        @relation("StockTransferFrom")
   transfersIn           StockTransfer[]        @relation("StockTransferTo")
   purchaseOrderReceipts PurchaseOrderReceipt[]
+  orders                Order[]
 
   @@unique([companyId, name], map: "warehouses_company_name_key")
   @@index([companyId, name, id], map: "warehouses_keyset_idx")
@@ -977,6 +978,7 @@ model Order {
   labelId         String?  @map("label_id") @db.Uuid
   reasonId        String?  @map("reason_id") @db.Uuid
   governorateId   String?  @map("governorate_id") @db.Uuid
+  warehouseId     String?  @map("warehouse_id") @db.Uuid
   subtotal        BigInt   @default(0)
   shippingFee     BigInt   @default(0) @map("shipping_fee")
   discount        BigInt   @default(0)
@@ -998,6 +1000,7 @@ model Order {
   label       OrderLabel?  @relation(fields: [labelId], references: [id], onDelete: SetNull)
   reason      OrderReason? @relation(fields: [reasonId], references: [id], onDelete: SetNull)
   governorate Governorate? @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+  warehouse   Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   items        OrderItem[]
   activities   OrderActivity[]
@@ -1014,6 +1017,7 @@ model Order {
   @@index([customerId, createdAt(sort: Desc), id(sort: Desc)], map: "orders_customer_idx")
   @@index([assigneeId], map: "orders_assignee_idx")
   @@index([companyId, assigneeId, createdAt], map: "orders_assignee_analytics_idx")
+  @@index([warehouseId], map: "orders_warehouse_idx")
   @@map("orders")
 }
 

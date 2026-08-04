@@ -1,4 +1,4 @@
-import type { OrderListItem } from "@/features/orders/orders-api";
+import { listOrders, orderStatusCounts, type OrderListItem } from "@/features/orders/orders-api";
 
 const PENDING_STATUSES = ["new", "confirming", "processing", "incomplete"] as const;
 
@@ -63,4 +63,26 @@ export function buildOrdersKpis(input: {
     codToday,
     todayApproximate,
   };
+}
+
+/**
+ * Fetches the three calls `buildOrdersKpis` needs and builds the result — the
+ * one place that owns "today" (local midnight) so every caller (Orders page,
+ * Dashboard) computes the same today's-business-summary from the same query.
+ */
+export async function fetchOrdersKpis(): Promise<OrdersKpis> {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const range = { createdAtFrom: startOfToday.toISOString() };
+  const [all, today, todayOrders] = await Promise.all([
+    orderStatusCounts({}),
+    orderStatusCounts(range),
+    listOrders({ ...range, sort: "-createdAt" }),
+  ]);
+  return buildOrdersKpis({
+    allCounts: all.counts,
+    todayCounts: today.counts,
+    todayOrders: todayOrders.data,
+    todayOrdersHasMore: todayOrders.page.hasMore,
+  });
 }

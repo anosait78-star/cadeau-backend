@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CapabilitiesContext,
@@ -34,9 +35,11 @@ function caps(features: string[], permissions: string[], children: ReactNode): R
 
 function renderPage(features = ["orders"], permissions = ["orders.read", "orders.manage"]) {
   return render(
-    <I18nProvider>
-      <ToastProvider>{caps(features, permissions, <OrdersPage />)}</ToastProvider>
-    </I18nProvider>,
+    <MemoryRouter>
+      <I18nProvider>
+        <ToastProvider>{caps(features, permissions, <OrdersPage />)}</ToastProvider>
+      </I18nProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -160,8 +163,39 @@ describe("OrdersPage", () => {
       const method = init?.method ?? "GET";
       if (url.includes("/master-data/order-labels"))
         return Promise.resolve(json(200, { data: [], page: {} }));
+      if (url.includes("/master-data/governorates"))
+        return Promise.resolve(json(200, { data: [], page: {} }));
+      if (url.includes("/warehouses")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                id: "w1",
+                name: "Main",
+                code: null,
+                address: null,
+                isDefault: true,
+                active: true,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+            page: {},
+          }),
+        );
+      }
       if (url.includes("/orders/status-counts")) return Promise.resolve(json(200, COUNTS));
       if (url.match(/\/orders\/o1\/activity/)) return Promise.resolve(json(200, ACTIVITY));
+      if (url.match(/\/shipping\/carriers$/) && method === "GET") {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              { key: "manual", connected: true, pickupLocationWarning: false, connectedAt: null },
+              { key: "bosta", connected: false, pickupLocationWarning: false, connectedAt: null },
+            ],
+          }),
+        );
+      }
       if (url.match(/\/shipping\/orders\/o1\/shipment$/) && method === "GET") {
         return Promise.resolve(
           shipment === null
@@ -357,6 +391,8 @@ describe("OrdersPage", () => {
     await screen.findByText("#1042");
     await user.click(screen.getByRole("button", { name: "New order" }));
     expect(await screen.findByText("Product / variant")).toBeInTheDocument();
+    // Wait for the async warehouse fetch to resolve and auto-select the default.
+    expect(await screen.findByLabelText("Warehouse")).toHaveValue("w1");
     // Save is disabled with no customer and no lines.
     const saves = screen.getAllByRole("button", { name: "Save" });
     expect(saves[saves.length - 1]).toBeDisabled();
@@ -385,6 +421,9 @@ describe("OrdersPage", () => {
     await screen.findByText("#1042");
     await user.click(screen.getByRole("button", { name: "New order" }));
 
+    // The warehouse auto-selects the company's default.
+    expect(await screen.findByLabelText("Warehouse")).toHaveValue("w1");
+
     // The customer + variant selects populate from the reference fetches.
     const customer = await screen.findByLabelText("Customer");
     await user.selectOptions(customer, "c1");
@@ -401,6 +440,256 @@ describe("OrdersPage", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).match(/\/orders$/) !== null && (i as RequestInit)?.method === "POST",
+    );
+    const body = JSON.parse(String((call?.[1] as RequestInit).body)) as { warehouseId: string };
+    expect(body.warehouseId).toBe("w1");
+  });
+
+  it("blocks submit until a warehouse is chosen when there is no default", async () => {
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/warehouses")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                id: "w1",
+                name: "Main",
+                code: null,
+                address: null,
+                isDefault: false,
+                active: true,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+              {
+                id: "w2",
+                name: "Annex",
+                code: null,
+                address: null,
+                isDefault: false,
+                active: true,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+            page: {},
+          }),
+        );
+      }
+      if (url.includes("/orders/status-counts")) return Promise.resolve(json(200, COUNTS));
+      if (url.includes("/orders") && method === "GET")
+        return Promise.resolve(json(200, ORDERS_PAGE));
+      if (url.includes("/customers")) {
+        return Promise.resolve(
+          json(200, { data: [{ ...ORDER_ROW, id: "c1", name: "Sara" }], page: {} }),
+        );
+      }
+      if (url.match(/\/products\/p1$/)) {
+        return Promise.resolve(
+          json(200, { id: "p1", name: "Shirt", variants: [{ id: "v1", name: "L" }] }),
+        );
+      }
+      if (url.includes("/products")) {
+        return Promise.resolve(json(200, { data: [{ id: "p1", name: "Shirt" }], page: {} }));
+      }
+      return Promise.resolve(json(404, { error: { code: "NOT_FOUND", statusCode: 404 } }));
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    const warehouse = await screen.findByLabelText("Warehouse");
+    expect(warehouse).toHaveValue("");
+
+    const customer = await screen.findByLabelText("Customer");
+    await user.selectOptions(customer, "c1");
+    const variant = await screen.findByLabelText("Product / variant");
+    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
+    await user.selectOptions(variant, "v1");
+    await user.click(screen.getByRole("button", { name: "Add line" }));
+
+    const saves = screen.getAllByRole("button", { name: "Save" });
+    expect(saves[saves.length - 1]).toBeDisabled();
+    await user.selectOptions(warehouse, "w1");
+    expect(saves[saves.length - 1]).not.toBeDisabled();
+  });
+
+  it("shows Paid Amount only for a non-Unpaid status, and validates it against the total", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    const customer = await screen.findByLabelText("Customer");
+    await user.selectOptions(customer, "c1");
+    const variant = await screen.findByLabelText("Product / variant");
+    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
+    await user.selectOptions(variant, "v1");
+    await user.click(screen.getByRole("button", { name: "Add line" }));
+
+    expect(screen.queryByLabelText("Paid amount")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Payment status"), "paid");
+    const paid = await screen.findByLabelText("Paid amount");
+    await user.clear(paid);
+    await user.type(paid, "10");
+
+    const saves = screen.getAllByRole("button", { name: "Save" });
+    expect(saves[saves.length - 1]).toBeDisabled();
+    expect(
+      screen.getByText("Paid amount doesn't match the selected payment status."),
+    ).toBeInTheDocument();
+  });
+
+  it("computes Remaining Amount live as the paid amount and discount change", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    const customer = await screen.findByLabelText("Customer");
+    await user.selectOptions(customer, "c1");
+    const variant = await screen.findByLabelText("Product / variant");
+    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
+    await user.selectOptions(variant, "v1");
+    await user.click(screen.getByRole("button", { name: "Add line" }));
+
+    await user.selectOptions(screen.getByLabelText("Payment status"), "partial");
+    const paid = await screen.findByLabelText("Paid amount");
+    await user.clear(paid);
+    await user.type(paid, "1");
+    const remaining = screen.getByLabelText("Remaining amount");
+    expect(remaining).toHaveValue("-1.00");
+  });
+
+  it("keeps notes optional and sends them when filled", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    const customer = await screen.findByLabelText("Customer");
+    await user.selectOptions(customer, "c1");
+    const variant = await screen.findByLabelText("Product / variant");
+    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
+    await user.selectOptions(variant, "v1");
+    await user.click(screen.getByRole("button", { name: "Add line" }));
+    await user.type(screen.getByLabelText("Notes"), "Deliver after 6pm");
+
+    const saves = screen.getAllByRole("button", { name: "Save" });
+    await user.click(saves[saves.length - 1]!);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/orders$/),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).match(/\/orders$/) !== null && (i as RequestInit)?.method === "POST",
+    );
+    const body = JSON.parse(String((call?.[1] as RequestInit).body)) as { notes: string };
+    expect(body.notes).toBe("Deliver after 6pm");
+  });
+
+  it("creates a new customer inline from the order form", async () => {
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/master-data/governorates"))
+        return Promise.resolve(json(200, { data: [], page: {} }));
+      if (url.includes("/warehouses")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                id: "w1",
+                name: "Main",
+                code: null,
+                address: null,
+                isDefault: true,
+                active: true,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+            page: {},
+          }),
+        );
+      }
+      if (url.includes("/orders/status-counts")) return Promise.resolve(json(200, COUNTS));
+      if (url.includes("/orders") && method === "GET")
+        return Promise.resolve(json(200, ORDERS_PAGE));
+      if (url.match(/\/customers\/new1\/addresses$/) && method === "POST") {
+        return Promise.resolve(
+          json(201, { id: "addr1", customerId: "new1", line: "Cairo, 1 Main St" }),
+        );
+      }
+      if (url.includes("/customers") && method === "POST") {
+        return Promise.resolve(
+          json(201, {
+            id: "new1",
+            name: "Mona",
+            phone: "+201009998888",
+            email: null,
+            notes: null,
+            active: true,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            ordersCount: 0,
+            totalSpent: 0,
+            lastOrderAt: null,
+            addresses: [],
+          }),
+        );
+      }
+      if (url.includes("/customers")) {
+        return Promise.resolve(
+          json(200, { data: [{ ...ORDER_ROW, id: "c1", name: "Sara" }], page: {} }),
+        );
+      }
+      if (url.match(/\/products\/p1$/)) {
+        return Promise.resolve(
+          json(200, { id: "p1", name: "Shirt", variants: [{ id: "v1", name: "L" }] }),
+        );
+      }
+      if (url.includes("/products")) {
+        return Promise.resolve(json(200, { data: [{ id: "p1", name: "Shirt" }], page: {} }));
+      }
+      return Promise.resolve(json(404, { error: { code: "NOT_FOUND", statusCode: 404 } }));
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    await user.click(screen.getByRole("button", { name: "New customer" }));
+    await user.type(await screen.findByLabelText("Name"), "Mona");
+    await user.type(screen.getByLabelText("Phone"), "01009998888");
+    await user.type(screen.getByLabelText("City"), "Cairo");
+    await user.type(screen.getByLabelText("Street address"), "1 Main St");
+    await user.click(screen.getByRole("button", { name: "Save customer" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/customers$/),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/customers\/new1\/addresses$/),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(await screen.findByLabelText("Customer")).toHaveValue("new1");
   });
 
   it("runs deterministic smart-paste and shows the detected fields", async () => {
@@ -447,6 +736,8 @@ describe("OrdersPage", () => {
       expect(await screen.findByText("No shipment yet.")).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Create shipment" }));
+      await screen.findByText("Select a shipping carrier");
+      await user.click(screen.getByRole("button", { name: "Continue" }));
       expect(await screen.findByText("MAN-ABC123")).toBeInTheDocument();
       expect(screen.getByText("manual")).toBeInTheDocument();
     });

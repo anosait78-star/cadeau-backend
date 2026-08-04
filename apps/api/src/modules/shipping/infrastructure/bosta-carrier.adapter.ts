@@ -52,7 +52,11 @@ interface BostaDeliveryResponse {
 }
 
 interface BostaTrackingResponse {
-  readonly data: { readonly trackingNumber: string; readonly maskedState?: string };
+  readonly data: {
+    readonly _id: string;
+    readonly trackingNumber: string;
+    readonly maskedState?: string;
+  };
 }
 
 /**
@@ -174,14 +178,31 @@ export class BostaCarrierAdapter implements CarrierPort {
     return { trackingNumber, carrier: CARRIER };
   }
 
+  /**
+   * Cancels a delivery. Confirmed live against the real Bosta API (2026-08-04,
+   * shipment 6830411263) that v2 has no working cancel route:
+   *   - `PUT deliveries/business/{trackingNumber}/terminate` (the old code) → 404.
+   *   - `DELETE deliveries/{trackingNumber}` → 404.
+   *   - `DELETE deliveries/business/{trackingNumber}` → 500 (route matches but
+   *     Bosta's own handler crashes — not safe to rely on).
+   *   - `DELETE deliveries/{internalId}` on **v2** → 404.
+   * What actually works, matching every official Bosta SDK (bosta-nodejs,
+   * bosta-php, bosta-python): `DELETE deliveries/{internalId}` on **v1**
+   * (`https://app.bosta.co/api/v1/`) → 200
+   * `{"success":true,"message":"Delivery canceled successfully!"}`. Since we
+   * only persist the tracking number, the internal id is resolved first via
+   * the same v2 business-reference lookup `getTracking` already uses.
+   */
   async cancelShipment(companyId: string, trackingNumber: string): Promise<void> {
     const apiKey = await this.requireApiKey(companyId);
-    const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
-    await client.request(
-      "PUT",
-      `deliveries/business/${encodeURIComponent(trackingNumber)}/terminate`,
+    const v2Client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
+    const lookup = await v2Client.request<BostaTrackingResponse>(
+      "GET",
+      `deliveries/business/${encodeURIComponent(trackingNumber)}`,
       apiKey,
     );
+    const v1Client = new BostaHttpClient(this.config.shipping.bostaApiV1BaseUrl);
+    await v1Client.request("DELETE", `deliveries/${encodeURIComponent(lookup.data._id)}`, apiKey);
   }
 
   /** Confirms the pickup-location probe would still work isn't repeated here — just decrypts the stored key. */

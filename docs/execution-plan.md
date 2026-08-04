@@ -164,7 +164,22 @@ preferences screen in the Dual Shell. `stock.low` fan-out is explicitly
 deferred (D7 — no company-wide member-permission broadcast primitive exists
 yet). **EPIC-15 §2.5 gate technical dimensions all PASS, owner approval
 pending** ([epic-15-quality-gate.md](epic-15-quality-gate.md)); domain doc in
-[notifications-domain.md](notifications-domain.md). See
+[notifications-domain.md](notifications-domain.md). **EPIC-16 Part 1
+delivered**: the shared UI infrastructure
+(`apps/web/src/components/{data-grid,detail-panel,confirm-dialog,status-badge,
+table-toolbar,filter-bar,saved-views,toast}`) and its rollout to every
+existing module — Products, Customers, Inventory, Master Data, Finance
+(shell + all 8 sub-tabs), Analytics, Settings/Notifications, Onboarding —
+plus an exhaustive RTL/empty-loading-error-state/accessibility consistency
+pass across all of them (0 hardcoded physical-direction classes found; every
+list-bearing module uses the shared `LoadingState`/`EmptyState`/`ErrorState`
+components). **EPIC-16 Part 1 §2.5 gate technical dimensions all PASS, owner
+approval pending** ([epic-16-quality-gate.md](epic-16-quality-gate.md),
+[epic-16-phase-a-review.md](epic-16-phase-a-review.md),
+[epic-16-phase-c-review.md](epic-16-phase-c-review.md)). **EPIC-16 remains
+open**: its full roadmap definition below also requires a formal WCAG AA
+audit, a penetration test, a pre-deployment security checklist, and P95
+performance verification — none attempted yet (Part 2). See
 [domain-map.md](domain-map.md) for how the delivered modules fit together and
 [project-metrics.md](project-metrics.md) for the numbers.
 
@@ -180,8 +195,9 @@ pending** ([epic-15-quality-gate.md](epic-15-quality-gate.md)); domain doc in
 **No git remote yet** — the owner must create the GitHub repo, `git remote add
 origin <url>`, `git push`. CI runs on push to `main` and on PRs to `main`.
 
-**Test count baseline:** 1602 unit/integration after EPIC-15 (config 46 · web 200
-· crypto 47 · database 71 · api 1238). Keep it growing; never let a gate regress.
+**Test count baseline:** 1806 unit/integration after EPIC-16 Part 1 (config 46
+· web 337 · crypto 47 · database 71 · api 1305), up from 1602 at EPIC-15
+close. Keep it growing; never let a gate regress.
 
 ---
 
@@ -779,6 +795,23 @@ Every Empty/Loading/Error state · full localization + real RTL · perf P95<2s +
 keyset everywhere · WCAG AA · **penetration test** (permission bypass via API) ·
 **pre-deployment security checklist** · verify all launch gates (§31, incl.
 ADR-0001..0004).
+
+**Part 1 ✅ delivered** on `feat/epic-15-notifications`: built the shared UI
+infrastructure (`DataGrid`/`MobileCardList` per ADR-002, `DetailPanel`,
+`ConfirmDialog`, `StatusBadge`, `TableToolbar`, `FilterBar`, `SavedViews`,
+`Toast`) and migrated every existing module onto it — closing the "Every
+Empty/Loading/Error state" and "full localization + real RTL" bullets above
+with an exhaustive audit (0 hardcoded physical-direction Tailwind classes
+across all 9 migrated module directories; every list-bearing module uses the
+shared state components). See
+[epic-16-phase-a-review.md](epic-16-phase-a-review.md) (build),
+[epic-16-phase-c-review.md](epic-16-phase-c-review.md) (final architecture/
+code/UI review), and [epic-16-quality-gate.md](epic-16-quality-gate.md)
+(§2.5 gate, Part 1 scope).
+
+**Part 2 — not started**: perf P95<2s verification, WCAG AA formal audit,
+penetration test, pre-deployment security checklist, and the final §31
+launch-gate sign-off. EPIC-16 does not close until Part 2 lands.
 
 ---
 

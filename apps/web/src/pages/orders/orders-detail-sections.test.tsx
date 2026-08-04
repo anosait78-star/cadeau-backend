@@ -23,6 +23,7 @@ const ORDER_DETAIL: OrderDetail = {
   labelId: null,
   reasonId: null,
   governorateId: null,
+  warehouseId: null,
   itemCount: 1,
   subtotal: 15000,
   shippingFee: 0,

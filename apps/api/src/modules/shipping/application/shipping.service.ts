@@ -29,6 +29,7 @@ import {
 import {
   CarrierAuthError,
   CarrierNotConnectedError,
+  CarrierRejectedError,
   CarrierUnavailableError,
   CodLimitExceededError,
   CustomerAddressMissingError,
@@ -515,6 +516,9 @@ export class ShippingService {
       error instanceof CustomerAddressNotMappedError ||
       error instanceof CodLimitExceededError
     ) {
+      return AppErrors.unprocessable(error.message);
+    }
+    if (error instanceof CarrierRejectedError) {
       return AppErrors.unprocessable(error.message);
     }
     if (error instanceof CarrierUnavailableError) {

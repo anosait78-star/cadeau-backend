@@ -61,6 +61,7 @@ export interface OrderListItem extends OrderMoney {
   readonly labelId: string | null;
   readonly reasonId: string | null;
   readonly governorateId: string | null;
+  readonly warehouseId: string | null;
   readonly itemCount: number;
   readonly statusChangedAt: string;
   readonly createdAt: string;
@@ -107,6 +108,8 @@ export interface ListOptions {
   readonly labelId?: string;
   readonly reasonId?: string;
   readonly governorateId?: string;
+  readonly createdAtFrom?: string;
+  readonly createdAtTo?: string;
   readonly sort?: "-createdAt" | "-updatedAt";
 }
 
@@ -129,6 +132,7 @@ export interface OrderItemInput {
 /** Create-order body. */
 export interface CreateOrderInput {
   readonly customerId: string;
+  readonly warehouseId?: string | null;
   readonly assigneeId?: string | null;
   readonly labelId?: string | null;
   readonly reasonId?: string | null;
@@ -136,6 +140,8 @@ export interface CreateOrderInput {
   readonly followUpState?: FollowUpState;
   readonly shippingFee?: number;
   readonly discount?: number;
+  readonly paymentStatus?: PaymentStatus;
+  readonly collectedAmount?: number;
   readonly notes?: string | null;
   readonly items: OrderItemInput[];
 }

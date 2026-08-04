@@ -26,8 +26,10 @@ import type {
 import {
   FOLLOW_UP_STATES,
   ORDER_STATUSES,
+  PAYMENT_STATUSES,
   type FollowUpState,
   type OrderStatus,
+  type PaymentStatus,
 } from "../../domain/order-status";
 
 /** The most orders one bulk request may touch. */
@@ -57,6 +59,11 @@ export class CreateOrderDto {
   @ApiProperty({ format: "uuid", description: "customers id." })
   @IsUUID()
   customerId!: string;
+
+  @ApiPropertyOptional({ format: "uuid", nullable: true, description: "warehouses id." })
+  @IsOptional()
+  @IsUUID()
+  warehouseId?: string | null;
 
   @ApiPropertyOptional({
     format: "uuid",
@@ -98,6 +105,21 @@ export class CreateOrderDto {
   @IsInt()
   @Min(0)
   discount?: number;
+
+  @ApiPropertyOptional({ enum: PAYMENT_STATUSES, default: "unpaid" })
+  @IsOptional()
+  @IsIn(PAYMENT_STATUSES)
+  paymentStatus?: PaymentStatus;
+
+  @ApiPropertyOptional({
+    example: 0,
+    minimum: 0,
+    description: "COD amount collected at create time, integer minor units.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  collectedAmount?: number;
 
   @ApiPropertyOptional({ nullable: true, maxLength: 2000 })
   @IsOptional()
@@ -357,6 +379,8 @@ export class OrderListItemDto extends OrderMoneyFields {
   reasonId!: string | null;
   @ApiProperty({ format: "uuid", nullable: true })
   governorateId!: string | null;
+  @ApiProperty({ format: "uuid", nullable: true })
+  warehouseId!: string | null;
   @ApiProperty({ example: 3 })
   itemCount!: number;
   @ApiProperty({ format: "date-time" })
@@ -377,6 +401,7 @@ export class OrderListItemDto extends OrderMoneyFields {
     dto.labelId = view.labelId;
     dto.reasonId = view.reasonId;
     dto.governorateId = view.governorateId;
+    dto.warehouseId = view.warehouseId;
     dto.itemCount = view.itemCount;
     dto.subtotal = view.subtotal;
     dto.shippingFee = view.shippingFee;

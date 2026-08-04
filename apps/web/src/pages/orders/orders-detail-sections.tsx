@@ -303,7 +303,15 @@ export function buildOrderDetailSections({
     {
       key: "shipping",
       label: t("orders.detail.tabs.shipping"),
-      content: <ShipmentSection orderId={detail.id} onNotify={onNotify} />,
+      content: (
+        <ShipmentSection
+          orderId={detail.id}
+          customerId={detail.customerId}
+          orderStatus={detail.status}
+          onNotify={onNotify}
+          onOrderPatch={onPatch}
+        />
+      ),
     },
     {
       key: "payments",

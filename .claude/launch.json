@@ -6,6 +6,12 @@
       "runtimeExecutable": "C:\\Users\\yasmi\\AppData\\Roaming\\npm-global\\pnpm.cmd",
       "runtimeArgs": ["--filter", "@cadeau/web", "dev", "--port", "5173", "--strictPort"],
       "port": 5173
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "C:\\Users\\yasmi\\AppData\\Roaming\\npm-global\\pnpm.cmd",
+      "runtimeArgs": ["--filter", "@cadeau/api", "dev"],
+      "port": 3000
     }
   ]
 }

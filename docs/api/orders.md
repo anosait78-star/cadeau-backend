@@ -11,26 +11,27 @@ lists with deep-linking, and a pivotal `collectedAmount`. Follows
 
 ## Resources
 
-- `Order` — header + items + status + `collectedAmount` + label/reason.
+- `Order` — header + items + status + `collectedAmount` + `warehouseId`
+  (create-time only) + label/reason.
 - `OrderItem` — a variant line (qty, price, **cost snapshot** frozen at add time).
 - `OrderActivity` — the append-only activity/audit log for an order.
 
 ## Endpoints (delivered)
 
-| Method | Path                            | Purpose                                      | Permission      |
-| ------ | ------------------------------- | -------------------------------------------- | --------------- |
-| GET    | `/v1/orders`                    | List (keyset + filters + deep-linking).      | `orders.read`   |
-| GET    | `/v1/orders/status-counts`      | Per-status counts for the status tabs.       | `orders.read`   |
-| POST   | `/v1/orders`                    | Create an order. `Idempotency-Key`.          | `orders.manage` |
-| GET    | `/v1/orders/{orderId}`          | Detail (items + money).                      | `orders.read`   |
-| PATCH  | `/v1/orders/{orderId}`          | Edit order fields (incl. `collectedAmount`). | `orders.manage` |
-| POST   | `/v1/orders/{orderId}/status`   | Transition status (state machine).           | `orders.manage` |
-| POST   | `/v1/orders/{orderId}/assign`   | Assign to a member (`null` unassigns).       | `orders.manage` |
-| POST   | `/v1/orders/bulk/status`        | Bulk status change (per-item results).       | `orders.manage` |
-| POST   | `/v1/orders/bulk/assign`        | Bulk assignment (per-item results).          | `orders.manage` |
-| POST   | `/v1/orders/parse`              | Deterministic smart-paste → draft fields.    | `orders.manage` |
-| POST   | `/v1/orders/import`             | Import CSV with column mapping.              | `orders.manage` |
-| GET    | `/v1/orders/{orderId}/activity` | Activity log (keyset).                       | `orders.read`   |
+| Method | Path                            | Purpose                                                                                             | Permission      |
+| ------ | ------------------------------- | --------------------------------------------------------------------------------------------------- | --------------- |
+| GET    | `/v1/orders`                    | List (keyset + filters + deep-linking).                                                             | `orders.read`   |
+| GET    | `/v1/orders/status-counts`      | Per-status counts for the status tabs.                                                              | `orders.read`   |
+| POST   | `/v1/orders`                    | Create an order (now accepts `warehouseId`, `paymentStatus`, `collectedAmount`). `Idempotency-Key`. | `orders.manage` |
+| GET    | `/v1/orders/{orderId}`          | Detail (items + money).                                                                             | `orders.read`   |
+| PATCH  | `/v1/orders/{orderId}`          | Edit order fields (incl. `collectedAmount`).                                                        | `orders.manage` |
+| POST   | `/v1/orders/{orderId}/status`   | Transition status (state machine).                                                                  | `orders.manage` |
+| POST   | `/v1/orders/{orderId}/assign`   | Assign to a member (`null` unassigns).                                                              | `orders.manage` |
+| POST   | `/v1/orders/bulk/status`        | Bulk status change (per-item results).                                                              | `orders.manage` |
+| POST   | `/v1/orders/bulk/assign`        | Bulk assignment (per-item results).                                                                 | `orders.manage` |
+| POST   | `/v1/orders/parse`              | Deterministic smart-paste → draft fields.                                                           | `orders.manage` |
+| POST   | `/v1/orders/import`             | Import CSV with column mapping.                                                                     | `orders.manage` |
+| GET    | `/v1/orders/{orderId}/activity` | Activity log (keyset).                                                                              | `orders.read`   |
 
 **Plus** on the customers module (the inherited EPIC-10 debt, decision D5):
 `GET /v1/customers/{id}/orders`, `POST /v1/customers/merge`, the `hasOrders`
@@ -65,7 +66,17 @@ filter and the `-ordersCount` / `-totalSpent` sorts.
 - **Stock coupling (decision D2):** entering `processing` reserves stock via the
   EPIC-9 path; `shipped` decrements on-hand; a pre-ship cancel/return releases the
   reservation. **Feature-gated** — only when the company's `inventory` feature is
-  on. `stock_reservations.order_id` is now a real FK.
+  on. `stock_reservations.order_id` is now a real FK. `Order.warehouseId`, when set
+  at create, takes precedence over the company's default-warehouse resolution when
+  reserving stock at `processing` (falls back to the prior default-resolution logic
+  when null — fully backward compatible with orders created before this field
+  existed).
+- **Payment at create:** `paymentStatus`/`collectedAmount` may now be supplied on
+  `POST /v1/orders` (previously `PATCH`-only, always `unpaid` on create). Both are
+  optional and default to `unpaid`/`0` when omitted. Cross-validated: `paid`
+  requires `collectedAmount === total`; `partial` requires
+  `0 < collectedAmount < total`; `unpaid` requires `collectedAmount === 0`. A
+  mismatch → `422` on `field: "paymentStatus"`.
 - **Customer KPIs (decision D3)** are recomputed **in the order write
   transaction** — no drift.
 - **Money** is integer minor units; `total = subtotal + shippingFee − discount`;

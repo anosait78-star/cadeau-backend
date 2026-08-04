@@ -44,11 +44,9 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
-  it("boots and renders the home page in Arabic/RTL by default", async () => {
+  it("boots and renders the dashboard in Arabic/RTL by default", async () => {
     render(<App />);
-    expect(
-      await screen.findByRole("heading", { name: "أساس الواجهة الأمامية" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "لوحة التحكم" })).toBeInTheDocument();
     expect(document.documentElement.getAttribute("dir")).toBe("rtl");
   });
 
@@ -67,10 +65,10 @@ describe("App", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
-  it("renders the standard states on the home page", async () => {
+  it("renders the dashboard without any granted capabilities (no widgets, no crash)", async () => {
     render(<App />);
-    expect(await screen.findByText("لا توجد طلبات بعد")).toBeInTheDocument(); // empty
-    expect(screen.getByRole("alert")).toBeInTheDocument(); // error
-    expect(screen.getByRole("status")).toBeInTheDocument(); // loading
+    expect(await screen.findByText("نظرة سريعة على أعمال اليوم.")).toBeInTheDocument();
+    // Every widget is feature/permission-gated — none render without capabilities.
+    expect(screen.queryByText("ملخص أعمال اليوم")).not.toBeInTheDocument();
   });
 });

@@ -4,7 +4,7 @@
  */
 export interface BostaHttpClientPort {
   request<T>(
-    method: "GET" | "POST" | "PUT",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     apiKey?: string,
     body?: unknown,

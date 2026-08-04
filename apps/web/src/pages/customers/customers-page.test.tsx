@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CapabilitiesContext,
@@ -37,9 +38,11 @@ function renderPage(
   permissions = ["customers.read", "customers.manage"],
 ) {
   return render(
-    <I18nProvider>
-      <ToastProvider>{caps(features, permissions, <CustomersPage />)}</ToastProvider>
-    </I18nProvider>,
+    <MemoryRouter>
+      <I18nProvider>
+        <ToastProvider>{caps(features, permissions, <CustomersPage />)}</ToastProvider>
+      </I18nProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -334,6 +337,9 @@ describe("CustomersPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Details" }));
     await screen.findByText("+201001234567");
     await userEvent.click(screen.getByRole("button", { name: "Add address" }));
+
+    const carrierSelect = await screen.findByLabelText("Carrier");
+    await userEvent.selectOptions(carrierSelect, "bosta");
 
     const citySelect = await screen.findByLabelText("Bosta city");
     expect(screen.getByLabelText("Bosta district")).toBeDisabled();

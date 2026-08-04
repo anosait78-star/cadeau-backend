@@ -116,3 +116,17 @@ export function derivePaymentStatus(collectedAmount: number, total: number): Pay
   if (collectedAmount >= total) return "paid";
   return "partial";
 }
+
+/**
+ * Whether a supplied `paymentStatus` is consistent with `collectedAmount` for
+ * this order's `total` (the create-time contract): `paid` requires
+ * `collectedAmount >= total`, `unpaid` requires `collectedAmount <= 0`, and
+ * `partial` requires the amount strictly between the two.
+ */
+export function isConsistentPaymentStatus(
+  status: PaymentStatus,
+  collectedAmount: number,
+  total: number,
+): boolean {
+  return status === derivePaymentStatus(collectedAmount, total);
+}

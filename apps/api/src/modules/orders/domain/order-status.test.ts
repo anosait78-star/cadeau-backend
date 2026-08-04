@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canTransition,
   derivePaymentStatus,
+  isConsistentPaymentStatus,
   isValidFollowUpState,
   isValidStatus,
   nextStates,
@@ -63,5 +64,20 @@ describe("order state machine", () => {
     expect(derivePaymentStatus(400, 1000)).toBe("partial");
     expect(derivePaymentStatus(1000, 1000)).toBe("paid");
     expect(derivePaymentStatus(1200, 1000)).toBe("paid");
+  });
+
+  describe("isConsistentPaymentStatus", () => {
+    it("accepts each status paired with a matching collectedAmount", () => {
+      expect(isConsistentPaymentStatus("unpaid", 0, 1000)).toBe(true);
+      expect(isConsistentPaymentStatus("partial", 400, 1000)).toBe(true);
+      expect(isConsistentPaymentStatus("paid", 1000, 1000)).toBe(true);
+    });
+
+    it("rejects a status that doesn't match the derived one", () => {
+      expect(isConsistentPaymentStatus("paid", 400, 1000)).toBe(false);
+      expect(isConsistentPaymentStatus("unpaid", 400, 1000)).toBe(false);
+      expect(isConsistentPaymentStatus("partial", 0, 1000)).toBe(false);
+      expect(isConsistentPaymentStatus("partial", 1000, 1000)).toBe(false);
+    });
   });
 });

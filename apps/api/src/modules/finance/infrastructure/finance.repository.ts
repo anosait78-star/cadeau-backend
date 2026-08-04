@@ -433,11 +433,11 @@ export class FinanceRepository implements FinanceRepositoryPort {
       const replay = await this.findPoByIdempotencyKey(tx, actor.companyId, data.idempotencyKey);
       if (replay !== null) return { order: this.toDetailView(replay), replayed: true };
 
-      await this.assertSupplier(tx, data.supplierId);
+      await this.assertSupplier(tx, actor.companyId, data.supplierId);
       for (const line of data.lines) {
         if (line.quantityOrdered <= 0) throw new InvalidAmountError("quantityOrdered");
         if (line.unitCost < 0) throw new InvalidAmountError("unitCost");
-        await this.assertVariant(tx, line.variantId);
+        await this.assertVariant(tx, actor.companyId, line.variantId);
       }
 
       const number = await this.issuePoNumber(tx, actor.companyId);
@@ -566,7 +566,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
         resolved.push({ line, quantity });
       }
 
-      await this.assertWarehouse(tx, data.warehouseId);
+      await this.assertWarehouse(tx, actor.companyId, data.warehouseId);
 
       let receiptId: string;
       try {
@@ -755,7 +755,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
       const incurredAt = new Date(data.incurredAt);
       await this.assertPeriodOpen(tx, actor.companyId, incurredAt);
       if (data.supplierId !== undefined && data.supplierId !== null) {
-        await this.assertSupplier(tx, data.supplierId);
+        await this.assertSupplier(tx, actor.companyId, data.supplierId);
       }
 
       let row: ExpenseRow;
@@ -808,7 +808,8 @@ export class FinanceRepository implements FinanceRepositoryPort {
       if (data.amountMinor !== undefined) patch["amountMinor"] = BigInt(data.amountMinor);
       if (data.notes !== undefined) patch["notes"] = data.notes;
       if (data.supplierId !== undefined) {
-        if (data.supplierId !== null) await this.assertSupplier(tx, data.supplierId);
+        if (data.supplierId !== null)
+          await this.assertSupplier(tx, actor.companyId, data.supplierId);
         patch["supplierId"] = data.supplierId;
       }
       if (data.incurredAt !== undefined) {
@@ -1610,22 +1611,25 @@ export class FinanceRepository implements FinanceRepositoryPort {
 
   // ---- internals: references -------------------------------------------------
 
-  private async assertSupplier(tx: Tx, id: string): Promise<void> {
+  private async assertSupplier(tx: Tx, companyId: string, id: string): Promise<void> {
     const found = await tx.supplier.findFirst({
-      where: { id, isActive: true },
+      where: { id, companyId, isActive: true },
       select: { id: true },
     });
     if (found === null) throw new ReferenceNotFoundError("supplierId");
   }
 
-  private async assertVariant(tx: Tx, id: string): Promise<void> {
-    const found = await tx.productVariant.findFirst({ where: { id }, select: { id: true } });
+  private async assertVariant(tx: Tx, companyId: string, id: string): Promise<void> {
+    const found = await tx.productVariant.findFirst({
+      where: { id, companyId },
+      select: { id: true },
+    });
     if (found === null) throw new ReferenceNotFoundError("variantId");
   }
 
-  private async assertWarehouse(tx: Tx, id: string): Promise<void> {
+  private async assertWarehouse(tx: Tx, companyId: string, id: string): Promise<void> {
     const found = await tx.warehouse.findFirst({
-      where: { id, isActive: true },
+      where: { id, companyId, isActive: true },
       select: { id: true },
     });
     if (found === null) throw new ReferenceNotFoundError("warehouseId");

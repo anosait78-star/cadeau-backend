@@ -274,8 +274,8 @@ export class InventoryRepository implements InventoryRepositoryPort {
 
   async setReorderPoint(actor: WriteActor, data: SetReorderPointInput): Promise<StockLevelView> {
     return this.tenantTx(actor.companyId, async (tx) => {
-      await this.assertWarehouse(tx, data.warehouseId);
-      await this.assertVariant(tx, data.variantId);
+      await this.assertWarehouse(tx, actor.companyId, data.warehouseId);
+      await this.assertVariant(tx, actor.companyId, data.variantId);
       const level = await this.ensureLevel(tx, actor, data.warehouseId, data.variantId);
       await tx.inventoryStock.updateMany({
         where: { id: level.id },
@@ -294,8 +294,8 @@ export class InventoryRepository implements InventoryRepositoryPort {
       const replay = await this.findReservationByKey(tx, actor.companyId, data.idempotencyKey);
       if (replay !== null) return { record: replay, effects: [], replayed: true };
 
-      await this.assertWarehouse(tx, data.warehouseId);
-      const allowOversell = await this.assertVariant(tx, data.variantId);
+      await this.assertWarehouse(tx, actor.companyId, data.warehouseId);
+      const allowOversell = await this.assertVariant(tx, actor.companyId, data.variantId);
       const level = await this.ensureLevel(tx, actor, data.warehouseId, data.variantId);
 
       const availableUnits = level.onHand - level.committed;
@@ -389,9 +389,9 @@ export class InventoryRepository implements InventoryRepositoryPort {
       const replay = await this.findTransferByKey(tx, actor.companyId, data.idempotencyKey);
       if (replay !== null) return { record: replay, effects: [], replayed: true };
 
-      await this.assertWarehouse(tx, data.fromWarehouseId, "fromWarehouseId");
-      await this.assertWarehouse(tx, data.toWarehouseId, "toWarehouseId");
-      await this.assertVariant(tx, data.variantId);
+      await this.assertWarehouse(tx, actor.companyId, data.fromWarehouseId, "fromWarehouseId");
+      await this.assertWarehouse(tx, actor.companyId, data.toWarehouseId, "toWarehouseId");
+      await this.assertVariant(tx, actor.companyId, data.variantId);
 
       // Lock both sides in a deterministic order so opposing transfers of the
       // same pair queue up instead of deadlocking.
@@ -434,8 +434,8 @@ export class InventoryRepository implements InventoryRepositoryPort {
       const replay = await this.findAdjustmentByKey(tx, actor.companyId, data.idempotencyKey);
       if (replay !== null) return { record: replay, effects: [], replayed: true };
 
-      await this.assertWarehouse(tx, data.warehouseId);
-      await this.assertVariant(tx, data.variantId);
+      await this.assertWarehouse(tx, actor.companyId, data.warehouseId);
+      await this.assertVariant(tx, actor.companyId, data.variantId);
       const level = await this.ensureLevel(tx, actor, data.warehouseId, data.variantId);
 
       if (level.onHand + data.quantityDelta < 0) {
@@ -574,25 +574,27 @@ export class InventoryRepository implements InventoryRepositoryPort {
 
   // ---- internals: references + idempotency ---------------------------------
 
-  /**
-   * Confirm the warehouse exists and is active under the current RLS context;
-   * RLS guarantees a found row belongs to this company.
-   */
-  private async assertWarehouse(tx: Tx, id: string, field = "warehouseId"): Promise<void> {
+  /** Confirm the warehouse exists, is active, and belongs to this company. */
+  private async assertWarehouse(
+    tx: Tx,
+    companyId: string,
+    id: string,
+    field = "warehouseId",
+  ): Promise<void> {
     const found = await tx.warehouse.findFirst({
-      where: { id, isActive: true },
+      where: { id, companyId, isActive: true },
       select: { id: true },
     });
     if (found === null) throw new ReferenceNotFoundError(field);
   }
 
   /**
-   * Confirm the variant exists under the current RLS context and return its
+   * Confirm the variant exists and belongs to this company, returning its
    * product's oversell policy (EPIC-8 `products.allow_oversell`).
    */
-  private async assertVariant(tx: Tx, id: string): Promise<boolean> {
+  private async assertVariant(tx: Tx, companyId: string, id: string): Promise<boolean> {
     const found = await tx.productVariant.findFirst({
-      where: { id },
+      where: { id, companyId },
       select: { id: true, product: { select: { allowOversell: true } } },
     });
     if (found === null) throw new ReferenceNotFoundError("variantId");

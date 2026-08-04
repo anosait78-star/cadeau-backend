@@ -9,6 +9,8 @@ import type { ShipmentStatusChangeResult, ShipmentView } from "../domain/shipmen
 import type { ShippingAuditPort } from "../domain/shipping-audit.port";
 import type { ShippingRepositoryPort } from "../domain/shipping-repository.port";
 import {
+  CarrierRejectedError,
+  CarrierUnavailableError,
   DuplicateActiveShipmentError,
   DuplicateShipmentError,
   IllegalTransitionError,
@@ -270,6 +272,30 @@ describe("ShippingService", () => {
       expect(h.repo.transition).toHaveBeenCalledWith(expect.anything(), SHIPMENT, {
         toStatus: "cancelled",
         note: "wrong address",
+      });
+    });
+
+    it("maps a carrier's rejection of a cancel to a 422 carrying the carrier's own message", async () => {
+      h.repo.transition.mockRejectedValueOnce(
+        new CarrierRejectedError("bosta", "Cannot terminate a delivered delivery"),
+      );
+      await expect(h.service.cancel(principal(), SHIPMENT)).rejects.toMatchObject({
+        status: 422,
+        response: expect.objectContaining({
+          message: "Cannot terminate a delivered delivery",
+        }),
+      });
+    });
+
+    it("maps a carrier outage during cancel to 503, not a swallowed generic error", async () => {
+      h.repo.transition.mockRejectedValueOnce(
+        new CarrierUnavailableError("bosta", "Bosta did not respond in time."),
+      );
+      await expect(h.service.cancel(principal(), SHIPMENT)).rejects.toMatchObject({
+        status: 503,
+        response: expect.objectContaining({
+          message: "Bosta did not respond in time.",
+        }),
       });
     });
   });

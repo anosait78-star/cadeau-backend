@@ -10,6 +10,7 @@ import type {
   CarrierTrackingInfo,
   CarrierWaybillInfo,
 } from "../domain/carrier.port";
+import { CarrierNotConnectedError } from "../domain/shipping.errors";
 import { BostaCarrierAdapter } from "./bosta-carrier.adapter";
 import { ManualCarrierAdapter } from "./manual-carrier.adapter";
 
@@ -33,7 +34,7 @@ export class CarrierRouter implements CarrierPort {
   ) {}
 
   async createShipment(input: CarrierCreateShipmentInput): Promise<CarrierShipmentHandle> {
-    const adapter = await this.resolve(input.companyId);
+    const adapter = await this.resolve(input.companyId, input.carrier);
     return adapter.createShipment(input);
   }
 
@@ -53,14 +54,31 @@ export class CarrierRouter implements CarrierPort {
   }
 
   /**
-   * Bosta if connected for this company, else the built-in manual carrier.
-   * Known gap: this reflects the company's *current* connection, not the
-   * carrier a specific shipment was actually booked through — cancelling an
-   * old Bosta shipment after disconnecting routes to `manual` (a no-op)
-   * instead of Bosta. Acceptable for now (disconnect-then-cancel is rare and
-   * non-destructive); revisit if it proves to matter.
+   * With an explicit `carrier` (the client's choice from the "select a
+   * carrier" step), dispatch to that carrier — requiring it to actually be
+   * connected rather than silently falling back. Without one (status
+   * transitions, waybills, cancellations — all operate on an *existing*
+   * shipment whose carrier is already fixed), fall back to the legacy
+   * auto-detect: Bosta if connected for this company, else the built-in
+   * manual carrier.
+   *
+   * Known gap: the no-argument path reflects the company's *current*
+   * connection, not the carrier a specific shipment was actually booked
+   * through — cancelling an old Bosta shipment after disconnecting routes to
+   * `manual` (a no-op) instead of Bosta. Acceptable for now
+   * (disconnect-then-cancel is rare and non-destructive); revisit if it
+   * proves to matter.
    */
-  private async resolve(companyId: string): Promise<CarrierPort> {
+  private async resolve(companyId: string, carrier?: string): Promise<CarrierPort> {
+    if (carrier !== undefined) {
+      if (carrier === "manual") return this.manual;
+      if (carrier === "bosta") {
+        const connection = await this.connections.findActive(companyId, "bosta");
+        if (connection === null) throw new CarrierNotConnectedError("bosta");
+        return this.bosta;
+      }
+      throw new CarrierNotConnectedError(carrier);
+    }
     const bostaConnection = await this.connections.findActive(companyId, "bosta");
     return bostaConnection !== null ? this.bosta : this.manual;
   }
