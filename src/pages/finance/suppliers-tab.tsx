@@ -286,9 +286,9 @@ function SupplierForm({
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 pt-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field id="supplier-name" label={`${t("finance.suppliers.field.name")} *`}>
+      <CardContent className="card-padding flex flex-col gap-4 pt-6">
+        <div className="form-gap grid grid-cols-1 sm:grid-cols-2">
+          <Field id="supplier-name" label={t("finance.suppliers.field.name")} required>
             <Input
               id="supplier-name"
               value={name}
@@ -296,7 +296,7 @@ function SupplierForm({
               aria-label={t("finance.suppliers.field.name")}
             />
           </Field>
-          <Field id="supplier-phone" label={t("finance.suppliers.field.phone")}>
+          <Field id="supplier-phone" label={t("finance.suppliers.field.phone")} optional>
             <Input
               id="supplier-phone"
               value={phone}
@@ -304,7 +304,7 @@ function SupplierForm({
               aria-label={t("finance.suppliers.field.phone")}
             />
           </Field>
-          <Field id="supplier-email" label={t("finance.suppliers.field.email")}>
+          <Field id="supplier-email" label={t("finance.suppliers.field.email")} optional>
             <Input
               id="supplier-email"
               type="email"
@@ -313,7 +313,7 @@ function SupplierForm({
               aria-label={t("finance.suppliers.field.email")}
             />
           </Field>
-          <Field id="supplier-taxid" label={t("finance.suppliers.field.taxId")}>
+          <Field id="supplier-taxid" label={t("finance.suppliers.field.taxId")} optional>
             <Input
               id="supplier-taxid"
               value={taxId}
@@ -321,7 +321,7 @@ function SupplierForm({
               aria-label={t("finance.suppliers.field.taxId")}
             />
           </Field>
-          <Field id="supplier-address" label={t("finance.suppliers.field.address")} wide>
+          <Field id="supplier-address" label={t("finance.suppliers.field.address")} optional wide>
             <Input
               id="supplier-address"
               value={address}

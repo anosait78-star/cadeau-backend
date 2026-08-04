@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/states/error-state";
 import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
   createExpense,
@@ -304,9 +305,9 @@ function ExpenseForm({
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 pt-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field id="expense-category" label={`${t("finance.expenses.field.category")} *`}>
+      <CardContent className="card-padding flex flex-col gap-4 pt-6">
+        <div className="form-gap grid grid-cols-1 sm:grid-cols-2">
+          <Field id="expense-category" label={t("finance.expenses.field.category")} required>
             <Input
               id="expense-category"
               value={category}
@@ -314,7 +315,7 @@ function ExpenseForm({
               aria-label={t("finance.expenses.field.category")}
             />
           </Field>
-          <Field id="expense-amount" label={`${t("finance.expenses.field.amount")} *`}>
+          <Field id="expense-amount" label={t("finance.expenses.field.amount")} required>
             <Input
               id="expense-amount"
               type="number"
@@ -325,16 +326,15 @@ function ExpenseForm({
               aria-label={t("finance.expenses.field.amount")}
             />
           </Field>
-          <Field id="expense-date" label={`${t("finance.expenses.field.incurredAt")} *`}>
-            <Input
+          <Field id="expense-date" label={t("finance.expenses.field.incurredAt")} required>
+            <DatePicker
               id="expense-date"
-              type="date"
-              value={incurredAt}
-              onChange={(e) => setIncurredAt(e.target.value)}
-              aria-label={t("finance.expenses.field.incurredAt")}
+              value={incurredAt.length > 0 ? incurredAt : null}
+              onChange={(v) => setIncurredAt(v ?? "")}
+              ariaLabel={t("finance.expenses.field.incurredAt")}
             />
           </Field>
-          <Field id="expense-supplier" label={t("finance.expenses.field.supplier")}>
+          <Field id="expense-supplier" label={t("finance.expenses.field.supplier")} optional>
             <OptionSelect
               id="expense-supplier"
               value={supplierId}
@@ -343,7 +343,7 @@ function ExpenseForm({
               ariaLabel={t("finance.expenses.field.supplier")}
             />
           </Field>
-          <Field id="expense-notes" label={t("finance.expenses.field.notes")} wide>
+          <Field id="expense-notes" label={t("finance.expenses.field.notes")} optional wide>
             <Input
               id="expense-notes"
               value={notes}

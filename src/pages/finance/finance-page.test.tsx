@@ -494,11 +494,10 @@ describe("FinancePage", () => {
     expect(await screen.findByText("PO number #1001")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.selectOptions(
-      screen.getByLabelText("Supplier", { selector: "#po-create-supplier" }),
-      SUPPLIER,
-    );
-    await userEvent.selectOptions(screen.getByLabelText("Variant"), VARIANT);
+    await userEvent.click(screen.getByLabelText("Supplier", { selector: "#po-create-supplier" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Acme Trading" }));
+    await userEvent.click(screen.getByLabelText("Variant"));
+    await userEvent.click(await screen.findByRole("option", { name: "Mug — Small" }));
     await userEvent.type(screen.getByLabelText("Quantity"), "10");
     await userEvent.type(screen.getByLabelText("Unit cost"), "5.00");
     await userEvent.click(screen.getByRole("button", { name: "Add line" }));
@@ -525,7 +524,8 @@ describe("FinancePage", () => {
     await userEvent.click(screen.getByRole("tab", { name: "Purchase orders" }));
     await screen.findByText("PO number #1001");
     await userEvent.click(screen.getByRole("button", { name: "Receive" }));
-    await userEvent.selectOptions(screen.getByLabelText("Warehouse"), WAREHOUSE);
+    await userEvent.click(screen.getByLabelText("Warehouse"));
+    await userEvent.click(await screen.findByRole("option", { name: "Main" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm receipt" }));
     await waitFor(() => {
       const call = fetchMock.mock.calls.find((c) =>
@@ -605,8 +605,8 @@ describe("FinancePage", () => {
       "office",
     );
     await userEvent.type(screen.getByLabelText("Amount"), "10.00");
-    await userEvent.clear(screen.getByLabelText("Date"));
-    await userEvent.type(screen.getByLabelText("Date"), "2026-01-10");
+    // Date defaults to today (already a valid value); the DatePicker is
+    // calendar-only, and the assertion below doesn't check incurredAt.
     await userEvent.type(screen.getByLabelText("Notes"), "Printer paper");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => {
