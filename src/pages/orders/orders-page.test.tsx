@@ -33,6 +33,16 @@ function caps(features: string[], permissions: string[], children: ReactNode): R
   return <CapabilitiesContext value={value}>{children}</CapabilitiesContext>;
 }
 
+/** Open a Combobox by its trigger's accessible name and click a matching option. */
+async function pickCombobox(
+  user: ReturnType<typeof userEvent.setup>,
+  triggerLabel: string,
+  optionName: string,
+): Promise<void> {
+  await user.click(screen.getByLabelText(triggerLabel));
+  await user.click(await screen.findByRole("option", { name: optionName }));
+}
+
 function renderPage(features = ["orders"], permissions = ["orders.read", "orders.manage"]) {
   return render(
     <MemoryRouter>
@@ -392,7 +402,7 @@ describe("OrdersPage", () => {
     await user.click(screen.getByRole("button", { name: "New order" }));
     expect(await screen.findByText("Product / variant")).toBeInTheDocument();
     // Wait for the async warehouse fetch to resolve and auto-select the default.
-    expect(await screen.findByLabelText("Warehouse")).toHaveValue("w1");
+    expect(await screen.findByLabelText("Warehouse")).toHaveTextContent("Main");
     // Save is disabled with no customer and no lines.
     const saves = screen.getAllByRole("button", { name: "Save" });
     expect(saves[saves.length - 1]).toBeDisabled();
@@ -422,14 +432,11 @@ describe("OrdersPage", () => {
     await user.click(screen.getByRole("button", { name: "New order" }));
 
     // The warehouse auto-selects the company's default.
-    expect(await screen.findByLabelText("Warehouse")).toHaveValue("w1");
+    expect(await screen.findByLabelText("Warehouse")).toHaveTextContent("Main");
 
-    // The customer + variant selects populate from the reference fetches.
-    const customer = await screen.findByLabelText("Customer");
-    await user.selectOptions(customer, "c1");
-    const variant = await screen.findByLabelText("Product / variant");
-    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
-    await user.selectOptions(variant, "v1");
+    // The customer + variant comboboxes populate from the reference fetches.
+    await pickCombobox(user, "Customer", "Sara");
+    await pickCombobox(user, "Product / variant", "Shirt — L");
     await user.click(screen.getByRole("button", { name: "Add line" }));
 
     const saves = screen.getAllByRole("button", { name: "Save" });
@@ -503,18 +510,15 @@ describe("OrdersPage", () => {
     await screen.findByText("#1042");
     await user.click(screen.getByRole("button", { name: "New order" }));
     const warehouse = await screen.findByLabelText("Warehouse");
-    expect(warehouse).toHaveValue("");
+    expect(warehouse).toHaveTextContent("—");
 
-    const customer = await screen.findByLabelText("Customer");
-    await user.selectOptions(customer, "c1");
-    const variant = await screen.findByLabelText("Product / variant");
-    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
-    await user.selectOptions(variant, "v1");
+    await pickCombobox(user, "Customer", "Sara");
+    await pickCombobox(user, "Product / variant", "Shirt — L");
     await user.click(screen.getByRole("button", { name: "Add line" }));
 
     const saves = screen.getAllByRole("button", { name: "Save" });
     expect(saves[saves.length - 1]).toBeDisabled();
-    await user.selectOptions(warehouse, "w1");
+    await pickCombobox(user, "Warehouse", "Main");
     expect(saves[saves.length - 1]).not.toBeDisabled();
   });
 
@@ -525,11 +529,8 @@ describe("OrdersPage", () => {
     await user.click(screen.getByRole("button", { name: "New order" }));
     await screen.findByLabelText("Warehouse");
 
-    const customer = await screen.findByLabelText("Customer");
-    await user.selectOptions(customer, "c1");
-    const variant = await screen.findByLabelText("Product / variant");
-    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
-    await user.selectOptions(variant, "v1");
+    await pickCombobox(user, "Customer", "Sara");
+    await pickCombobox(user, "Product / variant", "Shirt — L");
     await user.click(screen.getByRole("button", { name: "Add line" }));
 
     expect(screen.queryByLabelText("Paid amount")).not.toBeInTheDocument();
@@ -553,11 +554,8 @@ describe("OrdersPage", () => {
     await user.click(screen.getByRole("button", { name: "New order" }));
     await screen.findByLabelText("Warehouse");
 
-    const customer = await screen.findByLabelText("Customer");
-    await user.selectOptions(customer, "c1");
-    const variant = await screen.findByLabelText("Product / variant");
-    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
-    await user.selectOptions(variant, "v1");
+    await pickCombobox(user, "Customer", "Sara");
+    await pickCombobox(user, "Product / variant", "Shirt — L");
     await user.click(screen.getByRole("button", { name: "Add line" }));
 
     await user.selectOptions(screen.getByLabelText("Payment status"), "partial");
@@ -575,11 +573,8 @@ describe("OrdersPage", () => {
     await user.click(screen.getByRole("button", { name: "New order" }));
     await screen.findByLabelText("Warehouse");
 
-    const customer = await screen.findByLabelText("Customer");
-    await user.selectOptions(customer, "c1");
-    const variant = await screen.findByLabelText("Product / variant");
-    await waitFor(() => expect(within(variant).getByText("Shirt — L")).toBeInTheDocument());
-    await user.selectOptions(variant, "v1");
+    await pickCombobox(user, "Customer", "Sara");
+    await pickCombobox(user, "Product / variant", "Shirt — L");
     await user.click(screen.getByRole("button", { name: "Add line" }));
     await user.type(screen.getByLabelText("Notes"), "Deliver after 6pm");
 
@@ -689,7 +684,7 @@ describe("OrdersPage", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
-    expect(await screen.findByLabelText("Customer")).toHaveValue("new1");
+    expect(await screen.findByLabelText("Customer")).toHaveTextContent("Mona");
   });
 
   it("runs deterministic smart-paste and shows the detected fields", async () => {
