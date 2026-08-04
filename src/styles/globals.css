@@ -26,8 +26,24 @@
   --success-foreground: #ffffff;
   --warning: #d97706;
   --warning-foreground: #ffffff;
+  --info: #2563eb;
+  --info-foreground: #ffffff;
 
   --radius: 0.5rem;
+
+  /* Spacing scale (§5) */
+  --space-gutter-mobile: 1rem;
+  --space-gutter-desktop: 2rem;
+  --space-section-gap: 2rem;
+  --space-card-padding: 1.5rem;
+  --space-form-gap: 1rem;
+
+  /* Motion tokens (§5) */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-hover: 150ms;
+  --motion-press: 100ms;
+  --motion-dialog: 180ms;
+  --motion-toast: 200ms;
 }
 
 [data-theme="dark"] {
@@ -49,6 +65,8 @@
   --success-foreground: #0b0b0c;
   --warning: #f59e0b;
   --warning-foreground: #0b0b0c;
+  --info: #60a5fa;
+  --info-foreground: #0b0b0c;
 }
 
 /* Expose tokens as Tailwind theme values (utilities like bg-background,
@@ -72,10 +90,57 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
 
+  --radius-xs: calc(var(--radius) - 0.25rem);
   --radius-sm: calc(var(--radius) - 0.125rem);
   --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) + 0.25rem);
+  --radius-lg: calc(var(--radius) + 0.375rem);
+  --radius-full: 9999px;
+
+  /* Shadow / elevation scale (§5) — generates shadow-xs/md/lg utilities */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.2);
+
+  /* Typography scale (§5) — generates text-display/h1/h2/h3/body/caption
+     utilities paired with their line-height. Weight is applied separately
+     via the matching font-weight utility (see .text-* helpers below). */
+  --text-display: 1.75rem;
+  --text-display--line-height: 2.25rem;
+  --text-h1: 1.5rem;
+  --text-h1--line-height: 2rem;
+  --text-h2: 1.25rem;
+  --text-h2--line-height: 1.75rem;
+  --text-h3: 1rem;
+  --text-h3--line-height: 1.5rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.375rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+}
+
+/* Typography scale weights — paired with the text-* size utilities above
+   (Tailwind's generated text-display/h1/... utilities only carry
+   size + line-height, so weight is applied here). */
+.text-display {
+  font-weight: 800;
+}
+.text-h1 {
+  font-weight: 700;
+}
+.text-h2 {
+  font-weight: 700;
+}
+.text-h3 {
+  font-weight: 600;
+}
+.text-body {
+  font-weight: 400;
+}
+.text-caption {
+  font-weight: 500;
 }
 
 html,
@@ -116,4 +181,33 @@ body {
 [cmdk-item][data-disabled="true"] {
   opacity: 0.5;
   pointer-events: none;
+}
+
+/* Spacing scale helpers (§5) — page gutter, section gap, card padding, form
+   field gap, so pages stop improvising their own padding/gap values. */
+.page-gutter {
+  padding-inline: var(--space-gutter-mobile);
+}
+@media (min-width: 1024px) {
+  .page-gutter {
+    padding-inline: var(--space-gutter-desktop);
+  }
+}
+.section-gap {
+  gap: var(--space-section-gap);
+}
+.card-padding {
+  padding: var(--space-card-padding);
+}
+.form-gap {
+  gap: var(--space-form-gap);
+}
+
+/* Global focus-visible ring (§3 Critical). Components that already define
+   their own focus-visible ring (e.g. button.tsx) take precedence via higher
+   selector specificity, so this only fills the gap for elements that don't:
+   custom tabs, nav links, native selects. */
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
