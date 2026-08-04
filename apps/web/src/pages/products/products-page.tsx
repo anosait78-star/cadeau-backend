@@ -11,8 +11,9 @@ import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Combobox } from "@/components/ui/combobox";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { listItems, type MasterDataItem } from "@/features/master-data/master-data-api";
 import {
   archiveProduct,
@@ -44,6 +45,8 @@ type State =
   | { readonly kind: "loading" }
   | { readonly kind: "error" }
   | { readonly kind: "ready"; readonly items: Product[]; readonly nextCursor: string | null };
+
+const DASH = "—";
 
 /**
  * Products — the catalog screen. The whole page is behind the `products`
@@ -520,46 +523,56 @@ function ProductForm({
 
   return (
     <Card>
-      <CardContent className="flex flex-col gap-3 pt-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="product-name">{t("products.field.name")} *</Label>
+      <CardContent className="card-padding flex flex-col gap-4 pt-6">
+        <h3 className="text-h3">{t("products.form.sectionBasic")}</h3>
+        <div className="form-gap grid grid-cols-1 sm:grid-cols-2">
+          <FormField label={t("products.field.name")} htmlFor="product-name" required>
             <Input
               id="product-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               aria-label={t("products.field.name")}
             />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="product-category">{t("products.field.category")}</Label>
-            <RefSelect
+          </FormField>
+          <FormField label={t("products.field.category")} htmlFor="product-category" optional>
+            <Combobox
               id="product-category"
               value={categoryId}
-              options={categories}
+              options={[
+                { value: "", label: DASH },
+                ...categories.map((c) => ({ value: c.id, label: c.name })),
+              ]}
               onChange={setCategoryId}
               ariaLabel={t("products.field.category")}
+              placeholder={DASH}
             />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="product-unit">{t("products.field.unit")}</Label>
-            <RefSelect
+          </FormField>
+          <FormField label={t("products.field.unit")} htmlFor="product-unit" optional>
+            <Combobox
               id="product-unit"
               value={unitId}
-              options={units}
+              options={[
+                { value: "", label: DASH },
+                ...units.map((u) => ({ value: u.id, label: u.name })),
+              ]}
               onChange={setUnitId}
               ariaLabel={t("products.field.unit")}
+              placeholder={DASH}
             />
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <Label htmlFor="product-description">{t("products.field.description")}</Label>
+          </FormField>
+          <FormField
+            label={t("products.field.description")}
+            htmlFor="product-description"
+            optional
+            className="sm:col-span-2"
+          >
             <Input
               id="product-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               aria-label={t("products.field.description")}
             />
-          </div>
+          </FormField>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -617,35 +630,33 @@ function VariantForm({
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="variant-name">{t("products.variant.field.name")} *</Label>
+    <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+      <h3 className="text-h3">{t("products.form.sectionVariant")}</h3>
+      <div className="form-gap grid grid-cols-1 sm:grid-cols-3">
+        <FormField label={t("products.variant.field.name")} htmlFor="variant-name" required>
           <Input
             id="variant-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             aria-label={t("products.variant.field.name")}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="variant-sku">{t("products.variant.field.sku")}</Label>
+        </FormField>
+        <FormField label={t("products.variant.field.sku")} htmlFor="variant-sku" optional>
           <Input
             id="variant-sku"
             value={sku}
             onChange={(e) => setSku(e.target.value)}
             aria-label={t("products.variant.field.sku")}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="variant-barcode">{t("products.variant.field.barcode")}</Label>
+        </FormField>
+        <FormField label={t("products.variant.field.barcode")} htmlFor="variant-barcode" optional>
           <Input
             id="variant-barcode"
             value={barcode}
             onChange={(e) => setBarcode(e.target.value)}
             aria-label={t("products.variant.field.barcode")}
           />
-        </div>
+        </FormField>
       </div>
       {editing ? (
         <label className="flex items-center gap-2 text-sm">
@@ -666,37 +677,5 @@ function VariantForm({
         </Button>
       </div>
     </div>
-  );
-}
-
-/** A select over a reference collection, with a blank (“none”) option. */
-function RefSelect({
-  id,
-  value,
-  options,
-  onChange,
-  ariaLabel,
-}: {
-  id: string;
-  value: string;
-  options: readonly RefOption[];
-  onChange: (value: string) => void;
-  ariaLabel: string;
-}): ReactNode {
-  return (
-    <select
-      id={id}
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-    >
-      <option value="">—</option>
-      {options.map((opt) => (
-        <option key={opt.id} value={opt.id}>
-          {opt.name}
-        </option>
-      ))}
-    </select>
   );
 }
