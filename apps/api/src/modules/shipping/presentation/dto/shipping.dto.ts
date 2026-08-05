@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -83,6 +84,35 @@ export class CreateShipmentDto {
   @IsInt()
   @Min(0)
   goodsValue?: number;
+
+  @ApiPropertyOptional({
+    description: "Overrides the receiver's first name (defaults to the customer's own name).",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  recipientFirstName?: string;
+
+  @ApiPropertyOptional({
+    description: "Overrides the receiver's last name (defaults to the customer's own name).",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  recipientLastName?: string;
+
+  @ApiPropertyOptional({ description: "A second contact number for the receiver." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  recipientPhone2?: string;
+
+  @ApiPropertyOptional({
+    description: "Bosta-specific: lets the receiver open the package before accepting it.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  allowToOpenPackage?: boolean;
 }
 
 /** Bulk-create payload: one shipment per order id. */

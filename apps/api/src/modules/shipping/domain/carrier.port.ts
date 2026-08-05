@@ -19,6 +19,13 @@ export interface CarrierCreateShipmentInput {
   readonly notes?: string;
   /** Declared goods value, integer minor units — folded into the note sent to the carrier (no dedicated field in our schema or confirmed in Bosta's own payload shape). */
   readonly goodsValue?: number;
+  /** Overrides the receiver first/last name otherwise derived from the customer's own name. Entered fresh per shipment — never persisted. */
+  readonly recipientFirstName?: string;
+  readonly recipientLastName?: string;
+  /** A second contact number for the receiver, distinct from the customer's primary phone. Entered fresh per shipment — never persisted. */
+  readonly recipientPhone2?: string;
+  /** Bosta-specific: lets the receiver open the package before accepting/paying for it. Best-effort field name — not confirmed against a live Bosta sandbox. */
+  readonly allowToOpenPackage?: boolean;
 }
 
 /**

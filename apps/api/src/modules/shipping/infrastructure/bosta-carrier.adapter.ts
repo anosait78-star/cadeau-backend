@@ -132,7 +132,11 @@ export class BostaCarrierAdapter implements CarrierPort {
 
     const phone = decrypt(customer.phoneEncrypted, this.config.encryption.key);
     const line = decrypt(address.lineEncrypted, this.config.encryption.key);
-    const [firstName, ...rest] = customer.name.trim().split(/\s+/);
+    const [derivedFirstName, ...derivedRest] = customer.name.trim().split(/\s+/);
+    // Recipient name is entered fresh per shipment (never persisted) and
+    // defaults to a split of the customer's own name when left blank.
+    const receiverFirstName = input.recipientFirstName?.trim() || (derivedFirstName ?? customer.name);
+    const receiverLastName = input.recipientLastName?.trim() || derivedRest.join(" ");
 
     // Best-effort passthrough to Bosta's own "notes" field (not persisted on
     // our side, not confirmed against Bosta's exact payload shape beyond
@@ -153,6 +157,11 @@ export class BostaCarrierAdapter implements CarrierPort {
         type: DELIVERY_TYPE,
         cod: codMinor / 100,
         ...(notes !== undefined ? { notes } : {}),
+        // Best-effort field name (not confirmed against a live Bosta
+        // sandbox) — lets the receiver open the package before accepting it.
+        ...(input.allowToOpenPackage !== undefined
+          ? { allowToOpenPackage: input.allowToOpenPackage }
+          : {}),
         dropOffAddress: {
           city: bostaCityName,
           districtId: bostaDistrictId,
@@ -162,9 +171,14 @@ export class BostaCarrierAdapter implements CarrierPort {
         businessReference: input.orderId,
         uniqueBusinessReference: input.orderId,
         receiver: {
-          firstName: firstName ?? customer.name,
-          ...(rest.length > 0 ? { lastName: rest.join(" ") } : {}),
+          firstName: receiverFirstName,
+          ...(receiverLastName.length > 0 ? { lastName: receiverLastName } : {}),
           phone,
+          // Best-effort field name (not confirmed against a live Bosta
+          // sandbox) for a second contact number.
+          ...(input.recipientPhone2 !== undefined && input.recipientPhone2.trim().length > 0
+            ? { phone2: input.recipientPhone2.trim() }
+            : {}),
         },
       },
     );

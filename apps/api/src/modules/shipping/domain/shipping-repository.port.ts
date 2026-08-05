@@ -30,6 +30,10 @@ export interface CreateShipmentInput {
   readonly bostaDistrictId?: string;
   readonly notes?: string;
   readonly goodsValue?: number;
+  readonly recipientFirstName?: string;
+  readonly recipientLastName?: string;
+  readonly recipientPhone2?: string;
+  readonly allowToOpenPackage?: boolean;
 }
 
 /** A status transition request. */

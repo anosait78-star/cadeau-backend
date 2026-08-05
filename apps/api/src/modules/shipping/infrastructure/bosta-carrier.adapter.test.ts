@@ -182,6 +182,43 @@ describe("BostaCarrierAdapter.createShipment", () => {
     expect(body.notes).toBe("Goods value: 123.45 — Ring the bell twice");
   });
 
+  it("overrides the receiver name/phone2/allowToOpenPackage when given, defaulting to the customer's own name otherwise", async () => {
+    const { adapter } = makeAdapter();
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
+
+    await adapter.createShipment({
+      companyId: COMPANY,
+      orderId: ORDER,
+      recipientFirstName: "Naruto",
+      recipientLastName: "Uzumaki",
+      recipientPhone2: "01099998888",
+      allowToOpenPackage: true,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.receiver).toMatchObject({
+      firstName: "Naruto",
+      lastName: "Uzumaki",
+      phone: "01065685435",
+      phone2: "01099998888",
+    });
+    expect(body.allowToOpenPackage).toBe(true);
+  });
+
+  it("defaults the receiver name to a split of the customer's name when no override is given", async () => {
+    const { adapter } = makeAdapter();
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
+
+    await adapter.createShipment({ companyId: COMPANY, orderId: ORDER });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.receiver).toMatchObject({ firstName: "Sasuke", lastName: "Uchiha" });
+    expect(body.receiver.phone2).toBeUndefined();
+    expect(body.allowToOpenPackage).toBeUndefined();
+  });
+
   it("still ships from the saved address when the input carries no override", async () => {
     const { adapter } = makeAdapter();
     fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));

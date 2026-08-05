@@ -152,6 +152,16 @@ export class ShippingRepository implements ShippingRepositoryPort {
       ...(data.bostaDistrictId !== undefined ? { bostaDistrictId: data.bostaDistrictId } : {}),
       ...(data.notes !== undefined ? { notes: data.notes } : {}),
       ...(data.goodsValue !== undefined ? { goodsValue: data.goodsValue } : {}),
+      ...(data.recipientFirstName !== undefined
+        ? { recipientFirstName: data.recipientFirstName }
+        : {}),
+      ...(data.recipientLastName !== undefined
+        ? { recipientLastName: data.recipientLastName }
+        : {}),
+      ...(data.recipientPhone2 !== undefined ? { recipientPhone2: data.recipientPhone2 } : {}),
+      ...(data.allowToOpenPackage !== undefined
+        ? { allowToOpenPackage: data.allowToOpenPackage }
+        : {}),
     });
 
     return this.tenantTx(actor.companyId, async (tx) => {
