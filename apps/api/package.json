@@ -1,0 +1,43 @@
+{
+  "name": "@cadeau/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cadeau CRM BFF/API — NestJS foundation (config, logging, validation, unified errors, health, OpenAPI).",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "dev": "nest start --watch",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@cadeau/config": "workspace:*",
+    "@cadeau/crypto": "workspace:*",
+    "@cadeau/database": "workspace:*",
+    "@nestjs/common": "11.1.28",
+    "@nestjs/core": "11.1.28",
+    "@nestjs/platform-express": "11.1.28",
+    "@nestjs/swagger": "11.4.6",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "pdfkit": "0.19.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "web-push": "3.6.7"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "11.0.24",
+    "@nestjs/testing": "11.1.28",
+    "@swc/core": "1.15.46",
+    "@types/express": "5.0.6",
+    "@types/pdfkit": "0.17.6",
+    "@types/web-push": "3.6.4",
+    "@types/supertest": "7.2.1",
+    "@vitest/coverage-v8": "4.1.10",
+    "supertest": "7.2.2",
+    "typescript": "5.7.2",
+    "unplugin-swc": "1.5.9",
+    "vitest": "4.1.10"
+  }
+}

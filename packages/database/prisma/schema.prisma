@@ -1,0 +1,1657 @@
+// Cadeau CRM — Prisma schema.
+//
+// M1.4 delivered the database *foundation* (extensions, the multi-tenant RLS
+// context, migrations, seed framework). EPIC-3 adds the security/data-layer
+// foundation: the append-only `audit_log` and the reusable RLS + trigger
+// patterns. EPIC-4 · M4.2 adds the Auth + tenancy tables (profiles, companies,
+// company_members, sessions, invitations). Later domain tables are owned by
+// their epics (Access EPIC-5, Master Data/… EPIC-7+).
+//
+// Objects Prisma cannot model (extensions, functions, RLS policies, triggers)
+// live in hand-written SQL migrations under ./migrations, applied with
+// `prisma migrate deploy`. No preview features are enabled (ADR-001: stable-only),
+// so all models stay in the default `public` schema.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Append-only audit trail (EPIC-3 foundation). Every tenant-scoped, security-
+/// relevant change appends a row here. Tenant-isolated and protected by RLS
+/// (FORCE); rows are never updated or deleted. `actorId` is nullable until Auth
+/// (EPIC-4) provides members; `changes` holds a JSON before/after or payload.
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  changes    Json?
+  requestId  String?  @map("request_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "audit_log_keyset_idx")
+  @@index([companyId, entityType, entityId], map: "audit_log_entity_idx")
+  @@map("audit_log")
+}
+
+/// User account (EPIC-4 · M4.2). Not tenant-scoped — a user exists independently
+/// of companies and may belong to several. `email` is case-insensitive (citext);
+/// `passwordHash` is a self-built hash (@cadeau/crypto); `phoneEncrypted` stores
+/// an AES-256-GCM token (never plaintext PII). RLS scopes rows to the current
+/// principal (`app.current_user_id()`).
+model Profile {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email               String    @unique(map: "profiles_email_key") @db.Citext
+  passwordHash        String    @map("password_hash")
+  fullName            String?   @map("full_name")
+  phoneEncrypted      String?   @map("phone_encrypted")
+  /// AES-256-GCM ciphertext of the base32 TOTP secret (@cadeau/crypto); never plaintext.
+  totpSecretEncrypted String?   @map("totp_secret_encrypted")
+  /// When 2FA was confirmed; NULL ⇒ enrolled-but-unconfirmed or off.
+  totpEnabledAt       DateTime? @map("totp_enabled_at") @db.Timestamptz(6)
+  /// When the account holder requested deletion; NULL ⇒ no pending request.
+  /// A request does not itself erase data — it flags the account for review.
+  deletionRequestedAt DateTime? @map("deletion_requested_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  memberships             CompanyMember[]
+  sessions                Session[]
+  acceptedInvites         Invitation[]              @relation("InvitationAcceptedBy")
+  platformAdmin           PlatformAdmin?
+  assignedOrders          Order[]                   @relation("OrderAssignee")
+  orderActivities         OrderActivity[]            @relation("OrderActivityActor")
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  pushSubscriptions       PushSubscription[]
+
+  @@map("profiles")
+}
+
+/// Tenant (EPIC-4 · M4.2). The tenant root: the tenant key *is* the row id, so
+/// RLS scopes by `id = app.current_company_id()`.
+model Company {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String?  @unique(map: "companies_slug_key") @db.Citext
+  status    String   @default("active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  // Onboarding profile fields (EPIC-16 launch-gate onboarding), all optional at
+  // the DB level — required-ness for company creation is enforced by the DTO.
+  country            String? @db.Text
+  phone              String? @db.Text
+  monthlyOrdersRange String? @map("monthly_orders_range") @db.Text
+  facebookHandle     String? @map("facebook_handle") @db.Text
+  instagramHandle    String? @map("instagram_handle") @db.Text
+  websiteUrl         String? @map("website_url") @db.Text
+  shippingCarrier    String? @map("shipping_carrier") @db.Text
+  /// Dialing prefix prepended to phone numbers for WhatsApp (settings tab).
+  whatsappCountryCode String? @map("whatsapp_country_code") @db.Text
+
+  members                     CompanyMember[]
+  sessions                    Session[]
+  invitations                 Invitation[]
+  subscription                Subscription?
+  featureFlags                CompanyFeatureFlag[]
+  addOns                      AddOn[]
+  memberPermissions           MemberPermission[]
+  units                       Unit[]
+  productCategories           ProductCategory[]
+  orderLabels                 OrderLabel[]
+  orderReasons                OrderReason[]
+  whatsappTemplates           WhatsappTemplate[]
+  shippingZones               ShippingZone[]
+  products                    Product[]
+  productVariants             ProductVariant[]
+  warehouses                  Warehouse[]
+  inventoryStock              InventoryStock[]
+  stockReservations           StockReservation[]
+  stockTransfers              StockTransfer[]
+  stockAdjustments            StockAdjustment[]
+  customers                   Customer[]
+  customerAddresses           CustomerAddress[]
+  orders                      Order[]
+  orderItems                  OrderItem[]
+  orderActivities             OrderActivity[]
+  orderSequence               OrderSequence?
+  shipments                   Shipment[]
+  carrierConnections          CarrierConnection[]
+  shippingWebhookEvents       ShippingWebhookEvent[]
+  suppliers                   Supplier[]
+  purchaseOrderSequence       PurchaseOrderSequence?
+  purchaseOrders              PurchaseOrder[]
+  purchaseOrderLines          PurchaseOrderLine[]
+  purchaseOrderReceipts       PurchaseOrderReceipt[]
+  purchaseOrderReceiptLines   PurchaseOrderReceiptLine[]
+  purchaseOrderPayments       PurchaseOrderPayment[]
+  expenses                    Expense[]
+  taxSettings                 TaxSettings?
+  invoiceSequence             InvoiceSequence?
+  invoices                    Invoice[]
+  invoiceLines                InvoiceLine[]
+  refunds                     Refund[]
+  shippingReconciliations     ShippingReconciliation[]
+  shippingReconciliationLines ShippingReconciliationLine[]
+  accountingPeriods           AccountingPeriod[]
+  notifications                Notification[]
+  notificationPreferences      NotificationPreference[]
+  pushSubscriptions            PushSubscription[]
+  notificationDeliveries       NotificationDelivery[]
+
+  @@map("companies")
+}
+
+/// Membership + role of a user in a company (EPIC-4 · M4.2). Tenant-scoped by
+/// `companyId`. Unique `(companyId, userId)`: a user joins a company at most once.
+model CompanyMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String   @default("member")
+  status    String   @default("active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user        Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions MemberPermission[]
+
+  @@unique([companyId, userId], map: "company_members_company_user_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "company_members_keyset_idx")
+  @@index([userId], map: "company_members_user_idx")
+  @@map("company_members")
+}
+
+/// Refresh-token family per sign-in (EPIC-4 · M4.2). User-owned (RLS by
+/// `userId`), carrying the tenant the token is scoped to. Only the *hash* of the
+/// refresh token is stored; rotation replaces it, reuse detection revokes the
+/// whole `familyId`.
+model Session {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  companyId        String?   @map("company_id") @db.Uuid
+  familyId         String    @default(dbgenerated("gen_random_uuid()")) @map("family_id") @db.Uuid
+  refreshTokenHash String    @unique(map: "sessions_refresh_token_hash_key") @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user    Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)], map: "sessions_user_keyset_idx")
+  @@index([familyId], map: "sessions_family_idx")
+  @@map("sessions")
+}
+
+/// Revocable, expiring invite to join a company (EPIC-4 · M4.2). Tenant-scoped
+/// by `companyId`; only the *hash* of the shareable code is stored.
+model Invitation {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  email      String    @db.Citext
+  role       String    @default("member")
+  codeHash   String    @unique(map: "invitations_code_hash_key") @map("code_hash")
+  status     String    @default("pending")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(6)
+  acceptedBy String?   @map("accepted_by") @db.Uuid
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdBy  String?   @map("created_by") @db.Uuid
+  updatedBy  String?   @map("updated_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  acceptedByUser Profile? @relation("InvitationAcceptedBy", fields: [acceptedBy], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "invitations_keyset_idx")
+  @@index([companyId, email], map: "invitations_email_idx")
+  @@map("invitations")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-5 — Three-Layer Access (ADR-0003). The catalog tables below are SYSTEM
+// reference data (not tenant-scoped): readable by any signed-in user for
+// server-side resolution, written only by the idempotent system seed. The
+// tenant-scoped tables (subscriptions, company_feature_flags, add_ons,
+// member_permissions) carry the base columns + FORCE RLS scoped by company_id.
+// A request is allowed only when Subscription ∧ Feature-Flag ∧ Permission agree.
+// ---------------------------------------------------------------------------
+
+/// Feature catalog (EPIC-5). One row per FEATURE_KEY the product knows about;
+/// adding a module = seeding a key here (no core change — ADR-004). `category`
+/// groups features for the admin surface; `isActive` is a platform-wide kill
+/// switch (a globally-inactive feature is never effective for anyone).
+model Feature {
+  key         String   @id
+  name        String
+  description String?
+  category    String   @default("core")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  planFeatures        PlanFeature[]
+  featurePermissions  FeaturePermission[]
+  companyFeatureFlags CompanyFeatureFlag[]
+  addOns              AddOn[]
+
+  @@map("features")
+}
+
+/// Subscription plan / tier (EPIC-5). System reference data. The plan a company
+/// is on determines its base feature set via {@link PlanFeature}.
+model Plan {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique(map: "plans_code_key")
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  features      PlanFeature[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+/// The features a plan includes (EPIC-5). System reference data.
+model PlanFeature {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId     String @map("plan_id") @db.Uuid
+  featureKey String @map("feature_key")
+
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@unique([planId, featureKey], map: "plan_features_plan_feature_key")
+  @@index([featureKey], map: "plan_features_feature_idx")
+  @@map("plan_features")
+}
+
+/// Permission catalog (EPIC-5). One row per permission key (e.g. `orders.read`).
+/// System reference data; the permission graph edges live in {@link RolePermission}
+/// (template → permission) and {@link FeaturePermission} (feature → permission).
+model Permission {
+  key         String   @id
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  featurePermissions FeaturePermission[]
+  rolePermissions    RolePermission[]
+  memberPermissions  MemberPermission[]
+
+  @@map("permissions")
+}
+
+/// Feature → permission edge (EPIC-5). A permission with a row here is only
+/// effective when its feature is enabled for the company; a permission with no
+/// row is feature-independent (e.g. the core `access.*` permissions).
+model FeaturePermission {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  featureKey    String @map("feature_key")
+  permissionKey String @map("permission_key")
+
+  feature    Feature    @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@unique([featureKey, permissionKey], map: "feature_permissions_feature_permission_key")
+  @@index([permissionKey], map: "feature_permissions_permission_idx")
+  @@map("feature_permissions")
+}
+
+/// Permission template / role preset (EPIC-5). The six system presets (Owner,
+/// Store Manager, Call Center, Warehouse, Finance, Marketing). A member's
+/// `company_members.role` names one of these keys; the base permission set comes
+/// from {@link RolePermission}, refined per-member by {@link MemberPermission}.
+model PermissionTemplate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String   @unique(map: "permission_templates_key_key")
+  name        String
+  description String?
+  isSystem    Boolean  @default(true) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  permissions RolePermission[]
+
+  @@map("permission_templates")
+}
+
+/// Template → permission edge (EPIC-5). The permissions each template grants.
+/// System reference data.
+model RolePermission {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId    String @map("template_id") @db.Uuid
+  permissionKey String @map("permission_key")
+
+  template   PermissionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  permission Permission         @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@unique([templateId, permissionKey], map: "role_permissions_template_permission_key")
+  @@index([permissionKey], map: "role_permissions_permission_idx")
+  @@map("role_permissions")
+}
+
+/// Platform Super-Admin grant (EPIC-5). NOT tenant-scoped — a platform-level
+/// privilege isolated from tenant roles and never carried in a tenant token. The
+/// `SuperAdminGuard` looks a caller up here by user id. Seeded from
+/// `SUPER_ADMIN_EMAILS`; RLS lets a user read only their own grant row.
+model PlatformAdmin {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @unique(map: "platform_admins_user_key") @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("platform_admins")
+}
+
+/// A company's active subscription (EPIC-5). Tenant-scoped by `companyId`
+/// (one per company). Set by a Super-Admin; determines the base feature set.
+model Subscription {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String    @unique(map: "subscriptions_company_key") @map("company_id") @db.Uuid
+  planId           String    @map("plan_id") @db.Uuid
+  status           String    @default("active")
+  currentPeriodEnd DateTime? @map("current_period_end") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@map("subscriptions")
+}
+
+/// Per-company feature override (EPIC-5). Tenant-scoped by `companyId`. A
+/// Super-Admin toggles a feature on/off for a company with no code change; an
+/// explicit `false` disables a feature the plan would otherwise include.
+model CompanyFeatureFlag {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  featureKey String   @map("feature_key")
+  enabled    Boolean  @default(true)
+  createdBy  String?  @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@unique([companyId, featureKey], map: "company_feature_flags_company_feature_key")
+  @@map("company_feature_flags")
+}
+
+/// Feature granted to a company beyond its plan (EPIC-5). Tenant-scoped by
+/// `companyId`. Additive: an add-on enables a feature even when the plan omits it.
+model AddOn {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  featureKey String   @map("feature_key")
+  createdBy  String?  @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@unique([companyId, featureKey], map: "add_ons_company_feature_key")
+  @@map("add_ons")
+}
+
+/// Per-member permission override (EPIC-5). Tenant-scoped by `companyId`. Layered
+/// on top of the member's template (`company_members.role`): `granted = true`
+/// adds a permission, `granted = false` revokes one the template would grant.
+model MemberPermission {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  memberId      String   @map("member_id") @db.Uuid
+  permissionKey String   @map("permission_key")
+  granted       Boolean  @default(true)
+  createdBy     String?  @map("created_by") @db.Uuid
+  updatedBy     String?  @map("updated_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  member     CompanyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  permission Permission    @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@unique([companyId, memberId, permissionKey], map: "member_permissions_member_permission_key")
+  @@index([companyId, memberId], map: "member_permissions_member_idx")
+  @@map("member_permissions")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-7 — Master Data. Shared reference data every later module builds on,
+// served as a cached, authoritative source (feature key `master-data`, gated by
+// the three-layer access model). Two kinds of table:
+//
+//   1. SYSTEM REFERENCE (not tenant-scoped): currencies, country_configs,
+//      governorates. Product reference data — the same in every tenant — written
+//      only by the idempotent system seed and readable by anyone for lookups.
+//      RLS mirrors the EPIC-5 catalog: public SELECT + null-context seed writes.
+//
+//   2. TENANT-EDITABLE (base columns + FORCE RLS by company_id, per
+//      docs/core-data.md §16.2): units, product_categories, order_labels,
+//      order_reasons, shipping_zones. Each company curates its own rows.
+//
+// Deletes are soft (`isActive = false`) so historical references never break.
+// ---------------------------------------------------------------------------
+
+/// Currency (EPIC-7). System reference data (ISO-4217). `code` is the PK; money
+/// elsewhere pairs an integer minor amount with one of these codes.
+model Currency {
+  code          String   @id
+  name          String
+  symbol        String
+  decimalDigits Int      @default(2) @map("decimal_digits")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  countryConfigs CountryConfig[]
+
+  @@map("currencies")
+}
+
+/// Country configuration (EPIC-7). System reference data (ISO-3166 alpha-2).
+/// `code` is the PK; `defaultCurrencyCode` points at the country's currency.
+model CountryConfig {
+  code                String   @id
+  name                String
+  defaultCurrencyCode String   @map("default_currency_code")
+  phoneCode           String   @map("phone_code")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  defaultCurrency Currency      @relation(fields: [defaultCurrencyCode], references: [code], onDelete: Restrict)
+  governorates    Governorate[]
+
+  @@map("country_configs")
+}
+
+/// Governorate / administrative region (EPIC-7). System reference data, one set
+/// per country. Referenced later by shipping zones and addresses.
+model Governorate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  countryCode String   @map("country_code")
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  country CountryConfig @relation(fields: [countryCode], references: [code], onDelete: Cascade)
+
+  addresses CustomerAddress[]
+  orders    Order[]
+
+  @@unique([countryCode, name], map: "governorates_country_name_key")
+  @@index([countryCode, name, id], map: "governorates_keyset_idx")
+  @@map("governorates")
+}
+
+/// Unit of measure (EPIC-7). Tenant-editable. Each company curates its own
+/// units (piece, kg, box, …). Unique per company by name.
+model Unit {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  code      String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([companyId, name], map: "units_company_name_key")
+  @@index([companyId, name, id], map: "units_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "units_created_keyset_idx")
+  @@map("units")
+}
+
+/// Product category (EPIC-7). Tenant-editable, self-nesting via `parentId`.
+model ProductCategory {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  parentId  String?  @map("parent_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children ProductCategory[] @relation("ProductCategoryTree")
+  products Product[]
+
+  @@unique([companyId, name], map: "product_categories_company_name_key")
+  @@index([companyId, name, id], map: "product_categories_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "product_categories_created_keyset_idx")
+  @@index([parentId], map: "product_categories_parent_idx")
+  @@map("product_categories")
+}
+
+/// Order label / tag (EPIC-7). Tenant-editable; `color` is an optional hex swatch.
+model OrderLabel {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  color     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders  Order[]
+
+  @@unique([companyId, name], map: "order_labels_company_name_key")
+  @@index([companyId, name, id], map: "order_labels_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_labels_created_keyset_idx")
+  @@map("order_labels")
+}
+
+/// Order reason (EPIC-7). Tenant-editable. `kind` groups reasons by context
+/// (cancellation / return / general). Unique per company by (kind, name).
+model OrderReason {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  kind      String   @default("general")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders  Order[]
+
+  @@unique([companyId, kind, name], map: "order_reasons_company_kind_name_key")
+  @@index([companyId, name, id], map: "order_reasons_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_reasons_created_keyset_idx")
+  @@map("order_reasons")
+}
+
+/// Reusable WhatsApp message template (settings tab). Tenant-editable.
+model WhatsappTemplate {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  body      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name], map: "whatsapp_templates_company_name_key")
+  @@index([companyId, name, id], map: "whatsapp_templates_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "whatsapp_templates_created_keyset_idx")
+  @@map("whatsapp_templates")
+}
+
+/// Shipping zone (EPIC-7). Tenant-editable grouping used for shipping-fee logic.
+/// `countryCode` optionally anchors the zone to a country config.
+model ShippingZone {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  countryCode String?  @map("country_code")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name], map: "shipping_zones_company_name_key")
+  @@index([companyId, name, id], map: "shipping_zones_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_zones_created_keyset_idx")
+  @@map("shipping_zones")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-8 — Products. The product catalog, built on the EPIC-7 master data
+// (categories, units). Two tenant-editable tables (base columns + FORCE RLS by
+// company_id + `touch_updated_at`). Deletes are soft (archive: `isActive =
+// false`) so historical orders / COGS keep resolving their references.
+// ---------------------------------------------------------------------------
+
+/// Product catalog item (EPIC-8). Tenant-editable. Optionally classified by a
+/// `product_categories` row and measured in a `units` row (both EPIC-7, same
+/// tenant). A product groups one or more sellable {@link ProductVariant}s.
+/// Unique per company by name; archived via `isActive`.
+model Product {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  name          String
+  description   String?
+  categoryId    String?  @map("category_id") @db.Uuid
+  unitId        String?  @map("unit_id") @db.Uuid
+  /// Oversell policy (EPIC-9): when true, reservations may exceed available stock.
+  allowOversell Boolean  @default(false) @map("allow_oversell")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdBy     String?  @map("created_by") @db.Uuid
+  updatedBy     String?  @map("updated_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  unit     Unit?            @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  variants ProductVariant[]
+
+  @@unique([companyId, name], map: "products_company_name_key")
+  @@index([companyId, name, id], map: "products_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "products_created_keyset_idx")
+  @@index([categoryId], map: "products_category_idx")
+  @@index([unitId], map: "products_unit_idx")
+  @@map("products")
+}
+
+/// Product variant / SKU (EPIC-8). A concrete sellable unit under a
+/// {@link Product}. `sku`/`barcode` are unique per company when present.
+/// `averageCost` is the moving-average cost in integer minor units, DERIVED
+/// from receipts (EPIC-13) and never written by API clients; it starts at 0.
+/// `companyId` is denormalized (same tenant as the parent product) so RLS
+/// scopes the row directly. Archived via `isActive`.
+model ProductVariant {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  name        String
+  sku         String?
+  barcode     String?
+  averageCost BigInt   @default(0) @map("average_cost")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  stock              InventoryStock[]
+  reservations       StockReservation[]
+  transfers          StockTransfer[]
+  adjustments        StockAdjustment[]
+  orderItems         OrderItem[]
+  purchaseOrderLines PurchaseOrderLine[]
+
+  @@unique([productId, name], map: "product_variants_product_name_key")
+  @@index([productId, name, id], map: "product_variants_product_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "product_variants_company_keyset_idx")
+  @@map("product_variants")
+}
+
+// ---------------------------------------------------------------------------
+// Inventory & Warehouses (EPIC-9)
+// ---------------------------------------------------------------------------
+
+/// A stock location (EPIC-9). Tenant-editable; archived via `isActive`. Exactly
+/// one warehouse per company may carry `isDefault` (partial unique index).
+model Warehouse {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  code      String?
+  address   String?
+  isDefault Boolean  @default(false) @map("is_default")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stock                 InventoryStock[]
+  reservations          StockReservation[]
+  adjustments           StockAdjustment[]
+  transfersOut          StockTransfer[]        @relation("StockTransferFrom")
+  transfersIn           StockTransfer[]        @relation("StockTransferTo")
+  purchaseOrderReceipts PurchaseOrderReceipt[]
+  orders                Order[]
+
+  @@unique([companyId, name], map: "warehouses_company_name_key")
+  @@index([companyId, name, id], map: "warehouses_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "warehouses_created_keyset_idx")
+  @@map("warehouses")
+}
+
+/// Per-(warehouse, variant) stock level (EPIC-9). `onHand` is physical stock,
+/// `committed` is reserved-but-not-yet-shipped, and `available` is the derived
+/// `onHand - committed` maintained by the `app.sync_stock_available()` trigger
+/// (kept as a real column so it can be filtered, sorted, and indexed).
+/// `reorderPoint` drives the `stock.low` alert.
+model InventoryStock {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  warehouseId  String   @map("warehouse_id") @db.Uuid
+  variantId    String   @map("variant_id") @db.Uuid
+  onHand       BigInt   @default(0) @map("on_hand")
+  committed    BigInt   @default(0)
+  /// Derived (`on_hand - committed`); trigger-maintained, never client-written.
+  available    BigInt   @default(0)
+  reorderPoint BigInt   @default(0) @map("reorder_point")
+  createdBy    String?  @map("created_by") @db.Uuid
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, variantId], map: "inventory_stock_warehouse_variant_key")
+  @@index([companyId, available, id], map: "inventory_stock_available_keyset_idx")
+  @@index([companyId, updatedAt(sort: Desc), id(sort: Desc)], map: "inventory_stock_updated_keyset_idx")
+  @@index([variantId], map: "inventory_stock_variant_idx")
+  @@map("inventory_stock")
+}
+
+/// An outstanding stock commitment (EPIC-9). Created when an order reserves
+/// stock and released when the order ships or is cancelled — both atomic against
+/// {@link InventoryStock.committed}. `status` is `active` or `released`;
+/// `idempotencyKey` makes a retried reserve a replay, not a double-commit.
+model StockReservation {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  warehouseId    String    @map("warehouse_id") @db.Uuid
+  variantId      String    @map("variant_id") @db.Uuid
+  quantity       BigInt
+  /// The order this reservation backs (EPIC-11); real FK now that orders exist.
+  orderId        String?   @map("order_id") @db.Uuid
+  reference      String?
+  status         String    @default("active")
+  releasedAt     DateTime? @map("released_at") @db.Timestamptz(6)
+  idempotencyKey String?   @map("idempotency_key")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  order     Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_reservations_keyset_idx")
+  @@index([orderId], map: "stock_reservations_order_idx")
+  @@index([companyId, status], map: "stock_reservations_status_idx")
+  @@index([variantId], map: "stock_reservations_variant_idx")
+  @@map("stock_reservations")
+}
+
+/// An atomic move of stock between two warehouses (EPIC-9), logged forever.
+model StockTransfer {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  fromWarehouseId String   @map("from_warehouse_id") @db.Uuid
+  toWarehouseId   String   @map("to_warehouse_id") @db.Uuid
+  variantId       String   @map("variant_id") @db.Uuid
+  quantity        BigInt
+  note            String?
+  idempotencyKey  String?  @map("idempotency_key")
+  createdBy       String?  @map("created_by") @db.Uuid
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse      @relation("StockTransferFrom", fields: [fromWarehouseId], references: [id], onDelete: Cascade)
+  toWarehouse   Warehouse      @relation("StockTransferTo", fields: [toWarehouseId], references: [id], onDelete: Cascade)
+  variant       ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_transfers_keyset_idx")
+  @@index([variantId], map: "stock_transfers_variant_idx")
+  @@map("stock_transfers")
+}
+
+/// A counted correction to on-hand stock (EPIC-9), reason-coded and logged.
+/// `quantityDelta` is signed: positive raises on-hand, negative lowers it.
+model StockAdjustment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  warehouseId    String   @map("warehouse_id") @db.Uuid
+  variantId      String   @map("variant_id") @db.Uuid
+  quantityDelta  BigInt   @map("quantity_delta")
+  /// Reason code (`count`, `damage`, `loss`, `return`, `other`).
+  reason         String
+  note           String?
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "stock_adjustments_keyset_idx")
+  @@index([variantId], map: "stock_adjustments_variant_idx")
+  @@map("stock_adjustments")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-10 — Customers. The customer base: a person identified by a phone
+// number, with zero or more delivery addresses. Both tables are tenant-editable
+// (base columns + FORCE RLS by company_id + touch_updated_at).
+//
+// The phone is stored twice and never in plaintext: `phoneEncrypted` is the
+// reversible source of truth, `phoneHash` is the keyed blind index that carries
+// the per-company uniqueness rule and answers exact lookups. See
+// docs/privacy-model.md — that document is binding for every sensitive column.
+// ---------------------------------------------------------------------------
+
+/// A customer (EPIC-10). `phoneHash` is unique per company — the E.164
+/// uniqueness rule — and the KPI columns are DERIVED: EPIC-11 maintains them
+/// once orders exist, and nothing in EPIC-10 writes them.
+model Customer {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  name           String
+  /// AES-256-GCM token of the E.164 phone (@cadeau/crypto); the source of truth.
+  phoneEncrypted String    @map("phone_encrypted")
+  /// HMAC-SHA256 blind index of the same normalized E.164 value (64 hex chars).
+  phoneHash      String    @map("phone_hash")
+  email          String?   @db.Citext
+  notes          String?
+  /// Derived (EPIC-11); read-only, no write path in EPIC-10.
+  ordersCount    Int       @default(0) @map("orders_count")
+  /// Derived (EPIC-11), integer minor units; read-only, no write path in EPIC-10.
+  totalSpent     BigInt    @default(0) @map("total_spent")
+  /// Derived (EPIC-11); read-only, no write path in EPIC-10.
+  lastOrderAt    DateTime? @map("last_order_at") @db.Timestamptz(6)
+  idempotencyKey String?   @map("idempotency_key")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  addresses CustomerAddress[]
+  orders    Order[]
+
+  @@unique([companyId, phoneHash], map: "customers_company_phone_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "customers_created_keyset_idx")
+  @@index([companyId, name, id], map: "customers_name_keyset_idx")
+  @@map("customers")
+}
+
+/// A customer delivery address (EPIC-10). The address line is encrypted: it is
+/// high-sensitivity PII and is never searched, so it needs no blind index.
+/// At most one default per customer (partial unique index).
+model CustomerAddress {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String  @map("company_id") @db.Uuid
+  customerId    String  @map("customer_id") @db.Uuid
+  /// AES-256-GCM token of the address line; never plaintext.
+  lineEncrypted String  @map("line_encrypted")
+  landmark      String?
+  notes         String?
+  governorateId String? @map("governorate_id") @db.Uuid
+  /// Bosta's own city/district ids (real-carrier integration, not our internal governorate).
+  bostaCityId     String? @map("bosta_city_id")
+  bostaDistrictId String? @map("bosta_district_id")
+  /// Bosta's create-delivery API requires the city's display name alongside its id.
+  bostaCityName   String? @map("bosta_city_name")
+  isDefault     Boolean @default(false) @map("is_default")
+  isActive      Boolean @default(true) @map("is_active")
+  createdBy     String? @map("created_by") @db.Uuid
+  updatedBy     String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  governorate Governorate? @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, createdAt(sort: Desc), id(sort: Desc)], map: "customer_addresses_customer_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "customer_addresses_keyset_idx")
+  @@index([governorateId], map: "customer_addresses_governorate_idx")
+  @@map("customer_addresses")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-11 — Orders. The core of the system: a 12-state lifecycle plus a separate
+// follow-up axis, per-order items with frozen cost snapshots (COGS), a per-order
+// append-only activity log, and a pivotal COD `collectedAmount`. All tables are
+// tenant-editable (base columns + FORCE RLS by company_id + touch_updated_at).
+// Money is integer minor units (bigint), never a float.
+// ---------------------------------------------------------------------------
+
+/// An order (EPIC-11). `orderNumber` is a per-company sequential, human-facing
+/// number (issued via {@link OrderSequence}). `status` is one of the 12 lifecycle
+/// states; `followUpState` is an independent axis. Amounts are integer minor
+/// units: `total = subtotal + shippingFee − discount`, and `collectedAmount` is
+/// the COD money actually taken. The customer is pinned (`RESTRICT`); the assignee
+/// and the EPIC-7 label/reason/governorate references soft-detach (`SET NULL`).
+model Order {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  orderNumber     BigInt   @map("order_number")
+  customerId      String   @map("customer_id") @db.Uuid
+  assigneeId      String?  @map("assignee_id") @db.Uuid
+  status          String   @default("new")
+  followUpState   String   @default("none") @map("follow_up_state")
+  labelId         String?  @map("label_id") @db.Uuid
+  reasonId        String?  @map("reason_id") @db.Uuid
+  governorateId   String?  @map("governorate_id") @db.Uuid
+  warehouseId     String?  @map("warehouse_id") @db.Uuid
+  subtotal        BigInt   @default(0)
+  shippingFee     BigInt   @default(0) @map("shipping_fee")
+  discount        BigInt   @default(0)
+  total           BigInt   @default(0)
+  collectedAmount BigInt   @default(0) @map("collected_amount")
+  /// Derived from collected vs total: `unpaid` / `partial` / `paid`.
+  paymentStatus   String   @default("unpaid") @map("payment_status")
+  notes           String?
+  statusChangedAt DateTime @default(now()) @map("status_changed_at") @db.Timestamptz(6)
+  idempotencyKey  String?  @map("idempotency_key")
+  createdBy       String?  @map("created_by") @db.Uuid
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignee    Profile?     @relation("OrderAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  label       OrderLabel?  @relation(fields: [labelId], references: [id], onDelete: SetNull)
+  reason      OrderReason? @relation(fields: [reasonId], references: [id], onDelete: SetNull)
+  governorate Governorate? @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+  warehouse   Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  items        OrderItem[]
+  activities   OrderActivity[]
+  reservations StockReservation[]
+  shipments    Shipment[]
+  invoices     Invoice[]
+  refunds      Refund[]
+
+  @@unique([companyId, orderNumber], map: "orders_company_number_key")
+  @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "orders_created_keyset_idx")
+  @@index([companyId, updatedAt(sort: Desc), id(sort: Desc)], map: "orders_updated_keyset_idx")
+  @@index([companyId, status], map: "orders_status_idx")
+  @@index([customerId, createdAt(sort: Desc), id(sort: Desc)], map: "orders_customer_idx")
+  @@index([assigneeId], map: "orders_assignee_idx")
+  @@index([companyId, assigneeId, createdAt], map: "orders_assignee_analytics_idx")
+  @@index([warehouseId], map: "orders_warehouse_idx")
+  @@map("orders")
+}
+
+/// A line on an order (EPIC-11): a product variant, a quantity, a unit sell
+/// `price`, and a `costSnapshot` — the variant's `averageCost` frozen when the
+/// line was added, so COGS stays stable even as the moving average moves.
+/// `companyId` is denormalized so RLS scopes the row directly.
+model OrderItem {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  variantId    String   @map("variant_id") @db.Uuid
+  nameSnapshot String   @map("name_snapshot")
+  quantity     BigInt
+  price        BigInt   @default(0)
+  costSnapshot BigInt   @default(0) @map("cost_snapshot")
+  createdBy    String?  @map("created_by") @db.Uuid
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@index([orderId], map: "order_items_order_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_items_keyset_idx")
+  @@index([variantId], map: "order_items_variant_idx")
+  @@map("order_items")
+}
+
+/// The append-only activity log of an order (EPIC-11): one row per meaningful
+/// change (created, status_changed, assigned, edited, payment, …). `fromValue`/
+/// `toValue` carry ids/labels only — never customer PII.
+model OrderActivity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  kind      String
+  fromValue String?  @map("from_value")
+  toValue   String?  @map("to_value")
+  note      String?
+  actorId   String?  @map("actor_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor   Profile? @relation("OrderActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt(sort: Desc), id(sort: Desc)], map: "order_activities_order_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_activities_keyset_idx")
+  @@map("order_activities")
+}
+
+/// Per-company monotonic order-number counter (EPIC-11). One row per company;
+/// `UPDATE … RETURNING next_number` under the tenant transaction serializes
+/// number issuance so concurrent creates never collide.
+model OrderSequence {
+  companyId  String   @id @map("company_id") @db.Uuid
+  nextNumber BigInt   @default(1) @map("next_number")
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("order_sequences")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-12 — Shipping. A carrier-abstraction layer (`CarrierPort`, application
+// layer) over the orders delivered in EPIC-11, reusing the `shipping_zones`
+// master data seeded in EPIC-7. Two tenant-editable tables (base columns +
+// FORCE RLS by company_id). The only adapter shipped this epic is
+// `ManualCarrierAdapter` (D1) — `carrier` is `'manual'` today, extensible to
+// real carriers later without a schema change. The inbound-webhook company is
+// resolved from the signed `/v1/shipping/webhooks/{carrier}/{companyId}` path
+// (never from the payload, ADR-0003), so `ShippingWebhookEvent.companyId` is
+// always known synchronously — no RLS bootstrap-window policy needed (D2).
+// ---------------------------------------------------------------------------
+
+/// A dispatched order (EPIC-12): one shipment per order, a carrier + tracking
+/// number, a lifecycle `status`, and a `fee` deducted from the order's
+/// `collectedAmount` at delivery (D4 — simple deduction only; reconciliation is
+/// EPIC-13). The order is PINNED (`RESTRICT`): a shipment always resolves its
+/// order.
+model Shipment {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  orderId        String    @map("order_id") @db.Uuid
+  carrier        String    @default("manual")
+  trackingNumber String    @map("tracking_number")
+  status         String    @default("created")
+  fee            BigInt    @default(0)
+  waybillIssued  Boolean   @default(false) @map("waybill_issued")
+  deliveredAt    DateTime? @map("delivered_at") @db.Timestamptz(6)
+  idempotencyKey String?   @map("idempotency_key")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company             Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order               Order                        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  reconciliationLines ShippingReconciliationLine[]
+
+  @@unique([companyId, carrier, trackingNumber], map: "shipments_company_carrier_tracking_key")
+  @@unique([companyId, idempotencyKey], map: "shipments_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipments_created_keyset_idx")
+  @@index([orderId], map: "shipments_order_idx")
+  @@index([companyId, status], map: "shipments_status_idx")
+  @@map("shipments")
+}
+
+/// A tenant's connection to a real carrier (e.g. Bosta). `apiKeyEncrypted` is
+/// AES-256-GCM ciphertext, never plaintext. `webhookTokenHash` authenticates
+/// inbound webhooks from carriers with no signing scheme of their own — the
+/// raw token is shown once at connect time and never stored.
+model CarrierConnection {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId              String    @map("company_id") @db.Uuid
+  carrier                String
+  apiKeyEncrypted        String    @map("api_key_encrypted")
+  webhookTokenHash       String    @map("webhook_token_hash")
+  pickupLocationWarning  Boolean   @default(false) @map("pickup_location_warning")
+  isActive               Boolean   @default(true) @map("is_active")
+  connectedBy            String?   @map("connected_by") @db.Uuid
+  connectedAt            DateTime  @default(now()) @map("connected_at") @db.Timestamptz(6)
+  createdBy              String?   @map("created_by") @db.Uuid
+  updatedBy              String?   @map("updated_by") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, carrier], map: "carrier_connections_company_carrier_key")
+  @@index([companyId, carrier], map: "carrier_connections_company_idx")
+  @@map("carrier_connections")
+}
+
+/// Durable inbox for inbound carrier webhooks (EPIC-12), keyed
+/// `UNIQUE(carrier, carrierEventId)` so reprocessing the same event is a no-op
+/// (D2). A retry worker processes `pending` rows with exponential backoff
+/// (`attempts` / `nextAttemptAt`); the domain change, audit row, and event
+/// emission happen in one transaction per successful pass.
+model ShippingWebhookEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  carrier        String
+  carrierEventId String    @map("carrier_event_id")
+  payload        Json
+  status         String    @default("pending")
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  processedAt    DateTime? @map("processed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([carrier, carrierEventId], map: "shipping_webhook_events_carrier_event_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_webhook_events_keyset_idx")
+  @@index([status, nextAttemptAt], map: "shipping_webhook_events_pending_idx")
+  @@map("shipping_webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-13 — Finance & Compliance. Suppliers/POs (atomic receipt raises stock
+// and rolls product_variants.average_cost — D7), expenses, tax_settings (D3),
+// invoices (real PDF via pdfkit, D1) + VAT, refunds (mandatory idempotency
+// key), shipping reconciliation (D5), and an atomic sequential monthly close
+// (accounting_periods, D4). Cash center / P&L are computed reads over these
+// tables, not a new ledger (D6). All tables tenant-editable (base columns +
+// FORCE RLS by company_id + touch_updated_at, except append-only child log
+// rows which carry no updated_at/trigger, matching order_activities). Money
+// is integer minor units (bigint), never a float.
+// ---------------------------------------------------------------------------
+
+/// A goods/services supplier (EPIC-13). Simple reference entity; archived via
+/// `isActive`.
+model Supplier {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  taxId     String?  @map("tax_id")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  purchaseOrders PurchaseOrder[]
+  expenses       Expense[]
+
+  @@index([companyId, name, id], map: "suppliers_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "suppliers_created_keyset_idx")
+  @@map("suppliers")
+}
+
+/// Per-company monotonic PO-number counter (EPIC-13), same discipline as
+/// {@link OrderSequence}.
+model PurchaseOrderSequence {
+  companyId  String   @id @map("company_id") @db.Uuid
+  nextNumber BigInt   @default(1) @map("next_number")
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_order_sequences")
+}
+
+/// A purchase order (EPIC-13): draft → ordered → partially_received →
+/// received → cancelled. The supplier is PINNED (`RESTRICT`).
+model PurchaseOrder {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  supplierId     String    @map("supplier_id") @db.Uuid
+  number         BigInt
+  status         String    @default("draft")
+  expectedDate   DateTime? @map("expected_date") @db.Timestamptz(6)
+  notes          String?
+  idempotencyKey String?   @map("idempotency_key")
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier Supplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  lines    PurchaseOrderLine[]
+  receipts PurchaseOrderReceipt[]
+  payments PurchaseOrderPayment[]
+
+  @@unique([companyId, number], map: "purchase_orders_company_number_key")
+  @@unique([companyId, idempotencyKey], map: "purchase_orders_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "purchase_orders_created_keyset_idx")
+  @@index([companyId, status], map: "purchase_orders_status_idx")
+  @@index([supplierId], map: "purchase_orders_supplier_idx")
+  @@map("purchase_orders")
+}
+
+/// A line on a purchase order (EPIC-13): a variant, ordered quantity, running
+/// received quantity, and the unit cost that rolls into `averageCost` on
+/// receipt (D7). The variant is PINNED (`RESTRICT`).
+model PurchaseOrderLine {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  poId             String   @map("po_id") @db.Uuid
+  variantId        String   @map("variant_id") @db.Uuid
+  quantityOrdered  BigInt   @map("quantity_ordered")
+  quantityReceived BigInt   @default(0) @map("quantity_received")
+  unitCost         BigInt   @map("unit_cost")
+  createdBy        String?  @map("created_by") @db.Uuid
+  updatedBy        String?  @map("updated_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company      Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  po           PurchaseOrder              @relation(fields: [poId], references: [id], onDelete: Cascade)
+  variant      ProductVariant             @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  receiptLines PurchaseOrderReceiptLine[]
+
+  @@index([poId], map: "purchase_order_lines_po_idx")
+  @@index([variantId], map: "purchase_order_lines_variant_idx")
+  @@map("purchase_order_lines")
+}
+
+/// An atomic receipt against a PO (EPIC-13): raises `inventory_stock.on_hand`
+/// in `warehouseId`, rolls `product_variants.average_cost`, and appends one
+/// `stock_adjustments` row per line (`reason = 'purchase_receipt'`).
+model PurchaseOrderReceipt {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  poId           String   @map("po_id") @db.Uuid
+  warehouseId    String   @map("warehouse_id") @db.Uuid
+  receivedAt     DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  po        PurchaseOrder              @relation(fields: [poId], references: [id], onDelete: Restrict)
+  warehouse Warehouse                  @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  lines     PurchaseOrderReceiptLine[]
+
+  @@unique([companyId, idempotencyKey], map: "purchase_order_receipts_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "purchase_order_receipts_keyset_idx")
+  @@index([poId], map: "purchase_order_receipts_po_idx")
+  @@map("purchase_order_receipts")
+}
+
+/// A line of a receipt (EPIC-13): the quantity received against one PO line.
+/// Append-only — never updated after insert.
+model PurchaseOrderReceiptLine {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  receiptId String   @map("receipt_id") @db.Uuid
+  poLineId  String   @map("po_line_id") @db.Uuid
+  quantity  BigInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  receipt PurchaseOrderReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poLine  PurchaseOrderLine    @relation(fields: [poLineId], references: [id], onDelete: Restrict)
+
+  @@index([receiptId], map: "purchase_order_receipt_lines_receipt_idx")
+  @@index([poLineId], map: "purchase_order_receipt_lines_po_line_idx")
+  @@map("purchase_order_receipt_lines")
+}
+
+/// A (partial) payment against a purchase order (EPIC-13).
+model PurchaseOrderPayment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  poId           String   @map("po_id") @db.Uuid
+  amountMinor    BigInt   @map("amount_minor")
+  method         String
+  paidAt         DateTime @default(now()) @map("paid_at") @db.Timestamptz(6)
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  po      PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, idempotencyKey], map: "purchase_order_payments_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "purchase_order_payments_keyset_idx")
+  @@index([poId], map: "purchase_order_payments_po_idx")
+  @@map("purchase_order_payments")
+}
+
+/// A unified, categorized expense (EPIC-13). The supplier link is optional and
+/// soft-detaches (`SET NULL`).
+model Expense {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  category       String
+  amountMinor    BigInt   @map("amount_minor")
+  incurredAt     DateTime @default(now()) @map("incurred_at") @db.Timestamptz(6)
+  notes          String?
+  supplierId     String?  @map("supplier_id") @db.Uuid
+  idempotencyKey String?  @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, idempotencyKey], map: "expenses_idempotency_key")
+  @@index([companyId, incurredAt(sort: Desc), id(sort: Desc)], map: "expenses_keyset_idx")
+  @@index([companyId, category], map: "expenses_category_idx")
+  @@index([supplierId], map: "expenses_supplier_idx")
+  @@map("expenses")
+}
+
+/// One row per company: the configured VAT rate (D3), kept off `companies`
+/// (tenancy-owned) so table ownership stays inside the module that uses it.
+model TaxSettings {
+  companyId             String   @id @map("company_id") @db.Uuid
+  vatRateBps            Int      @default(0) @map("vat_rate_bps")
+  vatRegistrationNumber String?  @map("vat_registration_number")
+  updatedBy             String?  @map("updated_by") @db.Uuid
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("tax_settings")
+}
+
+/// Per-company monotonic invoice-number counter (EPIC-13).
+model InvoiceSequence {
+  companyId  String   @id @map("company_id") @db.Uuid
+  nextNumber BigInt   @default(1) @map("next_number")
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_sequences")
+}
+
+/// An official VAT invoice (EPIC-13): a real PDF (pdfkit, D1), issued against
+/// an order or as a manual line-itemized bill (`orderId` nullable).
+/// `vatRateBpsSnapshot` freezes the rate used at issue time.
+model Invoice {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  orderId            String?   @map("order_id") @db.Uuid
+  number             BigInt
+  subtotalMinor      BigInt    @map("subtotal_minor")
+  vatMinor           BigInt    @map("vat_minor")
+  totalMinor         BigInt    @map("total_minor")
+  vatRateBpsSnapshot Int       @map("vat_rate_bps_snapshot")
+  pdfGeneratedAt     DateTime? @map("pdf_generated_at") @db.Timestamptz(6)
+  idempotencyKey     String?   @map("idempotency_key")
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order?        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  lines   InvoiceLine[]
+  refunds Refund[]
+
+  @@unique([companyId, number], map: "invoices_company_number_key")
+  @@unique([companyId, idempotencyKey], map: "invoices_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "invoices_created_keyset_idx")
+  @@index([orderId], map: "invoices_order_idx")
+  @@map("invoices")
+}
+
+/// A line item on an invoice (EPIC-13). Append-only — never updated after insert.
+model InvoiceLine {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  invoiceId      String   @map("invoice_id") @db.Uuid
+  description    String
+  quantity       BigInt
+  unitPriceMinor BigInt   @map("unit_price_minor")
+  lineTotalMinor BigInt   @map("line_total_minor")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId], map: "invoice_lines_invoice_idx")
+  @@map("invoice_lines")
+}
+
+/// A refund (EPIC-13): money out against a prior invoice and/or order.
+/// `idempotencyKey` is MANDATORY — a money-moving, irreversible action.
+model Refund {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  invoiceId      String?  @map("invoice_id") @db.Uuid
+  orderId        String?  @map("order_id") @db.Uuid
+  amountMinor    BigInt   @map("amount_minor")
+  reason         String
+  idempotencyKey String   @map("idempotency_key")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  order   Order?   @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, idempotencyKey], map: "refunds_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "refunds_keyset_idx")
+  @@index([invoiceId], map: "refunds_invoice_idx")
+  @@index([orderId], map: "refunds_order_idx")
+  @@map("refunds")
+}
+
+/// A reconciled carrier statement batch (EPIC-13, D5): matches statement
+/// lines to shipments by tracking number and totals the variance.
+model ShippingReconciliation {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  carrier             String
+  statementRef        String   @map("statement_ref")
+  periodKey           String   @map("period_key")
+  totalStatementMinor BigInt   @map("total_statement_minor")
+  totalFeeMinor       BigInt   @map("total_fee_minor")
+  totalVarianceMinor  BigInt   @map("total_variance_minor")
+  idempotencyKey      String?  @map("idempotency_key")
+  createdBy           String?  @map("created_by") @db.Uuid
+  updatedBy           String?  @map("updated_by") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   ShippingReconciliationLine[]
+
+  @@unique([companyId, idempotencyKey], map: "shipping_reconciliations_idempotency_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_reconciliations_keyset_idx")
+  @@index([companyId, carrier, periodKey], map: "shipping_reconciliations_carrier_period_idx")
+  @@map("shipping_reconciliations")
+}
+
+/// A matched line of a reconciliation (EPIC-13, D5): one shipment's statement
+/// amount vs. its recorded `fee`, with the signed variance. Append-only.
+model ShippingReconciliationLine {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId            String   @map("company_id") @db.Uuid
+  reconciliationId     String   @map("reconciliation_id") @db.Uuid
+  shipmentId           String   @map("shipment_id") @db.Uuid
+  statementAmountMinor BigInt   @map("statement_amount_minor")
+  shipmentFeeMinor     BigInt   @map("shipment_fee_minor")
+  varianceMinor        BigInt   @map("variance_minor")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company        Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reconciliation ShippingReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  shipment       Shipment               @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+
+  @@index([reconciliationId], map: "shipping_reconciliation_lines_reconciliation_idx")
+  @@index([shipmentId], map: "shipping_reconciliation_lines_shipment_idx")
+  @@map("shipping_reconciliation_lines")
+}
+
+/// A monthly accounting period (EPIC-13, D4). Closing is atomic and
+/// sequential: period N can only close once every earlier period with
+/// activity is already closed. Once closed, every finance service rejects a
+/// dated write inside it.
+model AccountingPeriod {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  periodKey String    @map("period_key")
+  status    String    @default("open")
+  closedAt  DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedBy  String?   @map("closed_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, periodKey], map: "accounting_periods_company_period_key")
+  @@index([companyId, periodKey], map: "accounting_periods_keyset_idx")
+  @@map("accounting_periods")
+}
+
+// ---------------------------------------------------------------------------
+// EPIC-15 — Notifications. An in-app inbox (Notification) fed by the EPIC-6
+// event bus (order.status_changed / payment.collected → the order's
+// assignee), per-user per-type channel preferences, registered Web Push
+// endpoints, and a durable outbound delivery queue
+// (NotificationDelivery — the shipping_webhook_events / WebhookRetryWorker
+// shape from EPIC-12, reused verbatim for outbound sends). All four tables
+// tenant-editable (base columns + FORCE RLS by company_id + touch_updated_at);
+// NotificationDelivery additionally splits INSERT/SELECT/UPDATE policies from
+// the start (the retry worker's cross-tenant claim is known up front — see
+// docs/epic-15-design.md D2 and the EPIC-12 M12.4 precedent).
+// ---------------------------------------------------------------------------
+
+/// One in-app notification for one recipient (EPIC-15). System-generated only
+/// (no user-authored broadcast in v1) — `createdBy`/`updatedBy` stay null.
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  profileId String    @map("profile_id") @db.Uuid
+  type      String
+  title     String
+  body      String
+  payload   Json?
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profile    Profile                @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([companyId, profileId, createdAt(sort: Desc), id(sort: Desc)], map: "notifications_recipient_keyset_idx")
+  @@map("notifications")
+}
+
+/// Per-user, per-type, per-channel on/off switches (EPIC-15). A missing row
+/// for a (profile, type) pair means both channels default to enabled.
+model NotificationPreference {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  profileId      String   @map("profile_id") @db.Uuid
+  type           String
+  inAppEnabled   Boolean  @default(true) @map("in_app_enabled")
+  webPushEnabled Boolean  @default(true) @map("web_push_enabled")
+  createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, profileId, type], map: "notification_preferences_recipient_type_key")
+  @@map("notification_preferences")
+}
+
+/// A registered Web Push endpoint (EPIC-15, W3C Push API subscription
+/// object). `endpoint` is globally unique — it identifies one browser
+/// installation, never shared across companies or users.
+model PushSubscription {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  profileId String   @map("profile_id") @db.Uuid
+  endpoint  String
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profile    Profile                @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@unique([endpoint], map: "push_subscriptions_endpoint_key")
+  @@index([companyId, profileId], map: "push_subscriptions_recipient_idx")
+  @@map("push_subscriptions")
+}
+
+/// Durable outbound delivery queue for Web Push sends (EPIC-15, decision D2):
+/// one row per (notification, push subscription). A retry worker processes
+/// `pending`/`failed` rows with exponential backoff — the
+/// `shipping_webhook_events` shape (EPIC-12 M12.4) reused for an outbound
+/// queue instead of an inbound one.
+model NotificationDelivery {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  notificationId     String    @map("notification_id") @db.Uuid
+  pushSubscriptionId String    @map("push_subscription_id") @db.Uuid
+  channel            String    @default("web_push")
+  status             String    @default("pending")
+  attempts           Int       @default(0)
+  nextAttemptAt      DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  lastError          String?   @map("last_error")
+  processedAt        DateTime? @map("processed_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  notification     Notification     @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  pushSubscription PushSubscription @relation(fields: [pushSubscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "notification_deliveries_keyset_idx")
+  @@index([status, nextAttemptAt], map: "notification_deliveries_pending_idx")
+  @@map("notification_deliveries")
+}
