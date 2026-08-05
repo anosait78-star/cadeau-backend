@@ -10,7 +10,7 @@ import { DesktopTopbar } from "./desktop-topbar";
  */
 export function DesktopShell(): ReactNode {
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-muted/40">
       <DesktopSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <DesktopTopbar />

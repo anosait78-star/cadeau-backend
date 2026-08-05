@@ -32,7 +32,6 @@ import {
   type CustomerListItem,
 } from "@/features/customers/customers-api";
 import { listItems, type MasterDataItem } from "@/features/master-data/master-data-api";
-import { CarrierShippingFields } from "@/features/shipping/carrier-shipping-fields";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
@@ -668,16 +667,10 @@ function AddressForm({
   const [active, setActive] = useState(address?.active ?? true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Shipping mapping (Bosta city/district today; carrier-agnostic — see
-  // CarrierShippingFields). BostaCarrierAdapter refuses to ship without a
-  // mapped city/district, deliberately, rather than guessing one.
-  const [carrier, setCarrier] = useState(
-    address !== undefined && address.bostaCityId !== null ? "bosta" : "",
-  );
-  const [bostaCityId, setBostaCityId] = useState(address?.bostaCityId ?? "");
-  const [bostaDistrictId, setBostaDistrictId] = useState(address?.bostaDistrictId ?? "");
-  const [bostaCityName, setBostaCityName] = useState(address?.bostaCityName ?? null);
-
+  // Bosta city/district mapping is no longer collected here — it's entered
+  // once at shipment-creation time instead (SelectCarrierDialog). Omitting
+  // the fields below leaves any existing mapping on the row untouched when
+  // editing; a brand-new address simply has none until a shipment is created.
   const submit = async (): Promise<void> => {
     const body: AddressInput = {
       line: line.trim(),
@@ -687,15 +680,6 @@ function AddressForm({
           ? { landmark: null }
           : {}),
       ...(governorateId.length > 0 ? { governorateId } : editing ? { governorateId: null } : {}),
-      ...(carrier === "bosta"
-        ? {
-            bostaCityId: bostaCityId.length > 0 ? bostaCityId : null,
-            bostaDistrictId: bostaDistrictId.length > 0 ? bostaDistrictId : null,
-            bostaCityName,
-          }
-        : editing
-          ? { bostaCityId: null, bostaDistrictId: null, bostaCityName: null }
-          : {}),
       isDefault,
       ...(editing ? { active } : {}),
     };
@@ -751,16 +735,6 @@ function AddressForm({
           />
         </FormField>
       </div>
-
-      <CarrierShippingFields
-        value={{ carrier, bostaCityId, bostaDistrictId }}
-        onChange={(next) => {
-          setCarrier(next.carrier);
-          setBostaCityId(next.bostaCityId);
-          setBostaDistrictId(next.bostaDistrictId);
-          setBostaCityName(next.bostaCityName);
-        }}
-      />
 
       <label className="flex items-center gap-2 text-sm">
         <input

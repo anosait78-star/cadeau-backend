@@ -1,11 +1,9 @@
 import type { ReactNode } from "react";
-import { PermissionGate } from "@/components/access/permission-gate";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { OrderListItem, OrderStatus } from "@/features/orders/orders-api";
@@ -27,13 +25,18 @@ export const TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> 
   exchanged: [],
 };
 
-/** The "..." row-actions dropdown: open details, transition status. */
+/**
+ * The "..." row-actions dropdown. Deliberately just "Details" — status
+ * changes already have their own dedicated control once an order is open
+ * (and in bulk via the selection toolbar), so this quick row menu doesn't
+ * duplicate the full state machine. `onTransition`/`onCancelRequiresReason`
+ * stay in the prop signature (unused here) so the call site in
+ * `orders-page.tsx` doesn't need to change.
+ */
 export function OrderRowActions({
   order,
   t,
   onOpenDetail,
-  onTransition,
-  onCancelRequiresReason,
 }: {
   order: OrderListItem;
   t: (key: TranslationKey) => string;
@@ -41,8 +44,6 @@ export function OrderRowActions({
   onTransition: (id: string, to: OrderStatus) => void | Promise<void>;
   onCancelRequiresReason: () => void;
 }): ReactNode {
-  const nextStates = TRANSITIONS[order.status];
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -59,28 +60,6 @@ export function OrderRowActions({
         <DropdownMenuItem onSelect={() => onOpenDetail(order)}>
           {t("orders.actions.details")}
         </DropdownMenuItem>
-        <PermissionGate permission="orders.manage">
-          {nextStates.length > 0 ? (
-            <>
-              <DropdownMenuSeparator />
-              {nextStates.map((next) => (
-                <DropdownMenuItem
-                  key={next}
-                  onSelect={() => {
-                    if (next === "cancelled") {
-                      onCancelRequiresReason();
-                      return;
-                    }
-                    void onTransition(order.id, next);
-                  }}
-                >
-                  {t(`orders.actions.transitionTo` as TranslationKey)}{" "}
-                  {t(`orders.status.${next}` as TranslationKey)}
-                </DropdownMenuItem>
-              ))}
-            </>
-          ) : null}
-        </PermissionGate>
       </DropdownMenuContent>
     </DropdownMenu>
   );

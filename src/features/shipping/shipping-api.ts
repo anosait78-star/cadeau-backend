@@ -105,15 +105,57 @@ export async function getShipmentForOrder(orderId: string): Promise<Shipment | n
   }
 }
 
+/** Bosta-specific fields collected in the carrier-select step (no longer collected on the customer/order forms). */
+export interface CreateShipmentBostaFields {
+  readonly bostaCityId?: string;
+  readonly bostaCityName?: string;
+  readonly bostaDistrictId?: string;
+  readonly notes?: string;
+  /** Declared goods value, integer minor units. */
+  readonly goodsValue?: number;
+  /** Overrides the receiver first/last name otherwise derived from the customer's own name. */
+  readonly recipientFirstName?: string;
+  readonly recipientLastName?: string;
+  /** A second contact number for the receiver. */
+  readonly recipientPhone2?: string;
+  /** Lets the receiver open the package before accepting it. */
+  readonly allowToOpenPackage?: boolean;
+}
+
 /**
  * `POST /v1/shipping/shipments` — create a shipment for an order. `carrier`
  * is the client's choice from the carrier-select step; omitted, the server
- * auto-detects (the company's active connection, else `manual`).
+ * auto-detects (the company's active connection, else `manual`). `bosta`
+ * fields are only meaningful when `carrier === "bosta"`.
  */
-export function createShipment(orderId: string, carrier?: string): Promise<Shipment> {
+export function createShipment(
+  orderId: string,
+  carrier?: string,
+  bosta?: CreateShipmentBostaFields,
+): Promise<Shipment> {
   return apiFetch<Shipment>("/shipping/shipments", {
     method: "POST",
-    body: { orderId, ...(carrier !== undefined ? { carrier } : {}) },
+    body: {
+      orderId,
+      ...(carrier !== undefined ? { carrier } : {}),
+      ...(bosta?.bostaCityId !== undefined ? { bostaCityId: bosta.bostaCityId } : {}),
+      ...(bosta?.bostaCityName !== undefined ? { bostaCityName: bosta.bostaCityName } : {}),
+      ...(bosta?.bostaDistrictId !== undefined ? { bostaDistrictId: bosta.bostaDistrictId } : {}),
+      ...(bosta?.notes !== undefined ? { notes: bosta.notes } : {}),
+      ...(bosta?.goodsValue !== undefined ? { goodsValue: bosta.goodsValue } : {}),
+      ...(bosta?.recipientFirstName !== undefined
+        ? { recipientFirstName: bosta.recipientFirstName }
+        : {}),
+      ...(bosta?.recipientLastName !== undefined
+        ? { recipientLastName: bosta.recipientLastName }
+        : {}),
+      ...(bosta?.recipientPhone2 !== undefined
+        ? { recipientPhone2: bosta.recipientPhone2 }
+        : {}),
+      ...(bosta?.allowToOpenPackage !== undefined
+        ? { allowToOpenPackage: bosta.allowToOpenPackage }
+        : {}),
+    },
   });
 }
 
