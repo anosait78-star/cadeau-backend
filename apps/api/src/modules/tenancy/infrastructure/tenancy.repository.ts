@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, type PrismaClient, setTenantContext, setUserContext } from "@cadeau/database";
+import { CUSTOM_ROLE } from "../domain/tenancy-roles";
 import type { TenancyRepositoryPort } from "../domain/tenancy-repository.port";
 import { SlugAlreadyTakenError } from "../domain/tenancy.errors";
 import type {
@@ -7,8 +8,11 @@ import type {
   CompanyRecord,
   InvitationRecord,
   MembershipCompany,
+  MemberView,
   MeProfileRow,
+  RemoveMemberOutcome,
 } from "../domain/tenancy.types";
+import { resolveCapabilities } from "../../../shared/access/capabilities";
 import { TENANCY_PRISMA_CLIENT } from "./prisma-client.provider";
 
 /**
@@ -40,6 +44,7 @@ const INVITATION_SELECT = {
   companyId: true,
   email: true,
   role: true,
+  customPermissionKeys: true,
   status: true,
   expiresAt: true,
   createdAt: true,
@@ -210,6 +215,7 @@ export class TenancyRepository implements TenancyRepositoryPort {
     readonly companyId: string;
     readonly email: string;
     readonly role: string;
+    readonly customPermissionKeys?: readonly string[];
     readonly codeHash: string;
     readonly expiresAt: Date;
     readonly actorId: string;
@@ -221,6 +227,7 @@ export class TenancyRepository implements TenancyRepositoryPort {
           companyId: input.companyId,
           email: input.email,
           role: input.role,
+          customPermissionKeys: [...(input.customPermissionKeys ?? [])],
           codeHash: input.codeHash,
           status: "pending",
           expiresAt: input.expiresAt,
@@ -248,6 +255,111 @@ export class TenancyRepository implements TenancyRepositoryPort {
     return result.count > 0;
   }
 
+  async listInvitations(companyId: string): Promise<InvitationRecord[]> {
+    const rows = await this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+      return tx.invitation.findMany({
+        where: { companyId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 200,
+        select: INVITATION_SELECT,
+      });
+    });
+    return rows.map(toInvitationRecord);
+  }
+
+  async listCompanyAvailablePermissionKeys(companyId: string): Promise<string[]> {
+    return this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+
+      const [subscription, activeFeatures, flags, addOns, allPermissions, featurePermissionEdges] =
+        await Promise.all([
+          tx.subscription.findUnique({
+            where: { companyId },
+            select: { plan: { select: { features: { select: { featureKey: true } } } } },
+          }),
+          tx.feature.findMany({ where: { isActive: true }, select: { key: true } }),
+          tx.companyFeatureFlag.findMany({
+            where: { companyId },
+            select: { featureKey: true, enabled: true },
+          }),
+          tx.addOn.findMany({ where: { companyId }, select: { featureKey: true } }),
+          tx.permission.findMany({ select: { key: true } }),
+          tx.featurePermission.findMany({ select: { featureKey: true, permissionKey: true } }),
+        ]);
+
+      // Reuses the shared, unit-tested three-layer resolver (ADR-0003) with the
+      // FULL permission catalog as the base set instead of one role's template —
+      // this is "everything the company's plan/features make available", not any
+      // one member's grant. `resolveCapabilities` itself is untouched.
+      const caps = resolveCapabilities({
+        planFeatureKeys: (subscription?.plan.features ?? []).map((f) => f.featureKey),
+        activeFeatureKeys: activeFeatures.map((f) => f.key),
+        featureFlags: flags,
+        addOnFeatureKeys: addOns.map((a) => a.featureKey),
+        role: null,
+        rolePermissionKeys: allPermissions.map((p) => p.key),
+        memberPermissions: [],
+        featurePermissionEdges,
+      });
+      return [...caps.permissions];
+    });
+  }
+
+  async listMembers(companyId: string): Promise<MemberView[]> {
+    const rows = await this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+      return tx.companyMember.findMany({
+        where: { companyId, status: "active" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          userId: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          user: { select: { fullName: true, email: true } },
+        },
+      });
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      name: r.user.fullName,
+      email: r.user.email,
+      role: r.role,
+      status: r.status,
+      joinedAt: r.createdAt,
+    }));
+  }
+
+  async removeMember(input: {
+    readonly companyId: string;
+    readonly memberId: string;
+    readonly actorId: string;
+  }): Promise<RemoveMemberOutcome> {
+    return this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, input.companyId);
+      const member = await tx.companyMember.findFirst({
+        where: { id: input.memberId, companyId: input.companyId, status: "active" },
+        select: { id: true, role: true },
+      });
+      if (member === null) {
+        return { kind: "not_found" };
+      }
+      if (member.role === "owner") {
+        const ownerCount = await tx.companyMember.count({
+          where: { companyId: input.companyId, role: "owner", status: "active" },
+        });
+        if (ownerCount <= 1) {
+          return { kind: "last_owner" };
+        }
+      }
+      await tx.companyMember.delete({ where: { id: member.id } });
+      return { kind: "removed" };
+    });
+  }
+
   async acceptInvitationByCode(input: {
     readonly codeHash: string;
     readonly userId: string;
@@ -263,6 +375,7 @@ export class TenancyRepository implements TenancyRepositoryPort {
           companyId: true,
           email: true,
           role: true,
+          customPermissionKeys: true,
           status: true,
           revokedAt: true,
           expiresAt: true,
@@ -289,7 +402,7 @@ export class TenancyRepository implements TenancyRepositoryPort {
       if (existing !== null) {
         return { kind: "already_member", companyId: invite.companyId, role: existing.role };
       }
-      await tx.companyMember.create({
+      const member = await tx.companyMember.create({
         data: {
           companyId: invite.companyId,
           userId: input.userId,
@@ -298,7 +411,24 @@ export class TenancyRepository implements TenancyRepositoryPort {
           createdBy: input.userId,
           updatedBy: input.userId,
         },
+        select: { id: true },
       });
+      // Custom role: grant EXACTLY the invitation's chosen permissions — no
+      // template to inherit from (the member's `role` is the "custom" sentinel,
+      // which resolves to an empty template, so these overrides are the entirety
+      // of their effective permission set).
+      if (invite.role === CUSTOM_ROLE && invite.customPermissionKeys.length > 0) {
+        await tx.memberPermission.createMany({
+          data: invite.customPermissionKeys.map((permissionKey) => ({
+            companyId: invite.companyId,
+            memberId: member.id,
+            permissionKey,
+            granted: true,
+            createdBy: input.userId,
+            updatedBy: input.userId,
+          })),
+        });
+      }
       await tx.invitation.updateMany({
         where: { id: invite.id, status: "pending" },
         data: { status: "accepted", acceptedAt: new Date(), acceptedBy: input.userId },
@@ -332,6 +462,7 @@ function toInvitationRecord(row: InvitationRow): InvitationRecord {
     companyId: row.companyId,
     email: row.email,
     role: row.role,
+    customPermissionKeys: row.customPermissionKeys,
     status: row.status,
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,

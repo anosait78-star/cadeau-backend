@@ -208,6 +208,10 @@ model Invitation {
   companyId  String    @map("company_id") @db.Uuid
   email      String    @db.Citext
   role       String    @default("member")
+  /// Permission keys for a one-off "custom" role (Team/Invitations, EPIC-15). Only
+  /// populated when `role = "custom"`; belongs to this invitation alone — never a
+  /// reusable role. Empty for invitations issued against a fixed template key.
+  customPermissionKeys String[] @default([]) @map("custom_permission_keys")
   codeHash   String    @unique(map: "invitations_code_hash_key") @map("code_hash")
   status     String    @default("pending")
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)

@@ -167,7 +167,8 @@ describe("TenancyController", () => {
         id: randomUUID(),
         companyId,
         email: "t@test.dev",
-        role: "member",
+        role: "store_manager",
+        customPermissionKeys: [],
         status: "pending",
         expiresAt: new Date(),
         createdAt: new Date(),
@@ -176,12 +177,47 @@ describe("TenancyController", () => {
     };
     const createInvitation = vi.fn().mockResolvedValue(created);
     const controller = make({ createInvitation });
-    const dto = await controller.createInvitation(PRINCIPAL, companyId, { email: "t@test.dev" });
+    const dto = await controller.createInvitation(PRINCIPAL, companyId, {
+      email: "t@test.dev",
+      role: "store_manager",
+    });
     expect(createInvitation).toHaveBeenCalledWith(PRINCIPAL, companyId, {
       email: "t@test.dev",
-      role: "member",
+      role: "store_manager",
+      permissionKeys: undefined,
     });
     expect(dto.code).toBe("secret-code");
+    expect(dto.role).toBe("store_manager");
+  });
+
+  it("POST invitations passes permissionKeys through for a custom role", async () => {
+    const companyId = randomUUID();
+    const created: CreatedInvitation = {
+      invitation: {
+        id: randomUUID(),
+        companyId,
+        email: "t@test.dev",
+        role: "custom",
+        customPermissionKeys: ["orders.read"],
+        status: "pending",
+        expiresAt: new Date(),
+        createdAt: new Date(),
+      },
+      code: "secret-code",
+    };
+    const createInvitation = vi.fn().mockResolvedValue(created);
+    const controller = make({ createInvitation });
+    const dto = await controller.createInvitation(PRINCIPAL, companyId, {
+      email: "t@test.dev",
+      role: "custom",
+      permissionKeys: ["orders.read"],
+    });
+    expect(createInvitation).toHaveBeenCalledWith(PRINCIPAL, companyId, {
+      email: "t@test.dev",
+      role: "custom",
+      permissionKeys: ["orders.read"],
+    });
+    expect(dto.permissionKeys).toEqual(["orders.read"]);
   });
 
   it("DELETE invitations delegates the revoke", async () => {
@@ -191,6 +227,56 @@ describe("TenancyController", () => {
     const controller = make({ revokeInvitation });
     await controller.revokeInvitation(PRINCIPAL, companyId, invitationId);
     expect(revokeInvitation).toHaveBeenCalledWith(PRINCIPAL, companyId, invitationId);
+  });
+
+  it("GET invitations delegates and lists them", async () => {
+    const companyId = randomUUID();
+    const listInvitations = vi.fn().mockResolvedValue([
+      {
+        id: randomUUID(),
+        companyId,
+        email: "t@test.dev",
+        role: "custom",
+        customPermissionKeys: ["orders.read"],
+        status: "pending",
+        expiresAt: new Date(),
+        createdAt: new Date(),
+      },
+    ]);
+    const controller = make({ listInvitations });
+    const dto = await controller.listInvitations(PRINCIPAL, companyId);
+    expect(listInvitations).toHaveBeenCalledWith(PRINCIPAL, companyId);
+    expect(dto.data).toHaveLength(1);
+    expect(dto.data[0]).toMatchObject({ role: "custom", permissionKeys: ["orders.read"] });
+  });
+
+  it("GET members delegates and lists them", async () => {
+    const companyId = randomUUID();
+    const listMembers = vi.fn().mockResolvedValue([
+      {
+        id: randomUUID(),
+        userId: randomUUID(),
+        name: "Jane",
+        email: "jane@test.dev",
+        role: "owner",
+        status: "active",
+        joinedAt: new Date(),
+      },
+    ]);
+    const controller = make({ listMembers });
+    const dto = await controller.listMembers(PRINCIPAL, companyId);
+    expect(listMembers).toHaveBeenCalledWith(PRINCIPAL, companyId);
+    expect(dto.data).toHaveLength(1);
+    expect(dto.data[0]).toMatchObject({ name: "Jane", email: "jane@test.dev", role: "owner" });
+  });
+
+  it("DELETE members delegates the removal", async () => {
+    const companyId = randomUUID();
+    const memberId = randomUUID();
+    const removeMember = vi.fn().mockResolvedValue(undefined);
+    const controller = make({ removeMember });
+    await controller.removeMember(PRINCIPAL, companyId, memberId);
+    expect(removeMember).toHaveBeenCalledWith(PRINCIPAL, companyId, memberId);
   });
 
   it("POST invitations/accept returns the join outcome", async () => {

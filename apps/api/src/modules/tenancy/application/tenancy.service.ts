@@ -13,10 +13,12 @@ import { CLOCK, type Clock } from "../../../shared/time/clock";
 import { TENANCY_AUDIT, type TenancyAuditPort } from "../domain/tenancy-audit.port";
 import { TENANCY_REPOSITORY, type TenancyRepositoryPort } from "../domain/tenancy-repository.port";
 import { SlugAlreadyTakenError } from "../domain/tenancy.errors";
+import { CUSTOM_ROLE, OWNER_ROLE } from "../domain/tenancy-roles";
 import type {
   CompanyRecord,
   InvitationRecord,
   MembershipCompany,
+  MemberView,
   MeView,
 } from "../domain/tenancy.types";
 
@@ -162,18 +164,46 @@ export class TenancyService {
     return company;
   }
 
-  /** Invite a member to the caller's active company. Returns the one-time code. */
+  /**
+   * Invite a member to the caller's active company. Returns the one-time code.
+   * The route itself requires `access.manage` (controller guard); this method
+   * additionally enforces:
+   *
+   * - **Owner invitations**: the permission catalog has no dedicated "manage
+   *   owners" capability — `access.manage` is the same single gate used for
+   *   every other role. Granting a brand-new Owner is irreversible-by-a-lesser-
+   *   role and strictly more sensitive than any other template, so — in the
+   *   absence of a purpose-built permission — the safest rule available from
+   *   the existing model is enforced here: only a caller whose OWN active
+   *   membership role is already `"owner"` may invite another Owner. This is a
+   *   deliberate, documented gap-fill, not a new permission in the catalog.
+   * - **Custom role**: grants exactly `permissionKeys` for this invitation
+   *   alone — never a reusable role. The chosen keys are re-validated here
+   *   against what the company's plan/features actually make available; the
+   *   caller's payload is never trusted as-is (defense in depth alongside any
+   *   DTO-level shape checks).
+   */
   async createInvitation(
     principal: RequestPrincipal,
     companyId: string,
-    input: { readonly email: string; readonly role: string },
+    input: {
+      readonly email: string;
+      readonly role: string;
+      readonly permissionKeys?: readonly string[];
+    },
   ): Promise<CreatedInvitation> {
-    await this.assertActiveTenant(principal, companyId);
+    const membership = await this.assertActiveTenant(principal, companyId);
+    if (input.role === OWNER_ROLE && membership.role !== OWNER_ROLE) {
+      throw AppErrors.forbidden("Only an existing Owner can invite another Owner.");
+    }
+    const customPermissionKeys = await this.resolveCustomPermissionKeys(companyId, input);
+
     const code = randomBytes(32).toString("base64url");
     const invitation = await this.repo.createInvitation({
       companyId,
       email: input.email,
       role: input.role,
+      customPermissionKeys,
       codeHash: hashCode(code),
       expiresAt: new Date(this.clock.now() + INVITATION_TTL_MS),
       actorId: principal.userId,
@@ -186,6 +216,41 @@ export class TenancyService {
       role: input.role,
     });
     return { invitation, code };
+  }
+
+  /**
+   * Validate and normalize the custom-role permission set. Not part of the
+   * public surface — pulled out only to keep {@link createInvitation} short.
+   */
+  private async resolveCustomPermissionKeys(
+    companyId: string,
+    input: { readonly role: string; readonly permissionKeys?: readonly string[] },
+  ): Promise<string[]> {
+    const requested = input.permissionKeys ?? [];
+
+    if (input.role !== CUSTOM_ROLE) {
+      if (requested.length > 0) {
+        throw AppErrors.validation('permissionKeys is only allowed when role is "custom".');
+      }
+      return [];
+    }
+
+    const unique = [...new Set(requested)];
+    if (unique.length === 0) {
+      throw AppErrors.validation(
+        'permissionKeys is required and must be non-empty for role "custom".',
+      );
+    }
+
+    const available = new Set(await this.repo.listCompanyAvailablePermissionKeys(companyId));
+    const invalid = unique.filter((key) => !available.has(key));
+    if (invalid.length > 0) {
+      throw AppErrors.validation(
+        `These permissions are not available to your company: ${invalid.join(", ")}.`,
+        { invalidPermissionKeys: invalid },
+      );
+    }
+    return unique;
   }
 
   /** Revoke a pending invitation in the caller's active company. */
@@ -208,6 +273,48 @@ export class TenancyService {
       companyId,
       invitationId,
     });
+  }
+
+  /** List invitations (any status) for the caller's active company, newest first. */
+  async listInvitations(
+    principal: RequestPrincipal,
+    companyId: string,
+  ): Promise<InvitationRecord[]> {
+    await this.assertActiveTenant(principal, companyId);
+    return this.repo.listInvitations(companyId);
+  }
+
+  /** List active members of the caller's active company. */
+  async listMembers(principal: RequestPrincipal, companyId: string): Promise<MemberView[]> {
+    await this.assertActiveTenant(principal, companyId);
+    return this.repo.listMembers(companyId);
+  }
+
+  /** Remove a member from the caller's active company. Refuses to remove the last Owner. */
+  async removeMember(
+    principal: RequestPrincipal,
+    companyId: string,
+    memberId: string,
+  ): Promise<void> {
+    await this.assertActiveTenant(principal, companyId);
+    const outcome = await this.repo.removeMember({
+      companyId,
+      memberId,
+      actorId: principal.userId,
+    });
+    switch (outcome.kind) {
+      case "not_found":
+        throw AppErrors.notFound("Member not found.");
+      case "last_owner":
+        throw AppErrors.conflict("Cannot remove the company's last owner.");
+      case "removed":
+        this.audit.record("member.removed", {
+          userId: principal.userId,
+          companyId,
+          memberId,
+        });
+        return;
+    }
   }
 
   /** Accept an invitation by its code, joining the company. */
@@ -246,9 +353,16 @@ export class TenancyService {
   /**
    * Require the path company to be the caller's active tenant AND the caller to
    * be an active member of it (ADR-003: the tenant comes from the token; the path
-   * only names it). Defends the tenant-scoped write path independently of RLS.
+   * only names it). Defends the tenant-scoped write path independently of RLS —
+   * this check runs regardless of any capability guard on the route, so a
+   * `@RequireCapability` gate is additive, never a substitute for it. Returns
+   * the caller's own membership so callers that need it (e.g. the Owner-invite
+   * rule below) don't re-query.
    */
-  private async assertActiveTenant(principal: RequestPrincipal, companyId: string): Promise<void> {
+  private async assertActiveTenant(
+    principal: RequestPrincipal,
+    companyId: string,
+  ): Promise<{ readonly role: string }> {
     if (principal.companyId === null || principal.companyId !== companyId) {
       throw AppErrors.forbidden("Select this company as your active tenant first.");
     }
@@ -256,6 +370,7 @@ export class TenancyService {
     if (membership === null) {
       throw AppErrors.forbidden("You are not an active member of that company.");
     }
+    return membership;
   }
 }
 

@@ -1,13 +1,27 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from "class-validator";
+import { INVITABLE_ROLES, type InvitableRole } from "../../domain/tenancy-roles";
 import type { InvitationRecord } from "../../domain/tenancy.types";
 import type { AcceptInvitationResult, CreatedInvitation } from "../../application/tenancy.service";
 
-/** Roles that may be invited (owner is reserved for the creator; refined in EPIC-5). */
-export const INVITABLE_ROLES = ["admin", "member"] as const;
+export { INVITABLE_ROLES, TEMPLATE_ROLES, CUSTOM_ROLE } from "../../domain/tenancy-roles";
 
-/** Invite-member payload. */
+/**
+ * Invite-member payload. `role` selects a fixed permission template, or
+ * `"custom"` to grant exactly the `permissionKeys` chosen for this invitation
+ * alone (validated server-side against what the company's plan/features
+ * actually make available — never trusted as given).
+ */
 export class CreateInvitationDto {
   @ApiProperty({ example: "teammate@acme.test", maxLength: 254 })
   @Transform(({ value }) => (typeof value === "string" ? value.trim().toLowerCase() : value))
@@ -15,10 +29,22 @@ export class CreateInvitationDto {
   @MaxLength(254)
   email!: string;
 
-  @ApiPropertyOptional({ enum: INVITABLE_ROLES, default: "member" })
+  @ApiProperty({ enum: INVITABLE_ROLES, example: "store_manager" })
+  @IsIn(INVITABLE_ROLES, { message: `role must be one of: ${INVITABLE_ROLES.join(", ")}` })
+  role!: InvitableRole;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ["orders.read", "orders.manage"],
+    description: 'Required (non-empty) when role is "custom"; disallowed otherwise.',
+  })
   @IsOptional()
-  @IsIn(INVITABLE_ROLES, { message: "role must be one of: admin, member" })
-  role?: (typeof INVITABLE_ROLES)[number];
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique()
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  permissionKeys?: string[];
 }
 
 /** A created invitation, including its one-time shareable code (shown once). */
@@ -29,8 +55,11 @@ export class CreatedInvitationDto {
   @ApiProperty({ example: "teammate@acme.test" })
   email!: string;
 
-  @ApiProperty({ example: "member" })
+  @ApiProperty({ example: "store_manager" })
   role!: string;
+
+  @ApiProperty({ type: [String], example: [] })
+  permissionKeys!: string[];
 
   @ApiProperty({ example: "pending" })
   status!: string;
@@ -49,6 +78,7 @@ export class CreatedInvitationDto {
     dto.id = invitation.id;
     dto.email = invitation.email;
     dto.role = invitation.role;
+    dto.permissionKeys = [...invitation.customPermissionKeys];
     dto.status = invitation.status;
     dto.expiresAt = invitation.expiresAt.toISOString();
     dto.code = created.code;
@@ -64,8 +94,11 @@ export class InvitationDto {
   @ApiProperty({ example: "teammate@acme.test" })
   email!: string;
 
-  @ApiProperty({ example: "member" })
+  @ApiProperty({ example: "store_manager" })
   role!: string;
+
+  @ApiProperty({ type: [String], example: [] })
+  permissionKeys!: string[];
 
   @ApiProperty({ example: "pending" })
   status!: string;
@@ -78,8 +111,21 @@ export class InvitationDto {
     dto.id = invitation.id;
     dto.email = invitation.email;
     dto.role = invitation.role;
+    dto.permissionKeys = [...invitation.customPermissionKeys];
     dto.status = invitation.status;
     dto.expiresAt = invitation.expiresAt.toISOString();
+    return dto;
+  }
+}
+
+/** Envelope for the invitations list. */
+export class InvitationListDto {
+  @ApiProperty({ type: [InvitationDto] })
+  data!: InvitationDto[];
+
+  static from(invitations: readonly InvitationRecord[]): InvitationListDto {
+    const dto = new InvitationListDto();
+    dto.data = invitations.map((i) => InvitationDto.from(i));
     return dto;
   }
 }
@@ -98,7 +144,7 @@ export class AcceptInvitationResponseDto {
   @ApiProperty({ format: "uuid" })
   companyId!: string;
 
-  @ApiProperty({ example: "member" })
+  @ApiProperty({ example: "store_manager" })
   role!: string;
 
   @ApiProperty({ description: "True if the caller was already a member (idempotent accept)." })

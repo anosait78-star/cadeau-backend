@@ -3,7 +3,9 @@ import type {
   CompanyRecord,
   InvitationRecord,
   MembershipCompany,
+  MemberView,
   MeProfileRow,
+  RemoveMemberOutcome,
 } from "./tenancy.types";
 
 /**
@@ -60,6 +62,8 @@ export interface TenancyRepositoryPort {
     readonly companyId: string;
     readonly email: string;
     readonly role: string;
+    /** Permission keys for a one-off "custom" role; omitted/empty for a template role. */
+    readonly customPermissionKeys?: readonly string[];
     readonly codeHash: string;
     readonly expiresAt: Date;
     readonly actorId: string;
@@ -71,6 +75,29 @@ export interface TenancyRepositoryPort {
     readonly invitationId: string;
     readonly actorId: string;
   }): Promise<boolean>;
+
+  /** Pending/recent invitations for the active tenant, newest first. */
+  listInvitations(companyId: string): Promise<InvitationRecord[]>;
+
+  /**
+   * All permission keys available to the company given its current
+   * subscription/features (independent of any member's role) — used to
+   * validate a custom-role invitation's chosen permissions server-side.
+   */
+  listCompanyAvailablePermissionKeys(companyId: string): Promise<string[]>;
+
+  /** Active members of the given (active) tenant, oldest membership first. */
+  listMembers(companyId: string): Promise<MemberView[]>;
+
+  /**
+   * Remove an active member from the given (active) tenant. Refuses to remove
+   * the company's last active Owner.
+   */
+  removeMember(input: {
+    readonly companyId: string;
+    readonly memberId: string;
+    readonly actorId: string;
+  }): Promise<RemoveMemberOutcome>;
 
   /**
    * Accept an invitation by its code hash: resolve it (pre-tenant lookup), verify

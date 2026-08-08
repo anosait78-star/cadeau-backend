@@ -4,7 +4,8 @@ export type TenancyAuditEvent =
   | "company.whatsapp_settings_updated"
   | "member.invited"
   | "member.invite_revoked"
-  | "member.joined";
+  | "member.joined"
+  | "member.removed";
 
 /** Structured, secret-free details for a tenancy audit record. */
 export interface TenancyAuditDetails {
@@ -13,6 +14,7 @@ export interface TenancyAuditDetails {
   readonly invitationId?: string;
   readonly email?: string;
   readonly role?: string;
+  readonly memberId?: string;
 }
 
 /**
