@@ -71,8 +71,20 @@ export interface AdjustmentView {
   readonly createdAt: string;
 }
 
-/** The closed set of adjustment reason codes (mirrors the DB CHECK). */
-export const ADJUSTMENT_REASONS = ["count", "damage", "loss", "return", "other"] as const;
+/**
+ * The closed set of adjustment reason codes (mirrors the DB CHECK).
+ * `storefront_sync` is written exclusively by the storefront-integration
+ * module when an ingested product's `stockQuantity` differs from on-hand
+ * (storefront-integration §D5) — no new calculation logic, just a new code.
+ */
+export const ADJUSTMENT_REASONS = [
+  "count",
+  "damage",
+  "loss",
+  "return",
+  "other",
+  "storefront_sync",
+] as const;
 
 /** A reason code for a stock adjustment. */
 export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];

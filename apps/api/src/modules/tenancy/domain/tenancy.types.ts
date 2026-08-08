@@ -60,6 +60,11 @@ export interface InvitationRecord {
   readonly companyId: string;
   readonly email: string;
   readonly role: string;
+  /**
+   * Permission keys for a one-off "custom" role (Team/Invitations, EPIC-15).
+   * Empty for invitations issued against a fixed template key.
+   */
+  readonly customPermissionKeys: readonly string[];
   readonly status: string;
   readonly expiresAt: Date;
   readonly createdAt: Date;
@@ -71,3 +76,20 @@ export type AcceptOutcome =
   | { readonly kind: "already_member"; readonly companyId: string; readonly role: string }
   | { readonly kind: "invalid" }
   | { readonly kind: "email_mismatch" };
+
+/** A company member as returned by the Team members list. */
+export interface MemberView {
+  readonly id: string;
+  readonly userId: string;
+  readonly name: string | null;
+  readonly email: string;
+  readonly role: string;
+  readonly status: string;
+  readonly joinedAt: Date;
+}
+
+/** Result of attempting to remove a member. */
+export type RemoveMemberOutcome =
+  | { readonly kind: "removed" }
+  | { readonly kind: "not_found" }
+  | { readonly kind: "last_owner" };

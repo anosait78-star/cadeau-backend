@@ -35,6 +35,7 @@ function variantRow(extra: Record<string, unknown> = {}) {
     sku: null,
     barcode: null,
     averageCost: 1500n,
+    sellingPriceMinor: 2500n,
     isActive: true,
     createdAt: CREATED,
     updatedAt: UPDATED,
@@ -337,5 +338,23 @@ describe("ProductsRepository — keyset pagination", () => {
         cursor: "%%%",
       }),
     ).rejects.toBeInstanceOf(InvalidListCursorError);
+  });
+});
+
+describe("ProductsRepository — findVariantBySku", () => {
+  it("returns the matching active variant, with sellingPriceMinor coerced to a number", async () => {
+    const { repo, models } = makeRepo();
+    models.productVariant.findFirst.mockResolvedValueOnce(variantRow({ sku: "SKU-1" }));
+    const view = await repo.findVariantBySku(COMPANY, "SKU-1");
+    expect(view).toMatchObject({ id: "v1", sku: "SKU-1", sellingPriceMinor: 2500 });
+    expect(models.productVariant.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { companyId: COMPANY, sku: "SKU-1", isActive: true } }),
+    );
+  });
+
+  it("returns null when no active variant matches", async () => {
+    const { repo, models } = makeRepo();
+    models.productVariant.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.findVariantBySku(COMPANY, "NOPE")).toBeNull();
   });
 });

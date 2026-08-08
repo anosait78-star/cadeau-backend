@@ -135,7 +135,8 @@ export class BostaCarrierAdapter implements CarrierPort {
     const [derivedFirstName, ...derivedRest] = customer.name.trim().split(/\s+/);
     // Recipient name is entered fresh per shipment (never persisted) and
     // defaults to a split of the customer's own name when left blank.
-    const receiverFirstName = input.recipientFirstName?.trim() || (derivedFirstName ?? customer.name);
+    const receiverFirstName =
+      input.recipientFirstName?.trim() || (derivedFirstName ?? customer.name);
     const receiverLastName = input.recipientLastName?.trim() || derivedRest.join(" ");
 
     // Best-effort passthrough to Bosta's own "notes" field (not persisted on

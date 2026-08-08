@@ -7,6 +7,7 @@ import { TenancyModule } from "./modules/tenancy/tenancy.module";
 import { AccessModule } from "./modules/access/access.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { FinanceModule } from "./modules/finance/finance.module";
+import { IntegrationsModule } from "./modules/integrations/integrations.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
@@ -40,6 +41,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     CustomersModule,
     OrdersModule,
     ShippingModule,
+    IntegrationsModule,
     FinanceModule,
     AnalyticsModule,
     NotificationsModule,

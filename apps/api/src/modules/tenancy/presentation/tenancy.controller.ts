@@ -22,6 +22,8 @@ import {
 import { CurrentUser } from "../../../shared/auth/current-user.decorator";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
+import { AccessGuard } from "../../../shared/access/access.guard";
+import { RequireCapability } from "../../../shared/access/require-capability.decorator";
 import { RateLimit } from "../../../shared/rate-limit/rate-limit.decorator";
 import { RateLimitGuard } from "../../../shared/rate-limit/rate-limit.guard";
 import { TokensDto } from "../../../shared/contracts/tokens.dto";
@@ -38,7 +40,9 @@ import {
   AcceptInvitationResponseDto,
   CreateInvitationDto,
   CreatedInvitationDto,
+  InvitationListDto,
 } from "./dto/invitation.dto";
+import { MemberListDto } from "./dto/member.dto";
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
@@ -121,6 +125,8 @@ export class TenancyController {
   }
 
   @Post("companies/:companyId/invitations")
+  @UseGuards(AccessGuard)
+  @RequireCapability({ permission: "access.manage" })
   @ApiOperation({ summary: "Invite a member", operationId: "createInvitation" })
   @ApiCreatedResponse({ type: CreatedInvitationDto })
   async createInvitation(
@@ -130,13 +136,28 @@ export class TenancyController {
   ): Promise<CreatedInvitationDto> {
     const created = await this.tenancy.createInvitation(principal, companyId, {
       email: dto.email,
-      role: dto.role ?? "member",
+      role: dto.role,
+      ...(dto.permissionKeys !== undefined ? { permissionKeys: dto.permissionKeys } : {}),
     });
     return CreatedInvitationDto.from(created);
   }
 
+  @Get("companies/:companyId/invitations")
+  @UseGuards(AccessGuard)
+  @RequireCapability({ permission: "access.manage" })
+  @ApiOperation({ summary: "List the company's invitations", operationId: "listInvitations" })
+  @ApiOkResponse({ type: InvitationListDto })
+  async listInvitations(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("companyId", ParseUUIDPipe) companyId: string,
+  ): Promise<InvitationListDto> {
+    return InvitationListDto.from(await this.tenancy.listInvitations(principal, companyId));
+  }
+
   @Delete("companies/:companyId/invitations/:invitationId")
   @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(AccessGuard)
+  @RequireCapability({ permission: "access.manage" })
   @ApiOperation({ summary: "Revoke a pending invitation", operationId: "revokeInvitation" })
   @ApiNoContentResponse()
   async revokeInvitation(
@@ -145,6 +166,32 @@ export class TenancyController {
     @Param("invitationId", ParseUUIDPipe) invitationId: string,
   ): Promise<void> {
     await this.tenancy.revokeInvitation(principal, companyId, invitationId);
+  }
+
+  @Get("companies/:companyId/members")
+  @UseGuards(AccessGuard)
+  @RequireCapability({ permission: "access.read" })
+  @ApiOperation({ summary: "List the company's active members", operationId: "listMembers" })
+  @ApiOkResponse({ type: MemberListDto })
+  async listMembers(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("companyId", ParseUUIDPipe) companyId: string,
+  ): Promise<MemberListDto> {
+    return MemberListDto.from(await this.tenancy.listMembers(principal, companyId));
+  }
+
+  @Delete("companies/:companyId/members/:memberId")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(AccessGuard)
+  @RequireCapability({ permission: "access.manage" })
+  @ApiOperation({ summary: "Remove a member from the company", operationId: "removeMember" })
+  @ApiNoContentResponse()
+  async removeMember(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("companyId", ParseUUIDPipe) companyId: string,
+    @Param("memberId", ParseUUIDPipe) memberId: string,
+  ): Promise<void> {
+    await this.tenancy.removeMember(principal, companyId, memberId);
   }
 
   @Post("invitations/accept")

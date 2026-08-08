@@ -37,6 +37,28 @@ class FakePrisma {
   readonly subscriptions: Row[] = [];
   readonly queryRaw = vi.fn(() => Promise.resolve([]));
 
+  // Access-catalog fixtures for listCompanyAvailablePermissionKeys — a company
+  // with `orders` on its plan and no flags/add-ons/gaps by default.
+  features: string[] = ["orders", "customers"];
+  planFeatureKeys: string[] = ["orders", "customers"];
+  featureFlags: { featureKey: string; enabled: boolean }[] = [];
+  addOnFeatureKeys: string[] = [];
+  permissionKeys: string[] = [
+    "access.read",
+    "access.manage",
+    "orders.read",
+    "orders.manage",
+    "customers.read",
+    "customers.manage",
+  ];
+  featurePermissionEdges: { featureKey: string; permissionKey: string }[] = [
+    { featureKey: "orders", permissionKey: "orders.read" },
+    { featureKey: "orders", permissionKey: "orders.manage" },
+    { featureKey: "customers", permissionKey: "customers.read" },
+    { featureKey: "customers", permissionKey: "customers.manage" },
+  ];
+  readonly memberPermissions: Row[] = [];
+
   profile = {
     findFirst: ({ where }: { where: Row }) =>
       Promise.resolve(this.profiles.find((p) => matches(p, where)) ?? null),
@@ -71,26 +93,50 @@ class FakePrisma {
   };
 
   companyMember = {
-    findMany: ({ where }: { where: Row }) =>
-      Promise.resolve(
-        this.members
-          .filter((m) => matches(m, where))
-          .map((m) => ({
-            role: m["role"],
-            status: m["status"],
-            company: this.companies.find((c) => c["id"] === m["companyId"]) ?? {
-              id: m["companyId"],
-              name: "",
-              slug: null,
-            },
-          })),
-      ),
+    findMany: ({ where, select }: { where: Row; select?: Row }) => {
+      const rows = this.members.filter((m) => matches(m, where));
+      if (select?.["user"] !== undefined) {
+        // listMembers shape: join the member row with its Profile.
+        return Promise.resolve(
+          rows.map((m) => {
+            const profile = this.profiles.find((p) => p["id"] === m["userId"]);
+            return {
+              id: m["id"],
+              userId: m["userId"],
+              role: m["role"],
+              status: m["status"],
+              createdAt: m["createdAt"],
+              user: { fullName: profile?.["fullName"] ?? null, email: profile?.["email"] ?? "" },
+            };
+          }),
+        );
+      }
+      // listUserCompanies shape.
+      return Promise.resolve(
+        rows.map((m) => ({
+          role: m["role"],
+          status: m["status"],
+          company: this.companies.find((c) => c["id"] === m["companyId"]) ?? {
+            id: m["companyId"],
+            name: "",
+            slug: null,
+          },
+        })),
+      );
+    },
     findFirst: ({ where }: { where: Row }) =>
       Promise.resolve(this.members.find((m) => matches(m, where)) ?? null),
     create: ({ data }: { data: Row }) => {
-      const row: Row = { createdAt: new Date(), ...data };
+      const row: Row = { id: `member${this.members.length + 1}`, createdAt: new Date(), ...data };
       this.members.push(row);
       return Promise.resolve(row);
+    },
+    count: ({ where }: { where: Row }) =>
+      Promise.resolve(this.members.filter((m) => matches(m, where)).length),
+    delete: ({ where }: { where: Row }) => {
+      const index = this.members.findIndex((m) => matches(m, where));
+      const [removed] = index === -1 ? [null] : this.members.splice(index, 1);
+      return Promise.resolve(removed);
     },
   };
 
@@ -100,6 +146,7 @@ class FakePrisma {
         id: `inv${this.invitations.length + 1}`,
         createdAt: new Date(),
         revokedAt: null,
+        customPermissionKeys: [],
         ...data,
       };
       this.invitations.push(row);
@@ -107,6 +154,12 @@ class FakePrisma {
     },
     findFirst: ({ where }: { where: Row }) =>
       Promise.resolve(this.invitations.find((i) => matches(i, where)) ?? null),
+    findMany: ({ where }: { where: Row }) =>
+      Promise.resolve(
+        [...this.invitations]
+          .filter((i) => matches(i, where))
+          .sort((a, b) => (b["createdAt"] as Date).getTime() - (a["createdAt"] as Date).getTime()),
+      ),
     updateMany: ({ where, data }: { where: Row; data: Row }) => {
       let count = 0;
       for (const i of this.invitations) {
@@ -130,6 +183,40 @@ class FakePrisma {
       this.subscriptions.push(row);
       return Promise.resolve(row);
     },
+    findUnique: ({ where }: { where: Row }) => {
+      const has = this.subscriptions.some((s) => s["companyId"] === where["companyId"]);
+      if (!has) return Promise.resolve(null);
+      return Promise.resolve({
+        plan: { features: this.planFeatureKeys.map((featureKey) => ({ featureKey })) },
+      });
+    },
+  };
+
+  feature = {
+    findMany: () => Promise.resolve(this.features.map((key) => ({ key }))),
+  };
+
+  companyFeatureFlag = {
+    findMany: () => Promise.resolve(this.featureFlags),
+  };
+
+  addOn = {
+    findMany: () => Promise.resolve(this.addOnFeatureKeys.map((featureKey) => ({ featureKey }))),
+  };
+
+  permission = {
+    findMany: () => Promise.resolve(this.permissionKeys.map((key) => ({ key }))),
+  };
+
+  featurePermission = {
+    findMany: () => Promise.resolve(this.featurePermissionEdges),
+  };
+
+  memberPermission = {
+    createMany: ({ data }: { data: Row[] }) => {
+      this.memberPermissions.push(...data);
+      return Promise.resolve({ count: data.length });
+    },
   };
 
   $transaction = <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
@@ -140,6 +227,12 @@ class FakePrisma {
       invitation: this.invitation,
       plan: this.plan,
       subscription: this.subscription,
+      feature: this.feature,
+      companyFeatureFlag: this.companyFeatureFlag,
+      addOn: this.addOn,
+      permission: this.permission,
+      featurePermission: this.featurePermission,
+      memberPermission: this.memberPermission,
       $queryRaw: this.queryRaw,
     });
 }
@@ -374,5 +467,184 @@ describe("TenancyRepository — invitations", () => {
         email: "other@test.dev",
       }),
     ).toEqual({ kind: "email_mismatch" });
+  });
+
+  it("lists invitations for the company, newest first", async () => {
+    const { repo } = make();
+    await repo.createInvitation({
+      companyId: COMPANY,
+      email: "a@test.dev",
+      role: "member",
+      codeHash: "list-1",
+      expiresAt: new Date(Date.now() + 60_000),
+      actorId: USER,
+    });
+    await repo.createInvitation({
+      companyId: COMPANY,
+      email: "b@test.dev",
+      role: "custom",
+      customPermissionKeys: ["orders.read"],
+      codeHash: "list-2",
+      expiresAt: new Date(Date.now() + 60_000),
+      actorId: USER,
+    });
+    const list = await repo.listInvitations(COMPANY);
+    expect(list).toHaveLength(2);
+    expect(list.find((i) => i.email === "b@test.dev")?.customPermissionKeys).toEqual([
+      "orders.read",
+    ]);
+  });
+
+  it("grants exactly the custom permission keys as MemberPermission rows on accept", async () => {
+    const { repo, db } = make();
+    await repo.createInvitation({
+      companyId: COMPANY,
+      email: "custom@test.dev",
+      role: "custom",
+      customPermissionKeys: ["orders.read", "customers.manage"],
+      codeHash: "custom-code",
+      expiresAt: new Date(Date.now() + 60_000),
+      actorId: USER,
+    });
+    const outcome = await repo.acceptInvitationByCode({
+      codeHash: "custom-code",
+      userId: USER2,
+      email: "custom@test.dev",
+    });
+    expect(outcome).toMatchObject({ kind: "accepted", role: "custom" });
+    const member = db.members.find((m) => m["userId"] === USER2);
+    expect(member?.["role"]).toBe("custom");
+    expect(db.memberPermissions).toHaveLength(2);
+    expect(db.memberPermissions.map((p) => p["permissionKey"]).sort()).toEqual([
+      "customers.manage",
+      "orders.read",
+    ]);
+    expect(db.memberPermissions.every((p) => p["granted"] === true)).toBe(true);
+  });
+});
+
+describe("TenancyRepository — listCompanyAvailablePermissionKeys", () => {
+  it("returns permissions gated by the company's effective features only", async () => {
+    const { repo, db } = make();
+    db.subscriptions.push({ companyId: COMPANY, planId: "plan-pro" });
+    db.planFeatureKeys = ["orders"]; // plan includes orders, not customers
+    const keys = await repo.listCompanyAvailablePermissionKeys(COMPANY);
+    expect(keys).toContain("orders.read");
+    expect(keys).toContain("orders.manage");
+    expect(keys).toContain("access.read"); // feature-independent core permission
+    expect(keys).not.toContain("customers.read");
+  });
+
+  it("respects a company feature-flag override", async () => {
+    const { repo, db } = make();
+    db.subscriptions.push({ companyId: COMPANY, planId: "plan-pro" });
+    db.planFeatureKeys = ["orders", "customers"];
+    db.featureFlags = [{ featureKey: "customers", enabled: false }];
+    const keys = await repo.listCompanyAvailablePermissionKeys(COMPANY);
+    expect(keys).toContain("orders.read");
+    expect(keys).not.toContain("customers.read");
+    expect(keys).not.toContain("customers.manage");
+  });
+
+  it("returns only core permissions when the company has no subscription", async () => {
+    const { repo } = make();
+    const keys = await repo.listCompanyAvailablePermissionKeys(COMPANY);
+    expect(keys).toEqual(["access.manage", "access.read"]);
+  });
+});
+
+describe("TenancyRepository — listMembers / removeMember", () => {
+  it("lists active members with their profile name/email", async () => {
+    const { repo, db } = make();
+    db.profiles.push({ id: USER, email: "owner@test.dev", fullName: "Owner Person" });
+    db.members.push({
+      id: "m1",
+      companyId: COMPANY,
+      userId: USER,
+      role: "owner",
+      status: "active",
+    });
+    db.members.push({
+      id: "m2",
+      companyId: COMPANY,
+      userId: USER2,
+      role: "member",
+      status: "removed",
+    });
+    const members = await repo.listMembers(COMPANY);
+    expect(members).toHaveLength(1);
+    expect(members[0]).toMatchObject({
+      id: "m1",
+      name: "Owner Person",
+      email: "owner@test.dev",
+      role: "owner",
+    });
+  });
+
+  it("removes a non-owner member", async () => {
+    const { repo, db } = make();
+    db.members.push({
+      id: "m1",
+      companyId: COMPANY,
+      userId: USER2,
+      role: "member",
+      status: "active",
+    });
+    const outcome = await repo.removeMember({ companyId: COMPANY, memberId: "m1", actorId: USER });
+    expect(outcome).toEqual({ kind: "removed" });
+    expect(db.members.some((m) => m["id"] === "m1")).toBe(false);
+  });
+
+  it("404s (not_found) removing an unknown member", async () => {
+    const { repo } = make();
+    const outcome = await repo.removeMember({
+      companyId: COMPANY,
+      memberId: "nope",
+      actorId: USER,
+    });
+    expect(outcome).toEqual({ kind: "not_found" });
+  });
+
+  it("refuses to remove the last active owner", async () => {
+    const { repo, db } = make();
+    db.members.push({
+      id: "owner1",
+      companyId: COMPANY,
+      userId: USER,
+      role: "owner",
+      status: "active",
+    });
+    const outcome = await repo.removeMember({
+      companyId: COMPANY,
+      memberId: "owner1",
+      actorId: USER,
+    });
+    expect(outcome).toEqual({ kind: "last_owner" });
+    expect(db.members.some((m) => m["id"] === "owner1")).toBe(true);
+  });
+
+  it("allows removing an owner when another active owner remains", async () => {
+    const { repo, db } = make();
+    db.members.push({
+      id: "owner1",
+      companyId: COMPANY,
+      userId: USER,
+      role: "owner",
+      status: "active",
+    });
+    db.members.push({
+      id: "owner2",
+      companyId: COMPANY,
+      userId: USER2,
+      role: "owner",
+      status: "active",
+    });
+    const outcome = await repo.removeMember({
+      companyId: COMPANY,
+      memberId: "owner2",
+      actorId: USER,
+    });
+    expect(outcome).toEqual({ kind: "removed" });
+    expect(db.members.some((m) => m["id"] === "owner1")).toBe(true);
   });
 });

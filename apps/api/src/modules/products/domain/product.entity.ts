@@ -28,6 +28,8 @@ export interface ProductVariantView {
   readonly barcode: string | null;
   /** Moving-average cost in integer minor units; derived (EPIC-13), read-only. */
   readonly averageCost: number;
+  /** Sellable price in integer minor units; client/storefront-writable (storefront-integration §8). */
+  readonly sellingPriceMinor: number;
   readonly active: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;

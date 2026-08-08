@@ -16,6 +16,7 @@ import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
 import { AccessGuard } from "../../../shared/access/access.guard";
 import { RequireCapability } from "../../../shared/access/require-capability.decorator";
 import { AccessService } from "../application/access.service";
+import { AvailablePermissionListDto } from "./dto/available-permission.dto";
 import { CapabilitiesDto } from "./dto/capabilities.dto";
 import { FeatureListDto } from "./dto/feature.dto";
 import { PermissionTemplateListDto } from "./dto/permission-template.dto";
@@ -55,6 +56,19 @@ export class AccessController {
   @ApiOkResponse({ type: PermissionTemplateListDto })
   async listPermissionTemplates(): Promise<PermissionTemplateListDto> {
     return PermissionTemplateListDto.from(await this.access.listPermissionTemplates());
+  }
+
+  @Get("available-permissions")
+  @RequireCapability({ permission: "access.read" })
+  @ApiOperation({
+    summary: "Permissions available to the active company (custom-role picker)",
+    operationId: "listAvailablePermissions",
+  })
+  @ApiOkResponse({ type: AvailablePermissionListDto })
+  async listAvailablePermissions(
+    @CurrentUser() principal: RequestPrincipal,
+  ): Promise<AvailablePermissionListDto> {
+    return AvailablePermissionListDto.from(await this.access.listAvailablePermissions(principal));
   }
 
   @Put("members/:memberId/permissions")

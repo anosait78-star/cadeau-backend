@@ -61,6 +61,7 @@ const VARIANT_SELECT = {
   sku: true,
   barcode: true,
   averageCost: true,
+  sellingPriceMinor: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -201,6 +202,9 @@ export class ProductsRepository implements ProductsRepositoryPort {
             name: data.name,
             sku: data.sku ?? null,
             barcode: data.barcode ?? null,
+            ...(data.sellingPriceMinor === undefined
+              ? {}
+              : { sellingPriceMinor: BigInt(data.sellingPriceMinor) }),
           }) as Prisma.ProductVariantUncheckedCreateInput,
           select: VARIANT_SELECT,
         });
@@ -224,6 +228,9 @@ export class ProductsRepository implements ProductsRepositoryPort {
       if (data.sku !== undefined) patch["sku"] = data.sku;
       if (data.barcode !== undefined) patch["barcode"] = data.barcode;
       if (data.active !== undefined) patch["isActive"] = data.active;
+      if (data.sellingPriceMinor !== undefined) {
+        patch["sellingPriceMinor"] = BigInt(data.sellingPriceMinor);
+      }
       try {
         const { count } = await tx.productVariant.updateMany({
           where,
@@ -291,6 +298,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
     sku: string | null;
     barcode: string | null;
     averageCost: bigint;
+    sellingPriceMinor: bigint;
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -302,10 +310,21 @@ export class ProductsRepository implements ProductsRepositoryPort {
       sku: row.sku,
       barcode: row.barcode,
       averageCost: Number(row.averageCost),
+      sellingPriceMinor: Number(row.sellingPriceMinor),
       active: row.isActive,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  async findVariantBySku(companyId: string, sku: string): Promise<ProductVariantView | null> {
+    return this.tenantTx(companyId, async (tx) => {
+      const row = await tx.productVariant.findFirst({
+        where: { companyId, sku, isActive: true },
+        select: VARIANT_SELECT,
+      });
+      return row === null ? null : this.toVariantView(row);
+    });
   }
 
   private buildWhere(

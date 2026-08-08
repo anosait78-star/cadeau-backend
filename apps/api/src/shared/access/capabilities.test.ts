@@ -1,3 +1,4 @@
+import { FEATURES, PERMISSIONS, PLANS, TEMPLATES } from "@cadeau/database";
 import { describe, expect, it } from "vitest";
 import { type AccessData, can, resolveCapabilities } from "./capabilities";
 
@@ -106,6 +107,65 @@ describe("resolveCapabilities — permissions (Permission layer)", () => {
   it("has no capabilities when the member is not found (role null)", () => {
     const result = resolveCapabilities(data({ role: null, rolePermissionKeys: [] }));
     expect(result.permissions).toEqual([]);
+  });
+});
+
+describe("resolveCapabilities — real catalog regression (Storefront Integration access)", () => {
+  // Regression for a reported bug: a Company Owner on the `pro` plan saw
+  // "ليس لديك صلاحية الوصول إلى تكامل المتجر الإلكتروني" even though the
+  // Owner template grants every permission. Root cause was stale seed data
+  // in the environment's database (the `storefront_integration` feature and
+  // `integrations.manage` permission rows were missing), not a flaw in the
+  // authorization model — this test locks in the model's real-catalog
+  // behaviour so that regresses in the catalog itself (not just seed data)
+  // are caught here.
+  const proPlan = PLANS.find((p) => p.code === "pro");
+  const ownerTemplate = TEMPLATES.find((t) => t.key === "owner");
+  const activeFeatureKeys = FEATURES.filter((f) => f.active).map((f) => f.key);
+  const featurePermissionEdges = PERMISSIONS.filter((p) => p.feature !== null).map((p) => ({
+    permissionKey: p.key,
+    featureKey: p.feature as string,
+  }));
+
+  function ownerOnProPlanData(overrides: Partial<AccessData> = {}): AccessData {
+    return {
+      planFeatureKeys: [...(proPlan?.features ?? [])],
+      activeFeatureKeys,
+      featureFlags: [],
+      addOnFeatureKeys: [],
+      role: "owner",
+      rolePermissionKeys: [...(ownerTemplate?.permissions ?? [])],
+      memberPermissions: [],
+      featurePermissionEdges,
+      ...overrides,
+    };
+  }
+
+  it("the pro plan and the owner template both cover storefront integration", () => {
+    expect(proPlan?.features).toContain("storefront_integration");
+    expect(ownerTemplate?.permissions).toContain("integrations.manage");
+  });
+
+  it("a Company Owner on the pro plan can access Storefront Integration", () => {
+    const caps = resolveCapabilities(ownerOnProPlanData());
+    expect(caps.features).toContain("storefront_integration");
+    expect(caps.permissions).toContain("integrations.manage");
+    expect(
+      can(caps, { feature: "storefront_integration", permission: "integrations.manage" }),
+    ).toBe(true);
+  });
+
+  it("is blocked when the plan omits the feature — the gated permission drops too (not a role issue)", () => {
+    const caps = resolveCapabilities(
+      ownerOnProPlanData({
+        planFeatureKeys: (proPlan?.features ?? []).filter((f) => f !== "storefront_integration"),
+      }),
+    );
+    expect(caps.features).not.toContain("storefront_integration");
+    expect(caps.permissions).not.toContain("integrations.manage");
+    expect(
+      can(caps, { feature: "storefront_integration", permission: "integrations.manage" }),
+    ).toBe(false);
   });
 });
 
