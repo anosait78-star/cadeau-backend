@@ -2,10 +2,12 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
   IsBoolean,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  Min,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -102,6 +104,15 @@ export class CreateVariantDto {
   @IsString()
   @MaxLength(120)
   barcode?: string | null;
+
+  @ApiPropertyOptional({
+    example: 15000,
+    description: "Sellable price, integer minor units. Distinct from averageCost.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sellingPriceMinor?: number;
 }
 
 /** Update-variant payload (partial). */
@@ -124,6 +135,15 @@ export class UpdateVariantDto {
   @IsString()
   @MaxLength(120)
   barcode?: string | null;
+
+  @ApiPropertyOptional({
+    example: 15000,
+    description: "Sellable price, integer minor units. Distinct from averageCost.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sellingPriceMinor?: number;
 }
 
 /** The column mapping for a CSV import (values are header column names). */
@@ -234,6 +254,9 @@ export class ProductVariantDto {
   @ApiProperty({ example: 0, description: "Moving-average cost, integer minor units (read-only)." })
   averageCost!: number;
 
+  @ApiProperty({ example: 15000, description: "Sellable price, integer minor units." })
+  sellingPriceMinor!: number;
+
   @ApiProperty()
   active!: boolean;
 
@@ -251,6 +274,7 @@ export class ProductVariantDto {
     dto.sku = view.sku;
     dto.barcode = view.barcode;
     dto.averageCost = view.averageCost;
+    dto.sellingPriceMinor = view.sellingPriceMinor;
     dto.active = view.active;
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;

@@ -68,6 +68,17 @@ Good structure (KPI grid → charts → activity), but charts are hand-rolled SV
 
 The strongest page in the system: saved views, live-count status tabs, a capable DataGrid with bulk actions. Missing breadcrumbs; table row height/density is not governed by a defined scale. The **create-order form itself is the weakest part of this otherwise-strong page** — see [§4.1](#41-forms-top-priority) and [§4.3](#43-wizard--step-forms).
 
+**List page redesign — done (2026-08-05):** the Orders **list** page (not Order Details, not Create Order) was rebuilt for visual polish, scoped entirely to `apps/web/src/pages/orders/`:
+
+- Header split into action cluster (New order / Export / Print / More) + title+subtitle, matching the rest of the app's RTL reading order.
+- KPI row rebuilt as 6 real cards (140px, icon circle, big number, day-over-day trend, 7-day sparkline for count metrics) — all real data (`orders-list-kpis.ts`, a page-scoped fetch independent of `features/orders/orders-kpis.ts` so the Dashboard, which shares that module, is untouched).
+- Status tabs restyled as filled pills with count badges; all 12 lifecycle statuses kept (none removed), just decluttered and made horizontally scrollable instead of wrapping messily.
+- Filters live in a horizontal bar directly above the table (`orders-filter-bar.tsx`), not a sidebar — search/status/date stay always visible and apply live (no separate Apply step), payment status sits behind an "Advanced filters" popover that shows an active-count badge on its trigger, and a single Reset clears everything. (Superseded an earlier sidebar-panel version of this same redesign, removed per follow-up feedback: it ate horizontal space and most users didn't touch it daily.) Search/Status/Date are real server-side filters; Payment status filters the already-loaded rows client-side (no server filter param exists for it yet).
+- Table rows: avatar-initial customer cell, order # with a copy-to-clipboard button, status badges now carry real per-status color instead of uniform gray, bold amounts, zebra striping and taller row padding — all via `rowClassName`/column `render`, no edits to the shared `DataGrid`/`DataGridRow`.
+- **Known gap, not fixed here (would need backend work):** the reference design's customer-phone sub-line and shipping-carrier-logo column aren't backed by any field on `OrderListItem` today — added honestly as a follow-up rather than fabricated. Worth a small backend addition (phone + carrier on the list read model) if this level of detail is wanted on the list view specifically (Order Details already has both).
+- The Saved Views pill row (All/Mine/Today/Late/Cancelled + "save current filters") was removed from the page per follow-up feedback — low daily usage, extra visual clutter above the status tabs. The underlying `orders-saved-views.ts` module and its own test suite were left in place (untouched, just unused by the page) rather than deleted, in case the feature is wanted back later.
+- Row "..." menu was trimmed to just "Details" — status changes already live on the order itself and via bulk actions, so the menu no longer duplicates the state machine (confirming/postponed/shipped/etc. transitions were removed from it per follow-up feedback).
+
 ### Customers — 5.8 / 10
 
 | UI     | UX   | Professionalism |
@@ -142,7 +153,7 @@ The least visually invested area of the system — understandable given low usag
 
 ### Medium
 
-- [ ] Sidebar's active nav item relies only on a faint background tint — no accent bar or icon-weight change.
+- [x] ~~Sidebar's active nav item relies only on a faint background tint — no accent bar or icon-weight change.~~ **Done (2026-08-05):** sidebar redesigned as a floating card (`m-3`, `rounded-2xl`, `shadow-lg`) on a muted page backdrop; active item is now a filled `bg-primary` pill with bolder icon stroke instead of a faint tint; items are grouped into a primary section and a "Core settings" section (`sidebar.section.core`); collapsed rail shows centered icons with an animated hover tooltip; the floating collapse toggle sits on the sidebar edge with a scale-in hover state; the account footer became a proper profile card (avatar, name, email). See `desktop-sidebar.tsx`.
 - [ ] No visual distinction for critical inventory states (low stock reads like any other number).
 - [ ] Native `<select>` used for governorate in the customer form.
 - [ ] Command palette (⌘K) exists in code but has no visual affordance to help users discover it.
@@ -399,23 +410,23 @@ Built on top of the tokens that already exist in `globals.css` (brand primary `#
 
 ### Components
 
-| Component            | Spec                                                                                                                                                         |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Buttons              | 40px (md) / 34px (sm) height, 16px horizontal padding, hover `opacity .92` 150ms, active `scale .98` 100ms                                                   |
-| Inputs               | 40px height, 1px border, focus ring 2px `--ring` + 2px offset, error state = border `--destructive` + reserved helper-text row                               |
-| Dialogs              | See [§4.2](#42-unified-dialog-system)                                                                                                                        |
-| Tables               | See [§4.6](#46-professional-tables-datagrid)                                                                                                                 |
-| Badges               | 22px height, soft background + dot/icon + label, tones: success/warning/destructive/info/neutral                                                             |
-| Icons                | lucide-react (unchanged), 16/18/20px, 1.75px stroke, semantic coloring per [§4.5](#45-semantic-icon-coloring)                                                |
-| Loading              | Shimmer skeleton, 1.4s ease-in-out infinite loop (replaces flat gray placeholder)                                                                            |
-| Toast                | Max 3 stacked, 4s display (pauses on hover), slide+fade 200ms                                                                                                |
-| Empty States         | Icon + one-line heading + one-line description + CTA, 320px max width, centered                                                                              |
-| Pagination / Filters | Keyset infinite scroll retained; add a "showing X of Y" counter above the table                                                                              |
-| Sidebar / Navbar     | 240px sidebar width retained; active item gets a 3px accent bar + background tint + bolder icon                                                              |
-| Charts / KPI cards   | 1px gridlines at 20% opacity, cursor-following tooltip (`bg-surface` + `shadow-md`), warning-state cards get a 4px accent border — see [§4.4](#44-kpi-cards) |
-| Wizard               | New component — step indicator, per-step validation, editable summary — see [§4.3](#43-wizard--step-forms)                                                   |
-| Combobox             | New component — searchable list on Radix Popover, replaces native `<select>` where options exceed ~8 items                                                   |
-| Date Picker          | New component — Radix Popover + calendar grid, replaces native `input[type=date]`                                                                            |
+| Component            | Spec                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Buttons              | 40px (md) / 34px (sm) height, 16px horizontal padding, hover `opacity .92` 150ms, active `scale .98` 100ms                                                                                                                                                                                                                    |
+| Inputs               | 40px height, 1px border, focus ring 2px `--ring` + 2px offset, error state = border `--destructive` + reserved helper-text row                                                                                                                                                                                                |
+| Dialogs              | See [§4.2](#42-unified-dialog-system)                                                                                                                                                                                                                                                                                         |
+| Tables               | See [§4.6](#46-professional-tables-datagrid)                                                                                                                                                                                                                                                                                  |
+| Badges               | 22px height, soft background + dot/icon + label, tones: success/warning/destructive/info/neutral                                                                                                                                                                                                                              |
+| Icons                | lucide-react (unchanged), 16/18/20px, 1.75px stroke, semantic coloring per [§4.5](#45-semantic-icon-coloring)                                                                                                                                                                                                                 |
+| Loading              | Shimmer skeleton, 1.4s ease-in-out infinite loop (replaces flat gray placeholder)                                                                                                                                                                                                                                             |
+| Toast                | Max 3 stacked, 4s display (pauses on hover), slide+fade 200ms                                                                                                                                                                                                                                                                 |
+| Empty States         | Icon + one-line heading + one-line description + CTA, 320px max width, centered                                                                                                                                                                                                                                               |
+| Pagination / Filters | Keyset infinite scroll retained; add a "showing X of Y" counter above the table                                                                                                                                                                                                                                               |
+| Sidebar / Navbar     | **Implemented 2026-08-05:** floating card (`m-3`, `rounded-2xl`, `shadow-lg`) on a `bg-muted/40` backdrop, 256px expanded / 76px collapsed; active item is a filled `bg-primary` pill (supersedes the 3px-bar spec); grouped into a primary section + "Core settings" section; collapsed rail shows an animated hover tooltip |
+| Charts / KPI cards   | 1px gridlines at 20% opacity, cursor-following tooltip (`bg-surface` + `shadow-md`), warning-state cards get a 4px accent border — see [§4.4](#44-kpi-cards)                                                                                                                                                                  |
+| Wizard               | New component — step indicator, per-step validation, editable summary — see [§4.3](#43-wizard--step-forms)                                                                                                                                                                                                                    |
+| Combobox             | New component — searchable list on Radix Popover, replaces native `<select>` where options exceed ~8 items                                                                                                                                                                                                                    |
+| Date Picker          | New component — Radix Popover + calendar grid, replaces native `input[type=date]`                                                                                                                                                                                                                                             |
 
 ---
 
@@ -506,7 +517,7 @@ Not everything is a gap. These are worth explicitly protecting during the redesi
 
 - [ ] Global `:focus-visible` ring at the root level
 - [ ] Increase card padding from 16px → 24px
-- [ ] Sidebar active-item accent bar (3px)
+- [x] Sidebar active-item accent bar (3px) — superseded by a filled active pill, see §3 Medium note above
 - [ ] Unify input/button/select height to 40px
 - [ ] Semantic icon color mapping for existing `StatusBadge` (no new component)
 - [ ] "Showing X of Y" counter above DataGrid tables

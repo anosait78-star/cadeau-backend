@@ -10,6 +10,7 @@ import { NotificationsPage } from "./notifications-page";
 import { ReasonsPanel } from "./reasons-panel";
 import { SecurityPanel } from "./security-panel";
 import { ShippingPanel } from "./shipping-panel";
+import { StorefrontPanel } from "./storefront-panel";
 import { WhatsappPanel } from "./whatsapp-panel";
 
 interface SettingsTab {
@@ -24,6 +25,7 @@ const TABS: readonly SettingsTab[] = [
   { key: "whatsapp", labelKey: "settings.tab.whatsapp" },
   { key: "notifications", labelKey: "settings.tab.notifications" },
   { key: "shipping", labelKey: "settings.tab.shipping" },
+  { key: "storefront", labelKey: "settings.tab.storefront" },
   { key: "reasons", labelKey: "settings.tab.reasons" },
 ];
 
@@ -77,6 +79,7 @@ function SettingsTabContent({ tabKey }: { tabKey: string }): ReactNode {
   if (tabKey === "whatsapp") return <WhatsappPanel />;
   if (tabKey === "reasons") return <ReasonsPanel />;
   if (tabKey === "shipping") return <ShippingPanel />;
+  if (tabKey === "storefront") return <StorefrontPanel />;
   if (tabKey === "notifications") return <NotificationsPage />;
 
   const labelKey = TABS.find((tb) => tb.key === tabKey)?.labelKey ?? "settings.tab.general";

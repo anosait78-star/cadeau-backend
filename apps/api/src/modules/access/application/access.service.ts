@@ -15,6 +15,7 @@ import {
   type AccessManagementRepositoryPort,
 } from "../domain/access-management.port";
 import type {
+  AvailablePermissionView,
   CapabilitiesView,
   FeatureView,
   MemberPermissionOverride,
@@ -81,6 +82,12 @@ export class AccessService {
   /** The permission templates with their granted permission keys. */
   listPermissionTemplates(): Promise<PermissionTemplateView[]> {
     return this.repo.listPermissionTemplates();
+  }
+
+  /** Permissions available to the caller's active company right now (custom-role picker). */
+  async listAvailablePermissions(principal: RequestPrincipal): Promise<AvailablePermissionView[]> {
+    const companyId = this.requireTenant(principal);
+    return this.repo.listAvailablePermissions(companyId);
   }
 
   /** Assign a template and/or per-member overrides to a member; audited + cache-invalidating. */

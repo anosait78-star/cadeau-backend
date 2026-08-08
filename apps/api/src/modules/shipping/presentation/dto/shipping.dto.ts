@@ -3,11 +3,14 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  Min,
   MaxLength,
   MinLength,
 } from "class-validator";
@@ -48,6 +51,68 @@ export class CreateShipmentDto {
   @IsOptional()
   @IsIn(CREATE_SHIPMENT_CARRIERS)
   carrier?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Bosta city id chosen in the carrier-select step (replaces relying on the customer's saved address mapping).",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  bostaCityId?: string;
+
+  @ApiPropertyOptional({ description: "Bosta city display name, matching bostaCityId." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  bostaCityName?: string;
+
+  @ApiPropertyOptional({ description: "Bosta district id chosen in the carrier-select step." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  bostaDistrictId?: string;
+
+  @ApiPropertyOptional({ description: "Free-text note for the courier (e.g. package contents)." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+
+  @ApiPropertyOptional({ description: "Declared goods value, integer minor units." })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  goodsValue?: number;
+
+  @ApiPropertyOptional({
+    description: "Overrides the receiver's first name (defaults to the customer's own name).",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  recipientFirstName?: string;
+
+  @ApiPropertyOptional({
+    description: "Overrides the receiver's last name (defaults to the customer's own name).",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  recipientLastName?: string;
+
+  @ApiPropertyOptional({ description: "A second contact number for the receiver." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  recipientPhone2?: string;
+
+  @ApiPropertyOptional({
+    description: "Bosta-specific: lets the receiver open the package before accepting it.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  allowToOpenPackage?: boolean;
 }
 
 /** Bulk-create payload: one shipment per order id. */

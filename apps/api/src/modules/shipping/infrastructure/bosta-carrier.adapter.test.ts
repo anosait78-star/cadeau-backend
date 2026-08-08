@@ -162,6 +162,100 @@ describe("BostaCarrierAdapter.createShipment", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("prefers city/district/notes/goodsValue given in the input over the saved address", async () => {
+    const { adapter } = makeAdapter();
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
+
+    await adapter.createShipment({
+      companyId: COMPANY,
+      orderId: ORDER,
+      bostaCityId: "cityId2",
+      bostaCityName: "Nasr City",
+      bostaDistrictId: "districtId2",
+      notes: "Ring the bell twice",
+      goodsValue: 12_345,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.dropOffAddress).toMatchObject({ city: "Nasr City", districtId: "districtId2" });
+    expect(body.notes).toBe("Goods value: 123.45 — Ring the bell twice");
+  });
+
+  it("overrides the receiver name/phone2/allowToOpenPackage when given, defaulting to the customer's own name otherwise", async () => {
+    const { adapter } = makeAdapter();
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
+
+    await adapter.createShipment({
+      companyId: COMPANY,
+      orderId: ORDER,
+      recipientFirstName: "Naruto",
+      recipientLastName: "Uzumaki",
+      recipientPhone2: "01099998888",
+      allowToOpenPackage: true,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.receiver).toMatchObject({
+      firstName: "Naruto",
+      lastName: "Uzumaki",
+      phone: "01065685435",
+      phone2: "01099998888",
+    });
+    expect(body.allowToOpenPackage).toBe(true);
+  });
+
+  it("defaults the receiver name to a split of the customer's name when no override is given", async () => {
+    const { adapter } = makeAdapter();
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
+
+    await adapter.createShipment({ companyId: COMPANY, orderId: ORDER });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.receiver).toMatchObject({ firstName: "Sasuke", lastName: "Uchiha" });
+    expect(body.receiver.phone2).toBeUndefined();
+    expect(body.allowToOpenPackage).toBeUndefined();
+  });
+
+  it("still ships from the saved address when the input carries no override", async () => {
+    const { adapter } = makeAdapter();
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
+
+    await adapter.createShipment({ companyId: COMPANY, orderId: ORDER });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.dropOffAddress).toMatchObject({ city: "Helwan", districtId: "districtId1" });
+    expect(body.notes).toBeUndefined();
+  });
+
+  it("fills in the city/district from the input when the saved address has none mapped", async () => {
+    const { adapter } = makeAdapter({
+      address: {
+        lineEncrypted: encrypt("Helwan street x", config.encryption.key),
+        landmark: null,
+        bostaCityId: null,
+        bostaDistrictId: null,
+        bostaCityName: null,
+      },
+    });
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
+
+    await adapter.createShipment({
+      companyId: COMPANY,
+      orderId: ORDER,
+      bostaCityId: "cityId9",
+      bostaCityName: "Giza",
+      bostaDistrictId: "districtId9",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.dropOffAddress).toMatchObject({ city: "Giza", districtId: "districtId9" });
+  });
+
   it("rejects a COD amount over Bosta's 30,000 EGP cap", async () => {
     const { adapter } = makeAdapter({
       order: { customerId: "cust-1", total: 3_000_001n, collectedAmount: 0n },

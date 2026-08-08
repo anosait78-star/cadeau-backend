@@ -175,6 +175,20 @@ export class ProductsService {
   }
 
   /**
+   * Find an active variant by its exact `sku` within the tenant. Used by the
+   * storefront-integration module to resolve an ingested order line's `sku`
+   * to a `variantId` without duplicating any lookup logic (storefront-
+   * integration §D4).
+   */
+  async findVariantBySku(
+    principal: RequestPrincipal,
+    sku: string,
+  ): Promise<ProductVariantView | null> {
+    const companyId = this.requireTenant(principal);
+    return this.repo.findVariantBySku(companyId, sku);
+  }
+
+  /**
    * Import products from CSV with an explicit column mapping. Each mapped row
    * becomes one product (atomic per row); when `sku`/`barcode` is mapped it also
    * becomes that product's first variant. One bad row never fails the others.

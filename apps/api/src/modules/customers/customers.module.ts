@@ -1,4 +1,5 @@
-import { Module } from "@nestjs/common";
+import { Global, Module } from "@nestjs/common";
+import { CUSTOMERS_DIRECTORY } from "../../shared/contracts/customers-directory.port";
 import { systemClockProvider } from "../../shared/time/clock";
 import { CustomersService } from "./application/customers.service";
 import { CUSTOMERS_AUDIT } from "./domain/customers-audit.port";
@@ -17,7 +18,12 @@ import { CustomersController } from "./presentation/customers.controller";
  *
  * M10.3 adds the `/v1/customers` presentation surface: six customer routes plus
  * the three nested address routes, all three-layer gated.
+ *
+ * Marked `@Global` so the {@link CUSTOMERS_DIRECTORY} contract it implements
+ * is available to sibling features (storefront-integration) without a direct
+ * module import — features couple only through `shared/contracts`.
  */
+@Global()
 @Module({
   controllers: [CustomersController],
   providers: [
@@ -26,7 +32,8 @@ import { CustomersController } from "./presentation/customers.controller";
     customersPrismaClientProvider,
     { provide: CUSTOMERS_REPOSITORY, useClass: CustomersRepository },
     { provide: CUSTOMERS_AUDIT, useClass: CustomersAuditLogAdapter },
+    { provide: CUSTOMERS_DIRECTORY, useExisting: CustomersService },
   ],
-  exports: [CustomersService],
+  exports: [CustomersService, CUSTOMERS_DIRECTORY],
 })
 export class CustomersModule {}

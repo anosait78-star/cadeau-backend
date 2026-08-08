@@ -1,4 +1,5 @@
-import { Module } from "@nestjs/common";
+import { Global, Module } from "@nestjs/common";
+import { ORDERS_INGESTION } from "../../shared/contracts/orders-ingestion.port";
 import { systemClockProvider } from "../../shared/time/clock";
 import { OrdersService } from "./application/orders.service";
 import { ORDERS_AUDIT } from "./domain/orders-audit.port";
@@ -16,7 +17,13 @@ import { OrdersController } from "./presentation/orders.controller";
  * {@link AccessCoreModule}; the event bus from {@link EventBusModule}; the
  * {@link AccessResolverService} the service uses to feature-gate stock coupling
  * is likewise provided globally.
+ *
+ * Marked `@Global` so the {@link ORDERS_INGESTION} contract it implements is
+ * available to sibling features (storefront-integration) without a direct
+ * module import — features couple only through `shared/contracts`, same
+ * pattern as {@link SessionReissuePort}/`AuthModule`.
  */
+@Global()
 @Module({
   controllers: [OrdersController],
   providers: [
@@ -25,7 +32,8 @@ import { OrdersController } from "./presentation/orders.controller";
     ordersPrismaClientProvider,
     { provide: ORDERS_REPOSITORY, useClass: OrdersRepository },
     { provide: ORDERS_AUDIT, useClass: OrdersAuditLogAdapter },
+    { provide: ORDERS_INGESTION, useExisting: OrdersService },
   ],
-  exports: [OrdersService],
+  exports: [OrdersService, ORDERS_INGESTION],
 })
 export class OrdersModule {}

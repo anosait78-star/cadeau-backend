@@ -110,15 +110,20 @@ export class BostaCarrierAdapter implements CarrierPort {
         },
       });
       if (address === null) throw new CustomerAddressMissingError();
-      if (
-        address.bostaCityId === null ||
-        address.bostaDistrictId === null ||
-        address.bostaCityName === null
-      ) {
-        throw new CustomerAddressNotMappedError(CARRIER);
-      }
       return { order, customer, address };
     });
+
+    // City/district chosen in the client's "select a carrier" step (M12.x
+    // follow-up, single-order flow only — no bulk shipment creation) take
+    // precedence over whatever's saved on the customer's address. Entered
+    // fresh every time by design — nothing gets written back onto the
+    // address, so this never gets "remembered" for a future shipment.
+    const bostaCityId = input.bostaCityId ?? address.bostaCityId ?? undefined;
+    const bostaDistrictId = input.bostaDistrictId ?? address.bostaDistrictId ?? undefined;
+    const bostaCityName = input.bostaCityName ?? address.bostaCityName ?? undefined;
+    if (bostaCityId === undefined || bostaDistrictId === undefined || bostaCityName === undefined) {
+      throw new CustomerAddressNotMappedError(CARRIER);
+    }
 
     const codMinor = Math.max(0, Number(order.total) - Number(order.collectedAmount));
     if (codMinor > BOSTA_MAX_COD_MINOR) {
@@ -127,7 +132,22 @@ export class BostaCarrierAdapter implements CarrierPort {
 
     const phone = decrypt(customer.phoneEncrypted, this.config.encryption.key);
     const line = decrypt(address.lineEncrypted, this.config.encryption.key);
-    const [firstName, ...rest] = customer.name.trim().split(/\s+/);
+    const [derivedFirstName, ...derivedRest] = customer.name.trim().split(/\s+/);
+    // Recipient name is entered fresh per shipment (never persisted) and
+    // defaults to a split of the customer's own name when left blank.
+    const receiverFirstName =
+      input.recipientFirstName?.trim() || (derivedFirstName ?? customer.name);
+    const receiverLastName = input.recipientLastName?.trim() || derivedRest.join(" ");
+
+    // Best-effort passthrough to Bosta's own "notes" field (not persisted on
+    // our side, not confirmed against Bosta's exact payload shape beyond
+    // their public docs) — folds the optional declared goods value in too,
+    // since our schema has no dedicated column for it.
+    const noteParts = [
+      input.goodsValue !== undefined ? `Goods value: ${(input.goodsValue / 100).toFixed(2)}` : null,
+      input.notes !== undefined && input.notes.trim().length > 0 ? input.notes.trim() : null,
+    ].filter((part): part is string => part !== null);
+    const notes = noteParts.length > 0 ? noteParts.join(" — ") : undefined;
 
     const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
     const response = await client.request<BostaDeliveryResponse>(
@@ -137,18 +157,29 @@ export class BostaCarrierAdapter implements CarrierPort {
       {
         type: DELIVERY_TYPE,
         cod: codMinor / 100,
+        ...(notes !== undefined ? { notes } : {}),
+        // Best-effort field name (not confirmed against a live Bosta
+        // sandbox) — lets the receiver open the package before accepting it.
+        ...(input.allowToOpenPackage !== undefined
+          ? { allowToOpenPackage: input.allowToOpenPackage }
+          : {}),
         dropOffAddress: {
-          city: address.bostaCityName,
-          districtId: address.bostaDistrictId,
+          city: bostaCityName,
+          districtId: bostaDistrictId,
           firstLine: line,
           ...(address.landmark !== null ? { secondLine: address.landmark } : {}),
         },
         businessReference: input.orderId,
         uniqueBusinessReference: input.orderId,
         receiver: {
-          firstName: firstName ?? customer.name,
-          ...(rest.length > 0 ? { lastName: rest.join(" ") } : {}),
+          firstName: receiverFirstName,
+          ...(receiverLastName.length > 0 ? { lastName: receiverLastName } : {}),
           phone,
+          // Best-effort field name (not confirmed against a live Bosta
+          // sandbox) for a second contact number.
+          ...(input.recipientPhone2 !== undefined && input.recipientPhone2.trim().length > 0
+            ? { phone2: input.recipientPhone2.trim() }
+            : {}),
         },
       },
     );

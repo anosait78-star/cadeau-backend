@@ -17,7 +17,6 @@ import {
   type PaymentStatus,
 } from "@/features/orders/orders-api";
 import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
-import { CarrierShippingFields } from "@/features/shipping/carrier-shipping-fields";
 import { useI18n } from "@/i18n/i18n-provider";
 
 const DASH = "—";
@@ -86,10 +85,6 @@ export function OrderForm({
   const [newGovernorateId, setNewGovernorateId] = useState("");
   const [newCity, setNewCity] = useState("");
   const [newStreet, setNewStreet] = useState("");
-  const [newCarrier, setNewCarrier] = useState("");
-  const [newBostaCityId, setNewBostaCityId] = useState("");
-  const [newBostaDistrictId, setNewBostaDistrictId] = useState("");
-  const [newBostaCityName, setNewBostaCityName] = useState<string | null>(null);
   const [savingCustomer, setSavingCustomer] = useState(false);
 
   // Section 3 — products.
@@ -195,24 +190,12 @@ export function OrderForm({
         phone: newPhone.trim(),
         ...(customerNotes !== undefined ? { notes: customerNotes } : {}),
       });
-      if (
-        newGovernorateId !== "" ||
-        newCity.trim() !== "" ||
-        newStreet.trim() !== "" ||
-        newCarrier === "bosta"
-      ) {
+      if (newGovernorateId !== "" || newCity.trim() !== "" || newStreet.trim() !== "") {
         const line = [newCity.trim(), newStreet.trim()].filter((s) => s.length > 0).join(", ");
         await createAddress(created.id, {
           line,
           governorateId: newGovernorateId !== "" ? newGovernorateId : null,
           isDefault: true,
-          ...(newCarrier === "bosta"
-            ? {
-                bostaCityId: newBostaCityId.length > 0 ? newBostaCityId : null,
-                bostaDistrictId: newBostaDistrictId.length > 0 ? newBostaDistrictId : null,
-                bostaCityName: newBostaCityName,
-              }
-            : {}),
         });
       }
       setCustomers((cs) => [...cs, { id: created.id, name: created.name }]);
@@ -224,10 +207,6 @@ export function OrderForm({
       setNewGovernorateId("");
       setNewCity("");
       setNewStreet("");
-      setNewCarrier("");
-      setNewBostaCityId("");
-      setNewBostaDistrictId("");
-      setNewBostaCityName(null);
     } finally {
       setSavingCustomer(false);
     }
@@ -400,19 +379,6 @@ export function OrderForm({
                     aria-label={t("orders.form.customerStreet")}
                   />
                 </FormField>
-                <CarrierShippingFields
-                  value={{
-                    carrier: newCarrier,
-                    bostaCityId: newBostaCityId,
-                    bostaDistrictId: newBostaDistrictId,
-                  }}
-                  onChange={(next) => {
-                    setNewCarrier(next.carrier);
-                    setNewBostaCityId(next.bostaCityId);
-                    setNewBostaDistrictId(next.bostaDistrictId);
-                    setNewBostaCityName(next.bostaCityName);
-                  }}
-                />
                 <Button
                   size="sm"
                   type="button"

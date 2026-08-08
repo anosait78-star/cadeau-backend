@@ -18,12 +18,14 @@ import type {
 } from "../domain/access-management.port";
 import type {
   AdminCompanyView,
+  AvailablePermissionView,
   FeatureCatalogEntry,
   MemberPermissionOverride,
   MemberPermissionsSnapshot,
   MemberRow,
   PermissionTemplateView,
 } from "../domain/access.types";
+import { resolveCapabilities } from "../../../shared/access/capabilities";
 import { ACCESS_MODULE_PRISMA_CLIENT } from "./prisma-client.provider";
 
 /**
@@ -71,6 +73,56 @@ export class AccessManagementRepository implements AccessManagementRepositoryPor
   async listTemplateKeys(): Promise<string[]> {
     const rows = await this.prisma.permissionTemplate.findMany({ select: { key: true } });
     return rows.map((r) => r.key);
+  }
+
+  async listAvailablePermissions(companyId: string): Promise<AvailablePermissionView[]> {
+    return this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+
+      const [subscription, activeFeatures, flags, addOns, catalog, featurePermissionEdges] =
+        await Promise.all([
+          tx.subscription.findUnique({
+            where: { companyId },
+            select: { plan: { select: { features: { select: { featureKey: true } } } } },
+          }),
+          tx.feature.findMany({ where: { isActive: true }, select: { key: true } }),
+          tx.companyFeatureFlag.findMany({
+            where: { companyId },
+            select: { featureKey: true, enabled: true },
+          }),
+          tx.addOn.findMany({ where: { companyId }, select: { featureKey: true } }),
+          tx.permission.findMany({ select: { key: true, description: true } }),
+          tx.featurePermission.findMany({ select: { featureKey: true, permissionKey: true } }),
+        ]);
+
+      // Same three-layer resolution `createInvitation`'s server-side custom-role
+      // check uses (ADR-0003), fed the full catalog instead of one role's
+      // template — "everything the company's plan/features make available".
+      const caps = resolveCapabilities({
+        planFeatureKeys: (subscription?.plan.features ?? []).map((f) => f.featureKey),
+        activeFeatureKeys: activeFeatures.map((f) => f.key),
+        featureFlags: flags,
+        addOnFeatureKeys: addOns.map((a) => a.featureKey),
+        role: null,
+        rolePermissionKeys: catalog.map((p) => p.key),
+        memberPermissions: [],
+        featurePermissionEdges,
+      });
+      const available = new Set(caps.permissions);
+
+      const featureKeyByPermission = new Map<string, string>();
+      for (const edge of featurePermissionEdges) {
+        featureKeyByPermission.set(edge.permissionKey, edge.featureKey);
+      }
+
+      return catalog
+        .filter((p) => available.has(p.key))
+        .map((p) => ({
+          key: p.key,
+          description: p.description,
+          featureKey: featureKeyByPermission.get(p.key) ?? null,
+        }));
+    });
   }
 
   async findMember(companyId: string, memberId: string): Promise<MemberRow | null> {

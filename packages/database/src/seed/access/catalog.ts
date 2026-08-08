@@ -46,6 +46,12 @@ export const FEATURES: readonly FeatureDef[] = [
   { key: "finance", name: "Finance & Compliance", category: "finance", active: true },
   { key: "analytics", name: "Analytics", category: "insights", active: true },
   { key: "notifications", name: "Notifications", category: "operations", active: true },
+  {
+    key: "storefront_integration",
+    name: "Storefront Integration",
+    category: "operations",
+    active: true,
+  },
   { key: "ai", name: "AI", category: "insights", active: false },
 ];
 
@@ -89,6 +95,14 @@ export const PERMISSIONS: readonly PermissionDef[] = [
     { key: `${feature}.read`, description: `View ${feature}`, feature },
     { key: `${feature}.manage`, description: `Create, update, and delete ${feature}`, feature },
   ]),
+  // Storefront integration has a single management permission (no separate
+  // `.read`): the ingestion routes are API-key-gated, not permission-gated,
+  // so there is nothing for a read-only permission to gate here.
+  {
+    key: "integrations.manage",
+    description: "Create, rotate, and revoke storefront connections",
+    feature: "storefront_integration",
+  },
 ];
 
 /** Every permission key — the Owner template grants all of them. */
@@ -134,6 +148,7 @@ export const PLANS: readonly PlanDef[] = [
       "notifications",
       "finance",
       "analytics",
+      "storefront_integration",
     ],
   },
 ];
@@ -151,6 +166,7 @@ export const TEMPLATES: readonly TemplateDef[] = [
     description: "Runs day-to-day operations across the store.",
     permissions: [
       "access.read",
+      "integrations.manage",
       ...perms(["orders", "products", "inventory", "customers", "shipping"], ["read", "manage"]),
       ...perms(["analytics", "finance"], ["read"]),
     ],

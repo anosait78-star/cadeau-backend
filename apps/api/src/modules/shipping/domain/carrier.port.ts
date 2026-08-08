@@ -6,6 +6,26 @@ export interface CarrierCreateShipmentInput {
   readonly orderId: string;
   /** Explicit carrier choice from the client (e.g. the "select a carrier" step before creating a shipment). Falls back to the company's active connection when omitted. */
   readonly carrier?: string;
+  /**
+   * Bosta-specific: city/district chosen in the "select a carrier" step,
+   * taking precedence over the customer's saved address mapping (the
+   * customer/order forms no longer collect this — it's entered once, at
+   * shipment-creation time). Ignored by carriers other than Bosta.
+   */
+  readonly bostaCityId?: string;
+  readonly bostaCityName?: string;
+  readonly bostaDistrictId?: string;
+  /** Free-text note for the courier (e.g. package contents). Best-effort passthrough — not persisted on our side. */
+  readonly notes?: string;
+  /** Declared goods value, integer minor units — folded into the note sent to the carrier (no dedicated field in our schema or confirmed in Bosta's own payload shape). */
+  readonly goodsValue?: number;
+  /** Overrides the receiver first/last name otherwise derived from the customer's own name. Entered fresh per shipment — never persisted. */
+  readonly recipientFirstName?: string;
+  readonly recipientLastName?: string;
+  /** A second contact number for the receiver, distinct from the customer's primary phone. Entered fresh per shipment — never persisted. */
+  readonly recipientPhone2?: string;
+  /** Bosta-specific: lets the receiver open the package before accepting/paying for it. Best-effort field name — not confirmed against a live Bosta sandbox. */
+  readonly allowToOpenPackage?: boolean;
 }
 
 /**

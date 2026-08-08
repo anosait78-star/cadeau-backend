@@ -82,7 +82,27 @@ class FakePrisma {
       return Promise.resolve(data);
     },
   };
+  addOnFeatureKeys: string[] = [];
+  permissions: Row[] = [];
+  featurePermissionEdges: Row[] = [];
+
+  addOn = {
+    findMany: () => Promise.resolve(this.addOnFeatureKeys.map((featureKey) => ({ featureKey }))),
+  };
+  permission = {
+    findMany: () => Promise.resolve(this.permissions),
+  };
+  featurePermission = {
+    findMany: () => Promise.resolve(this.featurePermissionEdges),
+  };
+
   companyFeatureFlag = {
+    findMany: ({ where }: { where: Row }) =>
+      Promise.resolve(
+        this.featureFlags
+          .filter((f) => matches(f, where))
+          .map((f) => ({ featureKey: f["featureKey"], enabled: f["enabled"] })),
+      ),
     findFirst: ({ where }: { where: Row }) =>
       Promise.resolve(this.featureFlags.find((f) => matches(f, where)) ?? null),
     create: ({ data }: { data: Row }) => {
@@ -152,6 +172,69 @@ describe("AccessManagementRepository — catalog reads", () => {
     expect(await repo.listPermissionTemplates()).toEqual([
       { key: "owner", name: "Owner", description: "All", permissions: ["orders.read"] },
     ]);
+  });
+});
+
+describe("AccessManagementRepository — listAvailablePermissions", () => {
+  it("filters the catalog to the company's effective features, gates by feature edge", async () => {
+    const { repo, db } = make();
+    db.subscriptions.push({ companyId: COMPANY, plan: { features: [{ featureKey: "orders" }] } });
+    db.features.push({ key: "orders" }, { key: "customers" });
+    db.permissions.push(
+      { key: "access.read", description: "View access" },
+      { key: "orders.read", description: "View orders" },
+      { key: "orders.manage", description: "Manage orders" },
+      { key: "customers.read", description: "View customers" },
+    );
+    db.featurePermissionEdges.push(
+      { featureKey: "orders", permissionKey: "orders.read" },
+      { featureKey: "orders", permissionKey: "orders.manage" },
+      { featureKey: "customers", permissionKey: "customers.read" },
+    );
+
+    const result = await repo.listAvailablePermissions(COMPANY);
+
+    expect(result).toEqual([
+      { key: "access.read", description: "View access", featureKey: null },
+      { key: "orders.read", description: "View orders", featureKey: "orders" },
+      { key: "orders.manage", description: "Manage orders", featureKey: "orders" },
+    ]);
+  });
+
+  it("respects a company feature-flag override", async () => {
+    const { repo, db } = make();
+    db.subscriptions.push({
+      companyId: COMPANY,
+      plan: { features: [{ featureKey: "orders" }, { featureKey: "customers" }] },
+    });
+    db.features.push({ key: "orders" }, { key: "customers" });
+    db.featureFlags.push({ companyId: COMPANY, featureKey: "customers", enabled: false });
+    db.permissions.push(
+      { key: "orders.read", description: null },
+      { key: "customers.read", description: null },
+    );
+    db.featurePermissionEdges.push(
+      { featureKey: "orders", permissionKey: "orders.read" },
+      { featureKey: "customers", permissionKey: "customers.read" },
+    );
+
+    const result = await repo.listAvailablePermissions(COMPANY);
+
+    expect(result.map((p) => p.key)).toEqual(["orders.read"]);
+  });
+
+  it("returns only core permissions when the company has no subscription", async () => {
+    const { repo, db } = make();
+    db.permissions.push(
+      { key: "access.read", description: null },
+      { key: "access.manage", description: null },
+      { key: "orders.read", description: null },
+    );
+    db.featurePermissionEdges.push({ featureKey: "orders", permissionKey: "orders.read" });
+
+    const result = await repo.listAvailablePermissions(COMPANY);
+
+    expect(result.map((p) => p.key).sort()).toEqual(["access.manage", "access.read"]);
   });
 });
 

@@ -44,6 +44,20 @@ describe("AccessController", () => {
     expect(dto.data[0]?.key).toBe("owner");
   });
 
+  it("maps available permissions to the envelope", async () => {
+    const service = {
+      listAvailablePermissions: vi
+        .fn()
+        .mockResolvedValue([
+          { key: "orders.read", description: "View orders", featureKey: "orders" },
+        ]),
+    } as unknown as AccessService;
+    const dto = await new AccessController(service).listAvailablePermissions(PRINCIPAL);
+    expect(dto.data).toEqual([
+      { key: "orders.read", description: "View orders", featureKey: "orders" },
+    ]);
+  });
+
   it("forwards a member assignment and maps the result", async () => {
     const assign = vi.fn().mockResolvedValue({
       role: "store_manager",

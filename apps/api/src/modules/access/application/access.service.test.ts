@@ -33,6 +33,7 @@ function build(overrides: {
   const repo = {
     listFeatureCatalog: vi.fn().mockResolvedValue([]),
     listPermissionTemplates: vi.fn().mockResolvedValue([]),
+    listAvailablePermissions: vi.fn().mockResolvedValue([]),
     listTemplateKeys: vi.fn().mockResolvedValue(["owner", "store_manager"]),
     findMember: vi.fn().mockResolvedValue({ id: "m1", userId: "u2", role: "member" }),
     assignMemberPermissions: vi.fn(),
@@ -92,6 +93,27 @@ describe("AccessService.listFeatures", () => {
       { key: "orders", name: "Orders", category: "operations", enabled: true },
       { key: "finance", name: "Finance", category: "finance", enabled: false },
     ]);
+  });
+});
+
+describe("AccessService.listAvailablePermissions", () => {
+  it("delegates to the repo scoped to the caller's active company", async () => {
+    const { service } = build({
+      repo: {
+        listAvailablePermissions: vi
+          .fn()
+          .mockResolvedValue([{ key: "orders.read", description: null, featureKey: "orders" }]),
+      },
+    });
+    const result = await service.listAvailablePermissions(PRINCIPAL);
+    expect(result).toEqual([{ key: "orders.read", description: null, featureKey: "orders" }]);
+  });
+
+  it("403s when the caller has no active company", async () => {
+    const { service } = build({});
+    await expect(
+      service.listAvailablePermissions({ ...PRINCIPAL, companyId: null }),
+    ).rejects.toBeInstanceOf(AppException);
   });
 });
 

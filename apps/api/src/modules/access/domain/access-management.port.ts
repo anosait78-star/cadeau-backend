@@ -1,6 +1,7 @@
 import type { KeysetPage } from "@cadeau/database";
 import type {
   AdminCompanyView,
+  AvailablePermissionView,
   FeatureCatalogEntry,
   MemberPermissionOverride,
   MemberPermissionsSnapshot,
@@ -42,6 +43,12 @@ export interface AccessManagementRepositoryPort {
 
   /** The template keys that exist (for validating an assignment). */
   listTemplateKeys(): Promise<string[]>;
+
+  /**
+   * Permissions actually available to a company right now (its plan/features,
+   * independent of any one member's role) — see {@link AvailablePermissionView}.
+   */
+  listAvailablePermissions(companyId: string): Promise<AvailablePermissionView[]>;
 
   /** A member of the given (active) company, or null. */
   findMember(companyId: string, memberId: string): Promise<MemberRow | null>;

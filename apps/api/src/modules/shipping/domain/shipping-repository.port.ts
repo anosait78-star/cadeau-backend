@@ -24,6 +24,16 @@ export interface CreateShipmentInput {
   readonly idempotencyKey?: string | null;
   /** The client's carrier choice (the "select a carrier" step). Auto-detected when omitted. */
   readonly carrier?: string;
+  /** Bosta-specific fields collected in the "select a carrier" step — see `CarrierCreateShipmentInput`. */
+  readonly bostaCityId?: string;
+  readonly bostaCityName?: string;
+  readonly bostaDistrictId?: string;
+  readonly notes?: string;
+  readonly goodsValue?: number;
+  readonly recipientFirstName?: string;
+  readonly recipientLastName?: string;
+  readonly recipientPhone2?: string;
+  readonly allowToOpenPackage?: boolean;
 }
 
 /** A status transition request. */

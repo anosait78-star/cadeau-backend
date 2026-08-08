@@ -32,6 +32,8 @@ export interface CreateVariantInput {
   readonly name: string;
   readonly sku?: string | null;
   readonly barcode?: string | null;
+  /** Integer minor units. `averageCost` stays purchase-cost-only and is separate. */
+  readonly sellingPriceMinor?: number;
 }
 
 /** Partial update for a variant. */
@@ -40,6 +42,8 @@ export interface UpdateVariantInput {
   readonly sku?: string | null;
   readonly barcode?: string | null;
   readonly active?: boolean;
+  /** Integer minor units. `averageCost` stays purchase-cost-only and is separate. */
+  readonly sellingPriceMinor?: number;
 }
 
 /**
@@ -78,6 +82,13 @@ export interface ProductsRepositoryPort {
     variantId: string,
     data: UpdateVariantInput,
   ): Promise<ProductVariantView | null>;
+
+  /**
+   * Find a variant by its exact `sku` within a tenant (storefront-integration
+   * ingestion §D8: the ingested `sku` must match an existing variant). `null`
+   * when no active variant carries that SKU in this company.
+   */
+  findVariantBySku(companyId: string, sku: string): Promise<ProductVariantView | null>;
 }
 
 /** DI token for {@link ProductsRepositoryPort}. */

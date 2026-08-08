@@ -44,6 +44,7 @@ function variant(id: string, extra: Partial<ProductVariantView> = {}): ProductVa
     sku: null,
     barcode: null,
     averageCost: 0,
+    sellingPriceMinor: 0,
     active: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -72,6 +73,7 @@ function makeHarness(): Harness {
     listVariants: vi.fn(),
     createVariant: vi.fn(),
     updateVariant: vi.fn(),
+    findVariantBySku: vi.fn(),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
@@ -128,6 +130,13 @@ describe("ProductsService reads", () => {
     expect(await h.service.listVariants(principal(), "p1")).toHaveLength(1);
     h.repo.listVariants.mockResolvedValueOnce(null);
     await expect(h.service.listVariants(principal(), "p9")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("findVariantBySku delegates to the repo scoped to the tenant", async () => {
+    h.repo.findVariantBySku.mockResolvedValueOnce(variant("v1", { sku: "SKU-1" }));
+    const found = await h.service.findVariantBySku(principal(), "SKU-1");
+    expect(found).toMatchObject({ id: "v1", sku: "SKU-1" });
+    expect(h.repo.findVariantBySku).toHaveBeenCalledWith(COMPANY, "SKU-1");
   });
 });
 

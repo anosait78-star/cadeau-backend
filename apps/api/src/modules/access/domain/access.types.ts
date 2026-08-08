@@ -16,6 +16,21 @@ export interface PermissionTemplateView {
   readonly permissions: readonly string[];
 }
 
+/**
+ * One permission the caller's company can actually grant right now — filtered
+ * to the company's effective features (plan ∪ add-ons, flags applied, ∩
+ * globally-active), independent of any one member's role. `featureKey` is
+ * `null` for the two feature-independent core permissions (`access.read`,
+ * `access.manage`). Powers the custom-role permission picker (Team/Invitations,
+ * EPIC-15) — the same three-layer resolution `POST .../invitations` validates
+ * a custom role's chosen keys against server-side.
+ */
+export interface AvailablePermissionView {
+  readonly key: string;
+  readonly description: string | null;
+  readonly featureKey: string | null;
+}
+
 /** The caller's effective capabilities plus their platform/tenant context. */
 export interface CapabilitiesView {
   readonly features: readonly string[];

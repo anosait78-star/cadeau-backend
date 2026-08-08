@@ -1,4 +1,5 @@
-import { Module } from "@nestjs/common";
+import { Global, Module } from "@nestjs/common";
+import { INVENTORY_ADJUSTMENT } from "../../shared/contracts/inventory-adjustment.port";
 import { systemClockProvider } from "../../shared/time/clock";
 import { InventoryService } from "./application/inventory.service";
 import { INVENTORY_AUDIT } from "./domain/inventory-audit.port";
@@ -16,7 +17,12 @@ import { WarehousesController } from "./presentation/warehouses.controller";
  * adapter. The three-layer resolver + guards come from the global
  * {@link AccessCoreModule}; the event bus from {@link EventBusModule} — both
  * injected without an explicit import here.
+ *
+ * Marked `@Global` so the {@link INVENTORY_ADJUSTMENT} contract it implements
+ * is available to sibling features (storefront-integration) without a direct
+ * module import — features couple only through `shared/contracts`.
  */
+@Global()
 @Module({
   controllers: [WarehousesController, InventoryController],
   providers: [
@@ -25,6 +31,8 @@ import { WarehousesController } from "./presentation/warehouses.controller";
     inventoryPrismaClientProvider,
     { provide: INVENTORY_REPOSITORY, useClass: InventoryRepository },
     { provide: INVENTORY_AUDIT, useClass: InventoryAuditLogAdapter },
+    { provide: INVENTORY_ADJUSTMENT, useExisting: InventoryService },
   ],
+  exports: [InventoryService, INVENTORY_ADJUSTMENT],
 })
 export class InventoryModule {}

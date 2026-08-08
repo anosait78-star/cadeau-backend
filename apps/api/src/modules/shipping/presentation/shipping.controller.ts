@@ -148,6 +148,21 @@ export class ShippingController {
       orderId: body.orderId,
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       ...(body.carrier === undefined ? {} : { carrier: body.carrier }),
+      ...(body.bostaCityId === undefined ? {} : { bostaCityId: body.bostaCityId }),
+      ...(body.bostaCityName === undefined ? {} : { bostaCityName: body.bostaCityName }),
+      ...(body.bostaDistrictId === undefined ? {} : { bostaDistrictId: body.bostaDistrictId }),
+      ...(body.notes === undefined ? {} : { notes: body.notes }),
+      ...(body.goodsValue === undefined ? {} : { goodsValue: body.goodsValue }),
+      ...(body.recipientFirstName === undefined
+        ? {}
+        : { recipientFirstName: body.recipientFirstName }),
+      ...(body.recipientLastName === undefined
+        ? {}
+        : { recipientLastName: body.recipientLastName }),
+      ...(body.recipientPhone2 === undefined ? {} : { recipientPhone2: body.recipientPhone2 }),
+      ...(body.allowToOpenPackage === undefined
+        ? {}
+        : { allowToOpenPackage: body.allowToOpenPackage }),
     });
     res.status(replayed ? HttpStatus.OK : HttpStatus.CREATED);
     res.setHeader("Location", `/v1/shipping/shipments/${shipment.id}`);

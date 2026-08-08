@@ -20,6 +20,7 @@ import { OnboardingStartPage } from "@/pages/onboarding/onboarding-start-page";
 import { NotificationsPage } from "@/pages/settings/notifications-page";
 import { RolesPage } from "@/pages/settings/roles-page";
 import { SettingsPage } from "@/pages/settings/settings-page";
+import { TeamPage } from "@/pages/settings/team-page";
 
 /**
  * Application routes. Public auth screens (`/login`, `/register`) render on their
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
           { path: "analytics", element: <AnalyticsPage /> },
           { path: "master-data", element: <MasterDataPage /> },
           { path: "settings/roles", element: <RolesPage /> },
+          { path: "settings/team", element: <TeamPage /> },
           { path: "settings/notifications", element: <NotificationsPage /> },
           { path: "settings", element: <SettingsPage /> },
           { path: "settings/:tab", element: <SettingsPage /> },

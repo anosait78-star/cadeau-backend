@@ -149,6 +149,8 @@ model Company {
   notificationPreferences      NotificationPreference[]
   pushSubscriptions            PushSubscription[]
   notificationDeliveries       NotificationDelivery[]
+  storefrontConnections        StorefrontConnection[]
+  storefrontWebhookEvents      StorefrontWebhookEvent[]
 
   @@map("companies")
 }
@@ -704,6 +706,10 @@ model ProductVariant {
   sku         String?
   barcode     String?
   averageCost BigInt   @default(0) @map("average_cost")
+  /// Sellable price in integer minor units (storefront-integration §8).
+  /// Client- and storefront-writable — unlike `averageCost`, which stays
+  /// purchase-cost-only and is never touched by this column's writers.
+  sellingPriceMinor BigInt @default(0) @map("selling_price_minor")
   isActive    Boolean  @default(true) @map("is_active")
   createdBy   String?  @map("created_by") @db.Uuid
   updatedBy   String?  @map("updated_by") @db.Uuid
@@ -753,6 +759,7 @@ model Warehouse {
   transfersIn           StockTransfer[]        @relation("StockTransferTo")
   purchaseOrderReceipts PurchaseOrderReceipt[]
   orders                Order[]
+  storefrontConnections StorefrontConnection[]
 
   @@unique([companyId, name], map: "warehouses_company_name_key")
   @@index([companyId, name, id], map: "warehouses_keyset_idx")
@@ -1184,6 +1191,75 @@ model ShippingWebhookEvent {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "shipping_webhook_events_keyset_idx")
   @@index([status, nextAttemptAt], map: "shipping_webhook_events_pending_idx")
   @@map("shipping_webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// Storefront Integration (docs/storefront-integration-plan.md) — inbound-only
+// ingestion from a company's own storefront(s). D1/D2: the API key lives on
+// the connection, not the company (N connections per company, each with its
+// own independently mintable/rotatable/revocable key). D7: append-first
+// webhook inbox, idempotent on (connectionId, eventType, externalId), no
+// auto-retry worker in v1 (contrast ShippingWebhookEvent).
+// ---------------------------------------------------------------------------
+
+/// One connected storefront (v1: generic JSON contract, D8). The API key is
+/// scoped to this connection alone — revoking/rotating it never touches a
+/// sibling connection of the same company (D1/D2). Only a scrypt hash
+/// (`@cadeau/crypto` `hashPassword`) of the key is stored; the plaintext is
+/// shown once, at creation/rotation.
+model StorefrontConnection {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  label              String
+  platform           String    @default("generic")
+  apiKeyHash         String    @map("api_key_hash")
+  /// Non-secret first few characters of the plaintext key, for display only.
+  apiKeyPrefix       String    @map("api_key_prefix") @db.VarChar(8)
+  defaultWarehouseId String?   @map("default_warehouse_id") @db.Uuid
+  status             String    @default("active")
+  lastEventAt        DateTime? @map("last_event_at") @db.Timestamptz(6)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company         Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultWarehouse Warehouse?              @relation(fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
+  webhookEvents   StorefrontWebhookEvent[]
+
+  @@unique([companyId, label], map: "storefront_connections_company_label_key")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "storefront_connections_company_idx")
+  @@map("storefront_connections")
+}
+
+/// Append-first inbox row for one inbound storefront order/product (D7).
+/// `companyId` is copied from the connection at write time so RLS/filtering
+/// never needs a join. `externalId` is the store's own id for the row and,
+/// together with `connectionId`/`eventType`, is the idempotency key.
+model StorefrontWebhookEvent {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  connectionId      String    @map("connection_id") @db.Uuid
+  eventType         String    @map("event_type")
+  externalId        String    @map("external_id")
+  payload           Json
+  status            String    @default("pending")
+  error             String?
+  internalEntityId  String?   @map("internal_entity_id") @db.Uuid
+  attemptCount      Int       @default(1) @map("attempt_count")
+  receivedAt        DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt       DateTime? @map("processed_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection StorefrontConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, eventType, externalId], map: "storefront_webhook_events_idem_key")
+  @@index([companyId, receivedAt(sort: Desc), id(sort: Desc)], map: "storefront_webhook_events_keyset_idx")
+  @@index([connectionId, receivedAt(sort: Desc), id(sort: Desc)], map: "storefront_webhook_events_connection_idx")
+  @@map("storefront_webhook_events")
 }
 
 // ---------------------------------------------------------------------------
