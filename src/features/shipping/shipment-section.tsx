@@ -76,6 +76,12 @@ export function ShipmentSection({
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [movingToReady, setMovingToReady] = useState(false);
   const isShippable = SHIPPABLE_ORDER_STATUSES.has(orderStatus);
+  // A cancelled/returned shipment has no further transitions (see
+  // SHIPMENT_TRANSITIONS) — it's a dead record, not something to keep acting
+  // on, so it's treated like "no shipment" for the create-a-new-one prompt.
+  const isTerminalShipment =
+    state.kind === "ready" &&
+    (state.shipment.status === "cancelled" || state.shipment.status === "returned");
 
   const load = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
@@ -154,9 +160,15 @@ export function ShipmentSection({
         {state.kind === "loading" ? <LoadingState className="p-4" /> : null}
         {state.kind === "error" ? <ErrorState onRetry={() => void load()} className="p-4" /> : null}
 
-        {state.kind === "none" && isShippable ? (
+        {/* A cancelled/returned shipment is a dead end for that record — offer a
+            fresh "Create shipment" the same way "no shipment yet" does, so
+            cancelling doesn't strand the order with no way to re-ship. */}
+        {(state.kind === "none" || (state.kind === "ready" && isTerminalShipment)) &&
+        isShippable ? (
           <div className="flex items-center gap-2">
-            <p className="text-sm text-muted-foreground">{t("shipping.none")}</p>
+            <p className="text-sm text-muted-foreground">
+              {state.kind === "none" ? t("shipping.none") : t("shipping.lastCancelled")}
+            </p>
             <PermissionGate permission="shipping.manage">
               <Button size="sm" variant="outline" onClick={() => setCarrierDialogOpen(true)}>
                 {t("shipping.actions.create")}
@@ -239,6 +251,10 @@ function ShipmentDetail({
   const nextStates = SHIPMENT_TRANSITIONS[shipment.status];
   const advanceStates = nextStates.filter((s) => s !== "cancelled");
   const canCancel = nextStates.includes("cancelled");
+  // A cancelled/returned record is a dead end — no advance, no cancel (already
+  // cancelled), and no waybill either (nothing left to ship). The page-level
+  // "Create shipment" prompt above is what moves the order forward from here.
+  const isDeadEnd = shipment.status === "cancelled" || shipment.status === "returned";
 
   return (
     <div className="flex flex-col gap-2">
@@ -253,45 +269,47 @@ function ShipmentDetail({
         <Field label={t("shipping.field.fee")}>{formatMoney(shipment.fee, locale)}</Field>
       </dl>
 
-      <PermissionGate permission="shipping.manage">
-        <div className="flex flex-wrap items-center gap-2">
-          {advanceStates.length > 0 ? (
-            <label className="flex items-center gap-1 text-sm">
-              <span className="text-muted-foreground">{t("shipping.actions.advance")}</span>
-              <select
-                className="rounded border border-input bg-background px-2 py-1 text-sm"
-                value=""
-                onChange={(e) => {
-                  const to = e.target.value;
-                  if (to === "") return;
-                  void onAdvance(to as ShipmentStatus);
-                }}
-              >
-                <option value="" disabled>
-                  —
-                </option>
-                {advanceStates.map((s) => (
-                  <option key={s} value={s}>
-                    {t(`shipping.status.${s}` as TranslationKey)}
+      {isDeadEnd ? null : (
+        <PermissionGate permission="shipping.manage">
+          <div className="flex flex-wrap items-center gap-2">
+            {advanceStates.length > 0 ? (
+              <label className="flex items-center gap-1 text-sm">
+                <span className="text-muted-foreground">{t("shipping.actions.advance")}</span>
+                <select
+                  className="rounded border border-input bg-background px-2 py-1 text-sm"
+                  value=""
+                  onChange={(e) => {
+                    const to = e.target.value;
+                    if (to === "") return;
+                    void onAdvance(to as ShipmentStatus);
+                  }}
+                >
+                  <option value="" disabled>
+                    —
                   </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {canCancel ? (
-            <Button size="sm" variant="destructive" onClick={onCancelClick}>
-              {t("shipping.actions.cancel")}
-            </Button>
-          ) : null}
-          {shipment.waybillIssued ? (
-            <span className="text-xs text-muted-foreground">{t("shipping.waybillIssued")}</span>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => void onWaybill()}>
-              {t("shipping.actions.waybill")}
-            </Button>
-          )}
-        </div>
-      </PermissionGate>
+                  {advanceStates.map((s) => (
+                    <option key={s} value={s}>
+                      {t(`shipping.status.${s}` as TranslationKey)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {canCancel ? (
+              <Button size="sm" variant="destructive" onClick={onCancelClick}>
+                {t("shipping.actions.cancel")}
+              </Button>
+            ) : null}
+            {shipment.waybillIssued ? (
+              <span className="text-xs text-muted-foreground">{t("shipping.waybillIssued")}</span>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => void onWaybill()}>
+                {t("shipping.actions.waybill")}
+              </Button>
+            )}
+          </div>
+        </PermissionGate>
+      )}
     </div>
   );
 }

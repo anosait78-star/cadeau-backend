@@ -315,7 +315,8 @@ describe("OrdersPage", () => {
   it("renders the KPI row from status counts", async () => {
     renderPage();
     await screen.findByText("#1042");
-    expect(await screen.findByText("Pending")).toBeInTheDocument();
+    const kpiRow = await screen.findByTestId("orders-kpi-row");
+    expect(within(kpiRow).getByText("Processing")).toBeInTheDocument();
   });
 
   it("hides the create button without orders.manage", async () => {
@@ -360,6 +361,22 @@ describe("OrdersPage", () => {
     );
   });
 
+  it("offers 'Create shipment' only for a single selected row, opening the per-order carrier dialog (no bulk shipping)", async () => {
+    const user = userEvent.setup();
+    renderPage(["orders", "shipping"], ["orders.read", "orders.manage", "shipping.manage"]);
+    await screen.findByText("#1042");
+    await user.click(screen.getAllByRole("checkbox", { name: "Select row" })[0] as HTMLElement);
+
+    const createShipmentButton = await screen.findByRole("button", { name: "Create shipment" });
+    await user.click(createShipmentButton);
+
+    expect(await screen.findByText("Select a shipping carrier")).toBeInTheDocument();
+    // No bulk shipment endpoint is ever called from this flow.
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u).match(/\/shipping\/shipments\/bulk$/) !== null),
+    ).toBe(false);
+  });
+
   it("surfaces an error instead of doing nothing when the bulk request fails", async () => {
     const user = userEvent.setup();
     fetchMock.mockImplementationOnce(() => Promise.resolve(json(200, ORDERS_PAGE)));
@@ -372,27 +389,17 @@ describe("OrdersPage", () => {
     expect(await screen.findByRole("status")).toBeInTheDocument();
   });
 
-  it("changes status through the row-actions menu", async () => {
+  it("the row-actions menu only offers Details (status changes live on the order itself)", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("#1042");
     await user.click(screen.getByRole("button", { name: "Row actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Processing/ }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringMatching(/\/orders\/o1\/status$/),
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
-  });
+    expect(await screen.findByRole("menuitem", { name: "Details" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Processing/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Cancelled/ })).not.toBeInTheDocument();
 
-  it("warns that cancelling needs a reason", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await screen.findByText("#1042");
-    await user.click(screen.getByRole("button", { name: "Row actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Cancelled/ }));
-    expect(await screen.findByRole("status")).toHaveTextContent(/reason/i);
+    await user.click(screen.getByRole("menuitem", { name: "Details" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 
   it("opens the create form and blocks submit until a customer and a line exist", async () => {
