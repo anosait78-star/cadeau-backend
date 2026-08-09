@@ -427,6 +427,7 @@ function CreateConnectionDialog({
   const [label, setLabel] = useState("");
   const [platform, setPlatform] = useState<StorefrontPlatform>("generic");
   const [warehouseId, setWarehouseId] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -435,6 +436,7 @@ function CreateConnectionDialog({
     setLabel("");
     setPlatform("generic");
     setWarehouseId("");
+    setWebhookSecret("");
     setError(null);
   }, [open]);
 
@@ -448,6 +450,7 @@ function CreateConnectionDialog({
         label: trimmed,
         platform,
         ...(warehouseId !== "" ? { defaultWarehouseId: warehouseId } : {}),
+        ...(webhookSecret.trim() !== "" ? { webhookSecret: webhookSecret.trim() } : {}),
       };
       const result = await createStorefrontConnection(body);
       onCreated(result);
@@ -501,6 +504,23 @@ function CreateConnectionDialog({
             options={warehouseOptions(t, warehouses)}
           />
         </FormField>
+        {platform === "woocommerce" ? (
+          <FormField
+            label={t("storefront.field.webhookSecret")}
+            htmlFor="storefront-create-webhook-secret"
+            optional
+            hint={t("storefront.field.webhookSecretHint")}
+          >
+            <Input
+              id="storefront-create-webhook-secret"
+              type="password"
+              autoComplete="off"
+              value={webhookSecret}
+              onChange={(e) => setWebhookSecret(e.target.value)}
+              aria-label={t("storefront.field.webhookSecret")}
+            />
+          </FormField>
+        ) : null}
         {error !== null ? (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -541,6 +561,7 @@ function EditConnectionDialog({
   const [label, setLabel] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [active, setActive] = useState(true);
+  const [webhookSecret, setWebhookSecret] = useState("");
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -548,6 +569,7 @@ function EditConnectionDialog({
     setLabel(connection.label);
     setWarehouseId(connection.defaultWarehouseId ?? "");
     setActive(connection.status === "active");
+    setWebhookSecret("");
   }, [connection]);
 
   if (connection === null) return null;
@@ -561,6 +583,7 @@ function EditConnectionDialog({
         label: trimmed,
         defaultWarehouseId: warehouseId === "" ? null : warehouseId,
         status: active ? "active" : "paused",
+        ...(webhookSecret.trim() !== "" ? { webhookSecret: webhookSecret.trim() } : {}),
       });
       onSaved(updated);
     } catch {
@@ -604,6 +627,24 @@ function EditConnectionDialog({
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           {t("storefront.field.active")}
         </label>
+        {connection.platform === "woocommerce" ? (
+          <FormField
+            label={t("storefront.field.webhookSecret")}
+            htmlFor="storefront-edit-webhook-secret"
+            optional
+            hint={t("storefront.field.webhookSecretHint")}
+          >
+            <Input
+              id="storefront-edit-webhook-secret"
+              type="password"
+              autoComplete="off"
+              placeholder="••••••••"
+              value={webhookSecret}
+              onChange={(e) => setWebhookSecret(e.target.value)}
+              aria-label={t("storefront.field.webhookSecret")}
+            />
+          </FormField>
+        ) : null}
       </div>
       <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
         <Button variant="outline" size="sm" disabled={pending} onClick={() => onOpenChange(false)}>
