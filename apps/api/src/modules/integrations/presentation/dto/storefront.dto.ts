@@ -41,6 +41,19 @@ export class CreateConnectionDto {
   @IsOptional()
   @IsUUID()
   defaultWarehouseId?: string | null;
+
+  @ApiPropertyOptional({
+    maxLength: 500,
+    description:
+      "Optional platform webhook signing secret (e.g. WooCommerce's webhook secret). " +
+      "Stored encrypted, never returned by any read endpoint. Verified as a " +
+      "supplementary check alongside the API key — never a replacement for it.",
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  webhookSecret?: string;
 }
 
 export class UpdateConnectionDto {
@@ -60,6 +73,16 @@ export class UpdateConnectionDto {
   @IsOptional()
   @IsIn(["active", "paused"])
   status?: "active" | "paused";
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 500,
+    description: "Set/replace the webhook signing secret; pass `null` to clear it.",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  webhookSecret?: string | null;
 }
 
 // ---- Management response DTOs -----------------------------------------------

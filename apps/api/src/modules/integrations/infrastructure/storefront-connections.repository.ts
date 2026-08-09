@@ -111,6 +111,7 @@ export class StorefrontConnectionsRepository implements StorefrontConnectionsRep
             apiKeyHash: data.apiKeyHash,
             apiKeyPrefix: data.apiKeyPrefix,
             defaultWarehouseId: data.defaultWarehouseId ?? null,
+            webhookSecretEncrypted: data.webhookSecretEncrypted ?? null,
           }) as Prisma.StorefrontConnectionUncheckedCreateInput,
           select: CONNECTION_SELECT,
         });
@@ -134,6 +135,8 @@ export class StorefrontConnectionsRepository implements StorefrontConnectionsRep
       if (data.defaultWarehouseId !== undefined)
         patch["defaultWarehouseId"] = data.defaultWarehouseId;
       if (data.status !== undefined) patch["status"] = data.status;
+      if (data.webhookSecretEncrypted !== undefined)
+        patch["webhookSecretEncrypted"] = data.webhookSecretEncrypted;
       try {
         const { count } = await tx.storefrontConnection.updateMany({
           where,
@@ -194,16 +197,20 @@ export class StorefrontConnectionsRepository implements StorefrontConnectionsRep
       select: {
         id: true,
         companyId: true,
+        platform: true,
         defaultWarehouseId: true,
         apiKeyHash: true,
+        webhookSecretEncrypted: true,
         createdBy: true,
       },
     });
     return rows.map((row) => ({
       connectionId: row.id,
       companyId: row.companyId,
+      platform: row.platform as StorefrontPlatform,
       defaultWarehouseId: row.defaultWarehouseId,
       apiKeyHash: row.apiKeyHash,
+      webhookSecretEncrypted: row.webhookSecretEncrypted,
       actorId: row.createdBy,
     }));
   }

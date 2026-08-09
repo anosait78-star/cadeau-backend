@@ -23,7 +23,10 @@ import type {
   NormalizedOrder,
   NormalizedProduct,
 } from "../domain/storefront-adapter.port";
-import { STOREFRONT_ADAPTER, type StorefrontAdapterPort } from "../domain/storefront-adapter.port";
+import {
+  STOREFRONT_ADAPTER_RESOLVER,
+  type StorefrontAdapterResolverPort,
+} from "../domain/storefront-adapter-resolver.port";
 import type { ResolvedStorefrontConnection } from "../domain/storefront-connection.entity";
 import {
   STOREFRONT_CONNECTIONS_REPOSITORY,
@@ -58,7 +61,7 @@ export interface IngestResult {
 export class StorefrontIngestionService {
   constructor(
     @Inject(STOREFRONT_WEBHOOK_INBOX) private readonly inbox: StorefrontWebhookInboxPort,
-    @Inject(STOREFRONT_ADAPTER) private readonly adapter: StorefrontAdapterPort,
+    @Inject(STOREFRONT_ADAPTER_RESOLVER) private readonly adapters: StorefrontAdapterResolverPort,
     @Inject(STOREFRONT_CONNECTIONS_REPOSITORY)
     private readonly connections: StorefrontConnectionsRepositoryPort,
     @Inject(ORDERS_INGESTION) private readonly orders: OrdersIngestionPort,
@@ -68,7 +71,7 @@ export class StorefrontIngestionService {
   ) {}
 
   async ingestOrder(connection: ResolvedStorefrontConnection, raw: unknown): Promise<IngestResult> {
-    const normalized = this.adapter.parseOrder(raw);
+    const normalized = this.adapters.resolve(connection.platform).parseOrder(raw);
     this.assertOrderShape(normalized);
     return this.ingest(connection, "order", normalized.externalId, raw, () =>
       this.processOrder(connection, normalized),
@@ -79,7 +82,7 @@ export class StorefrontIngestionService {
     connection: ResolvedStorefrontConnection,
     raw: unknown,
   ): Promise<IngestResult> {
-    const normalized = this.adapter.parseProduct(raw);
+    const normalized = this.adapters.resolve(connection.platform).parseProduct(raw);
     this.assertProductShape(normalized);
     return this.ingest(connection, "product", normalized.externalId, raw, () =>
       this.processProduct(connection, normalized),
@@ -105,13 +108,15 @@ export class StorefrontIngestionService {
     const resolved: ResolvedStorefrontConnection = {
       connectionId,
       companyId,
+      platform: connection.platform,
       defaultWarehouseId: connection.defaultWarehouseId,
       actorId: principal.userId,
     };
+    const adapter = this.adapters.resolve(resolved.platform);
     const run =
       event.eventType === "order"
-        ? () => this.processOrder(resolved, this.adapter.parseOrder(payload))
-        : () => this.processProduct(resolved, this.adapter.parseProduct(payload));
+        ? () => this.processOrder(resolved, adapter.parseOrder(payload))
+        : () => this.processProduct(resolved, adapter.parseProduct(payload));
     try {
       const entityId = await run();
       await this.inbox.markProcessed(companyId, eventId, entityId);

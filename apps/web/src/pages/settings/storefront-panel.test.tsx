@@ -145,6 +145,24 @@ describe("StorefrontPanel", () => {
     );
   });
 
+  it("shows the webhook secret field only after selecting the WooCommerce platform", async () => {
+    stubBasics([]);
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByText("لا توجد اتصالات متجر إلكتروني حتى الآن.");
+
+    await user.click(screen.getByRole("button", { name: "اتصال جديد" }));
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).queryByLabelText("سر Webhook")).not.toBeInTheDocument();
+
+    const platformCombobox = within(dialog).getByLabelText("المنصّة");
+    await user.click(platformCombobox);
+    await user.click(await screen.findByText("WooCommerce"));
+
+    expect(await within(dialog).findByLabelText("سر Webhook")).toBeInTheDocument();
+  });
+
   it("revokes a connection after confirmation", async () => {
     stubBasics([CONNECTION]);
     const user = userEvent.setup();

@@ -16,8 +16,11 @@ import type {
 export interface ConnectionKeyCandidate {
   readonly connectionId: string;
   readonly companyId: string;
+  readonly platform: StorefrontPlatform;
   readonly defaultWarehouseId: string | null;
   readonly apiKeyHash: string;
+  /** AES-256-GCM ciphertext of the platform webhook secret, or `null` if none is configured. */
+  readonly webhookSecretEncrypted: string | null;
   /** The connection's `createdBy` — see {@link ResolvedStorefrontConnection}. */
   readonly actorId: string | null;
 }
@@ -35,6 +38,8 @@ export interface CreateConnectionInput {
   readonly apiKeyHash: string;
   readonly apiKeyPrefix: string;
   readonly defaultWarehouseId?: string | null;
+  /** Already-encrypted (AES-256-GCM) webhook secret, if the caller supplied one. */
+  readonly webhookSecretEncrypted?: string | null;
 }
 
 /** Partial update for a connection; omitted keys are left unchanged. */
@@ -42,6 +47,8 @@ export interface UpdateConnectionInput {
   readonly label?: string;
   readonly defaultWarehouseId?: string | null;
   readonly status?: "active" | "paused";
+  /** Already-encrypted (AES-256-GCM); `null` clears it, `undefined` leaves it unchanged. */
+  readonly webhookSecretEncrypted?: string | null;
 }
 
 /** A raw (unvalidated) page request. */

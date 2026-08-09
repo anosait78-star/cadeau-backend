@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { verifyPassword } from "@cadeau/crypto";
+import type { AppConfig } from "@cadeau/config";
+import { decrypt, verifyPassword } from "@cadeau/crypto";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import type { StorefrontAuditPort } from "../domain/storefront-audit.port";
 import type { StorefrontConnectionsRepositoryPort } from "../domain/storefront-connections-repository.port";
@@ -8,6 +9,8 @@ import { StorefrontConnectionsService } from "./storefront-connections.service";
 
 const COMPANY = "11111111-1111-1111-1111-111111111111";
 const USER = "22222222-2222-2222-2222-222222222222";
+const ENCRYPTION_KEY = "b".repeat(64); // 32 bytes hex, test-only
+const CONFIG = { encryption: { key: ENCRYPTION_KEY } } as unknown as AppConfig;
 
 function principal(overrides: Partial<RequestPrincipal> = {}): RequestPrincipal {
   return { userId: USER, sessionId: "s", companyId: COMPANY, ...overrides };
@@ -42,6 +45,7 @@ function makeHarness() {
   const service = new StorefrontConnectionsService(
     repo as unknown as StorefrontConnectionsRepositoryPort,
     audit as unknown as StorefrontAuditPort,
+    CONFIG,
   );
   return { service, repo, audit };
 }
@@ -128,6 +132,61 @@ describe("StorefrontConnectionsService", () => {
   it("getOne returns 404 for an absent connection", async () => {
     h.repo.findById.mockResolvedValueOnce(null);
     await expect(h.service.getOne(principal(), "missing")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("create encrypts a supplied webhookSecret before it reaches the repository", async () => {
+    h.repo.create.mockImplementation(async (_actor, data) => {
+      expect(data.webhookSecretEncrypted).toBeDefined();
+      expect(data.webhookSecretEncrypted).not.toBe("wc-secret-plaintext");
+      expect(decrypt(data.webhookSecretEncrypted as string, ENCRYPTION_KEY)).toBe(
+        "wc-secret-plaintext",
+      );
+      return connectionView("c1");
+    });
+    await h.service.create(principal(), {
+      label: "Main store",
+      platform: "woocommerce",
+      webhookSecret: "wc-secret-plaintext",
+    });
+  });
+
+  it("create omits webhookSecretEncrypted entirely when no secret is supplied", async () => {
+    h.repo.create.mockImplementation(async (_actor, data) => {
+      expect(data).not.toHaveProperty("webhookSecretEncrypted");
+      return connectionView("c1");
+    });
+    await h.service.create(principal(), { label: "Main store" });
+  });
+
+  it("update encrypts a replaced webhookSecret and never writes the plaintext to the audit log", async () => {
+    h.repo.update.mockResolvedValueOnce(connectionView("c1"));
+    await h.service.update(principal(), "c1", { webhookSecret: "new-secret" });
+    const [, , updateData] = h.repo.update.mock.calls[0] as [
+      unknown,
+      unknown,
+      { webhookSecretEncrypted?: string },
+    ];
+    expect(updateData.webhookSecretEncrypted).not.toBe("new-secret");
+    expect(decrypt(updateData.webhookSecretEncrypted as string, ENCRYPTION_KEY)).toBe("new-secret");
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ changes: expect.objectContaining({ webhookSecret: "updated" }) }),
+    );
+    const auditCall = h.audit.record.mock.calls[0]?.[0] as { changes: Record<string, unknown> };
+    expect(JSON.stringify(auditCall.changes)).not.toContain("new-secret");
+  });
+
+  it("update clears the webhookSecret when explicitly set to null", async () => {
+    h.repo.update.mockResolvedValueOnce(connectionView("c1"));
+    await h.service.update(principal(), "c1", { webhookSecret: null });
+    const [, , updateData] = h.repo.update.mock.calls[0] as [
+      unknown,
+      unknown,
+      { webhookSecretEncrypted?: string | null },
+    ];
+    expect(updateData.webhookSecretEncrypted).toBeNull();
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ changes: expect.objectContaining({ webhookSecret: "cleared" }) }),
+    );
   });
 
   it("update delegates and audits; 404 if absent", async () => {

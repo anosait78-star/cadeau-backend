@@ -45,14 +45,23 @@ export interface NormalizedProduct {
 
 /**
  * Translates one platform's raw webhook payload into the generic contract
- * (D8). `GenericJsonAdapter` is the only implementation in v1 (the raw
- * payload already IS the generic contract); a per-platform adapter is a
- * later, additive implementation of this same interface.
+ * (D8). `GenericJsonAdapter` (the identity mapping) and `WooCommerceAdapter`
+ * both implement this; `StorefrontAdapterResolverPort` picks the right one
+ * per connection at request time — a new platform is one more implementation
+ * of this same interface, registered in the resolver.
  */
 export interface StorefrontAdapterPort {
   parseOrder(raw: unknown): NormalizedOrder;
   parseProduct(raw: unknown): NormalizedProduct;
 }
 
-/** DI token for {@link StorefrontAdapterPort}. */
-export const STOREFRONT_ADAPTER = Symbol("STOREFRONT_ADAPTER");
+/**
+ * DI tokens for the two concrete v1 adapters. `StorefrontAdapterResolver`
+ * (application layer) depends on these — never on the concrete
+ * `GenericJsonAdapter`/`WooCommerceAdapter` classes, which live in
+ * `infrastructure/` and would violate the `layer-application-no-outer`
+ * architecture rule. `integrations.module.ts` (composition root, exempt from
+ * that rule) binds each token to its concrete class.
+ */
+export const GENERIC_STOREFRONT_ADAPTER = Symbol("GENERIC_STOREFRONT_ADAPTER");
+export const WOOCOMMERCE_STOREFRONT_ADAPTER = Symbol("WOOCOMMERCE_STOREFRONT_ADAPTER");

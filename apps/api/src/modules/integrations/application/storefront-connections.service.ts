@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { hashPassword } from "@cadeau/crypto";
+import { encrypt, hashPassword } from "@cadeau/crypto";
+import type { AppConfig } from "@cadeau/config";
 import type { KeysetPage } from "@cadeau/database";
+import { APP_CONFIG } from "../../../shared/config/config.tokens";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors } from "../../../shared/errors/app-exception";
 import type {
@@ -26,6 +28,8 @@ export interface CreateConnectionCommand {
   readonly label: string;
   readonly platform?: StorefrontPlatform;
   readonly defaultWarehouseId?: string | null;
+  /** Plaintext; encrypted before it ever reaches the repository. */
+  readonly webhookSecret?: string;
 }
 
 /** Partial update; omitted keys are left unchanged. */
@@ -33,6 +37,8 @@ export interface UpdateConnectionCommand {
   readonly label?: string;
   readonly defaultWarehouseId?: string | null;
   readonly status?: "active" | "paused";
+  /** Plaintext; `null` clears the stored secret, `undefined` leaves it unchanged. */
+  readonly webhookSecret?: string | null;
 }
 
 /**
@@ -50,6 +56,7 @@ export class StorefrontConnectionsService {
     @Inject(STOREFRONT_CONNECTIONS_REPOSITORY)
     private readonly repo: StorefrontConnectionsRepositoryPort,
     @Inject(STOREFRONT_AUDIT) private readonly audit: StorefrontAuditPort,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async list(
@@ -86,6 +93,9 @@ export class StorefrontConnectionsService {
           ...(data.defaultWarehouseId === undefined
             ? {}
             : { defaultWarehouseId: data.defaultWarehouseId }),
+          ...(data.webhookSecret === undefined
+            ? {}
+            : { webhookSecretEncrypted: this.encryptWebhookSecret(data.webhookSecret) }),
         },
       );
     } catch (error) {
@@ -108,7 +118,19 @@ export class StorefrontConnectionsService {
     const companyId = this.requireTenant(principal);
     let row: StorefrontConnectionView | null;
     try {
-      row = await this.repo.update({ companyId, actorId: principal.userId }, id, data);
+      row = await this.repo.update({ companyId, actorId: principal.userId }, id, {
+        ...(data.label === undefined ? {} : { label: data.label }),
+        ...(data.defaultWarehouseId === undefined
+          ? {}
+          : { defaultWarehouseId: data.defaultWarehouseId }),
+        ...(data.status === undefined ? {} : { status: data.status }),
+        ...(data.webhookSecret === undefined
+          ? {}
+          : {
+              webhookSecretEncrypted:
+                data.webhookSecret === null ? null : this.encryptWebhookSecret(data.webhookSecret),
+            }),
+      });
     } catch (error) {
       throw this.mapError(error);
     }
@@ -117,7 +139,18 @@ export class StorefrontConnectionsService {
       action: "storefront_connection.updated",
       entityType: "storefront_connection",
       entityId: row.id,
-      changes: data,
+      // Never write the plaintext webhook secret to the audit log — record
+      // only that it changed, same posture as the API key never appearing here.
+      changes: {
+        ...(data.label === undefined ? {} : { label: data.label }),
+        ...(data.defaultWarehouseId === undefined
+          ? {}
+          : { defaultWarehouseId: data.defaultWarehouseId }),
+        ...(data.status === undefined ? {} : { status: data.status }),
+        ...(data.webhookSecret === undefined
+          ? {}
+          : { webhookSecret: data.webhookSecret === null ? "cleared" : "updated" }),
+      },
     });
     return row;
   }
@@ -156,6 +189,11 @@ export class StorefrontConnectionsService {
   }
 
   // ---- internals -----------------------------------------------------------
+
+  /** AES-256-GCM, same key already used for `carrier_connections.api_key_encrypted`. */
+  private encryptWebhookSecret(plaintext: string): string {
+    return encrypt(plaintext, this.config.encryption.key);
+  }
 
   private async mintKey(): Promise<{ plaintext: string; prefix: string; hash: string }> {
     const plaintext = `${KEY_TAG}${randomBytes(KEY_ENTROPY_BYTES).toString("base64url")}`;

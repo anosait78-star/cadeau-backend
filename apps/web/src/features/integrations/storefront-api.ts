@@ -71,12 +71,16 @@ export interface CreateConnectionInput {
   readonly label: string;
   readonly platform?: StorefrontPlatform;
   readonly defaultWarehouseId?: string | null;
+  /** Optional platform webhook signing secret (e.g. WooCommerce's). Write-only — never read back. */
+  readonly webhookSecret?: string;
 }
 
 export interface UpdateConnectionInput {
   readonly label?: string;
   readonly defaultWarehouseId?: string | null;
   readonly status?: "active" | "paused";
+  /** Set/replace the webhook secret; `null` clears it, omit to leave unchanged. */
+  readonly webhookSecret?: string | null;
 }
 
 /** The outcome of a manual reprocess of one `failed` event. */

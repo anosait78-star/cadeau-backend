@@ -104,6 +104,52 @@ publishes `product.created`/`product.updated` (via `ProductsService`), and a
 stock sync publishes `stock.changed` (via `InventoryService.adjust`) —
 identical to what a JWT-authenticated caller triggers.
 
+## Platform adapters (D8) — WooCommerce
+
+The CRM side is ready for WooCommerce; nothing on the WooCommerce/WordPress
+side has been touched.
+
+- `connection.platform` now actually routes: `StorefrontAdapterResolver`
+  (application layer, reached via `STOREFRONT_ADAPTER_RESOLVER` — never a
+  direct dependency on either concrete adapter class) picks
+  `GenericJsonAdapter` for `platform: "generic"` or `WooCommerceAdapter` for
+  `platform: "woocommerce"`; any other `platform` value throws a clear
+  `UnsupportedPlatformError` (`salla`/`zid`/`shopify` are reserved enum values
+  with no adapter registered yet).
+- **The two ingestion routes are unchanged URLs for every platform** — `POST
+.../orders` and `POST .../products` accept whichever native shape the
+  resolved connection's platform expects. The request body is intentionally
+  typed `unknown` at the controller (not `IngestOrderDto`/`IngestProductDto`)
+  so a WooCommerce Order/Product payload isn't rejected by the global
+  `ValidationPipe` before reaching a per-platform adapter; each adapter now
+  owns its own shape validation instead (`GenericJsonAdapter` still enforces
+  the exact shape those DTOs used to, so the generic platform's validation
+  strength is unchanged).
+- `WooCommerceAdapter` maps a raw WooCommerce Order/Product REST payload
+  (`order.created`/`.updated`, `product.created`/`.updated` webhook events)
+  onto the same `NormalizedOrder`/`NormalizedProduct` contract above — no new
+  contract, no new business logic. A line's unit price is derived from
+  WooCommerce's post-discount `line_items[].total` ÷ quantity (WooCommerce's
+  own order-level `discount_total`/`shipping_total`/`total`/`payment_method`
+  have no home in the contract and are not mapped — the reused
+  `OrdersService.create` computes the CRM order's total from item price ×
+  quantity itself, same as any other caller, D4). Two WooCommerce shapes are
+  explicitly unsupported in v1 and fail the event with a clear, reprocessable
+  reason: **variable products** (`type: "variable"` — the webhook payload
+  only lists variation ids, not their price/stock/sku) and **unmanaged stock**
+  (`manage_stock: false` — there is no absolute on-hand figure to sync
+  without guessing).
+- **WooCommerce webhook signature (optional, supplementary):** a storefront
+  connection may store an encrypted webhook secret
+  (`storefront_connections.webhook_secret_encrypted`, AES-256-GCM, set via
+  `webhookSecret` on create/update — write-only, never returned by any read
+  endpoint). When set on a `platform: "woocommerce"` connection,
+  `StorefrontApiKeyGuard` additionally verifies WooCommerce's
+  `X-WC-Webhook-Signature` header (`base64(hmac_sha256(secret, rawBody))`,
+  `@cadeau/crypto` `verifyWooCommerceWebhookSignature`) against the exact raw
+  request bytes. This is **never a substitute** for the storefront API key —
+  a connection with no secret configured behaves exactly as before.
+
 ## Notes
 
 - **Tenant resolution (D3):** the ingestion guard (`StorefrontApiKeyGuard`)

@@ -4,6 +4,7 @@ import type { InventoryAdjustmentPort } from "../../../shared/contracts/inventor
 import type { OrdersIngestionPort } from "../../../shared/contracts/orders-ingestion.port";
 import type { ProductsCatalogPort } from "../../../shared/contracts/products-catalog.port";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import type { StorefrontAdapterResolverPort } from "../domain/storefront-adapter-resolver.port";
 import type { StorefrontAdapterPort } from "../domain/storefront-adapter.port";
 import type { ResolvedStorefrontConnection } from "../domain/storefront-connection.entity";
 import type { StorefrontConnectionsRepositoryPort } from "../domain/storefront-connections-repository.port";
@@ -14,6 +15,7 @@ import { StorefrontIngestionService } from "./storefront-ingestion.service";
 const CONNECTION: ResolvedStorefrontConnection = {
   connectionId: "conn-1",
   companyId: "co-1",
+  platform: "generic",
   defaultWarehouseId: "wh-1",
   actorId: "user-1",
 };
@@ -36,6 +38,7 @@ function makeHarness() {
     parseOrder: vi.fn((raw) => raw) as StorefrontAdapterPort["parseOrder"],
     parseProduct: vi.fn((raw) => raw) as StorefrontAdapterPort["parseProduct"],
   };
+  const adapters: StorefrontAdapterResolverPort = { resolve: vi.fn().mockReturnValue(adapter) };
   const connections = {
     list: vi.fn(),
     findById: vi.fn(),
@@ -59,14 +62,14 @@ function makeHarness() {
 
   const service = new StorefrontIngestionService(
     inbox as unknown as StorefrontWebhookInboxPort,
-    adapter,
+    adapters,
     connections as unknown as StorefrontConnectionsRepositoryPort,
     orders as unknown as OrdersIngestionPort,
     products as unknown as ProductsCatalogPort,
     inventory as unknown as InventoryAdjustmentPort,
     customers as unknown as CustomersDirectoryPort,
   );
-  return { service, inbox, adapter, connections, orders, products, inventory, customers };
+  return { service, inbox, adapter, adapters, connections, orders, products, inventory, customers };
 }
 
 const ORDER_PAYLOAD = {

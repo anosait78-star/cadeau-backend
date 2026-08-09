@@ -1215,6 +1215,10 @@ model StorefrontConnection {
   apiKeyHash         String    @map("api_key_hash")
   /// Non-secret first few characters of the plaintext key, for display only.
   apiKeyPrefix       String    @map("api_key_prefix") @db.VarChar(8)
+  /// AES-256-GCM ciphertext of an optional per-connection webhook signing
+  /// secret (e.g. WooCommerce's `X-WC-Webhook-Signature` key). Null when not
+  /// configured. Never selected into any read view/DTO.
+  webhookSecretEncrypted String? @map("webhook_secret_encrypted")
   defaultWarehouseId String?   @map("default_warehouse_id") @db.Uuid
   status             String    @default("active")
   lastEventAt        DateTime? @map("last_event_at") @db.Timestamptz(6)

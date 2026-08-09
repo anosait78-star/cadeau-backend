@@ -1,6 +1,9 @@
 import { type CanActivate, type ExecutionContext, Inject, Injectable } from "@nestjs/common";
-import { verifyPassword } from "@cadeau/crypto";
+import type { RawBodyRequest } from "@nestjs/common";
+import type { AppConfig } from "@cadeau/config";
+import { decrypt, verifyPassword, verifyWooCommerceWebhookSignature } from "@cadeau/crypto";
 import type { Request } from "express";
+import { APP_CONFIG } from "../../../shared/config/config.tokens";
 import { AppErrors } from "../../../shared/errors/app-exception";
 import type { ResolvedStorefrontConnection } from "../domain/storefront-connection.entity";
 import {
@@ -10,6 +13,9 @@ import {
 
 /** The number of leading characters of the plaintext key stored as `apiKeyPrefix`. */
 const PREFIX_LENGTH = 8;
+
+/** The header WooCommerce sends its inbound-webhook HMAC signature in. */
+const WOOCOMMERCE_SIGNATURE_HEADER = "x-wc-webhook-signature";
 
 /** A request after {@link StorefrontApiKeyGuard} has attached the resolved connection. */
 export interface StorefrontIngestionRequest extends Request {
@@ -29,18 +35,25 @@ export interface StorefrontIngestionRequest extends Request {
  * trust a `companyId`-shaped field in the request body (D3).
  *
  * This route carries no `JwtAuthGuard`/`AccessGuard` — the API key is the
- * entire trust boundary, the same role `WebhookSignatureGuard` plays for
- * inbound carrier webhooks.
+ * primary trust boundary, the same role `WebhookSignatureGuard` plays for
+ * inbound carrier webhooks. When the resolved connection is `platform:
+ * "woocommerce"` AND has a webhook secret configured
+ * (`webhookSecretEncrypted`), this guard additionally verifies WooCommerce's
+ * own `X-WC-Webhook-Signature` against the exact raw request bytes — a
+ * SUPPLEMENTARY check, opt-in per connection, layered on top of the API key
+ * rather than replacing it (a connection with no secret configured behaves
+ * exactly as before: API key only).
  */
 @Injectable()
 export class StorefrontApiKeyGuard implements CanActivate {
   constructor(
     @Inject(STOREFRONT_CONNECTIONS_REPOSITORY)
     private readonly repo: StorefrontConnectionsRepositoryPort,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<StorefrontIngestionRequest>();
+    const request = context.switchToHttp().getRequest<RawBodyRequest<StorefrontIngestionRequest>>();
     const header = request.headers["authorization"];
     if (typeof header !== "string" || !header.startsWith("Bearer ")) {
       throw AppErrors.unauthorized("Missing storefront API key.");
@@ -52,16 +65,42 @@ export class StorefrontApiKeyGuard implements CanActivate {
     const prefix = apiKey.slice(0, PREFIX_LENGTH);
     const candidates = await this.repo.findActiveByKeyPrefix(prefix);
     for (const candidate of candidates) {
-      if (await verifyPassword(apiKey, candidate.apiKeyHash)) {
-        request.storefrontConnection = {
-          connectionId: candidate.connectionId,
-          companyId: candidate.companyId,
-          defaultWarehouseId: candidate.defaultWarehouseId,
-          actorId: candidate.actorId,
-        };
-        return true;
+      if (!(await verifyPassword(apiKey, candidate.apiKeyHash))) continue;
+      if (candidate.platform === "woocommerce" && candidate.webhookSecretEncrypted !== null) {
+        this.verifyWooCommerceSignature(request, candidate.webhookSecretEncrypted);
       }
+      request.storefrontConnection = {
+        connectionId: candidate.connectionId,
+        companyId: candidate.companyId,
+        platform: candidate.platform,
+        defaultWarehouseId: candidate.defaultWarehouseId,
+        actorId: candidate.actorId,
+      };
+      return true;
     }
     throw AppErrors.unauthorized("Invalid storefront API key.");
+  }
+
+  /** @throws an `AppException` (401) if the header is missing or the signature doesn't match. */
+  private verifyWooCommerceSignature(
+    request: RawBodyRequest<StorefrontIngestionRequest>,
+    webhookSecretEncrypted: string,
+  ): void {
+    const signature = request.headers[WOOCOMMERCE_SIGNATURE_HEADER];
+    if (typeof signature !== "string" || signature.length === 0) {
+      throw AppErrors.unauthorized("Missing WooCommerce webhook signature.");
+    }
+    if (request.rawBody === undefined) {
+      throw AppErrors.unauthorized("Raw body unavailable for signature verification.");
+    }
+    let secret: string;
+    try {
+      secret = decrypt(webhookSecretEncrypted, this.config.encryption.key);
+    } catch {
+      throw AppErrors.unauthorized("This connection's webhook secret could not be read.");
+    }
+    if (!verifyWooCommerceWebhookSignature(request.rawBody, signature, secret)) {
+      throw AppErrors.unauthorized("Invalid WooCommerce webhook signature.");
+    }
   }
 }

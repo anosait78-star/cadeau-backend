@@ -298,6 +298,9 @@ export const en = {
   "storefront.field.status": "Status",
   "storefront.field.active": "Active (unchecked = paused)",
   "storefront.field.lastEventAt": "Last event",
+  "storefront.field.webhookSecret": "Webhook secret",
+  "storefront.field.webhookSecretHint":
+    "From WooCommerce's own webhook settings. Optional — verified in addition to the API key. Never shown again after saving.",
   "storefront.platform.generic": "Generic (custom store)",
   "storefront.platform.salla": "Salla",
   "storefront.platform.zid": "Zid",
@@ -1223,6 +1226,9 @@ export const ar: Record<TranslationKey, string> = {
   "storefront.field.status": "الحالة",
   "storefront.field.active": "نشط (غير محدد = متوقف مؤقتًا)",
   "storefront.field.lastEventAt": "آخر حدث",
+  "storefront.field.webhookSecret": "سر Webhook",
+  "storefront.field.webhookSecretHint":
+    "من إعدادات الـ webhook الخاصة بـ WooCommerce. اختياري — يُتحقق منه إضافةً لمفتاح API. لا يُعرض مرة أخرى بعد الحفظ.",
   "storefront.platform.generic": "عام (متجر مخصّص)",
   "storefront.platform.salla": "سلة",
   "storefront.platform.zid": "زد",

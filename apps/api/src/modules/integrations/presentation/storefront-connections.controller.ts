@@ -102,6 +102,7 @@ export class StorefrontConnectionsController {
       ...(body.defaultWarehouseId === undefined
         ? {}
         : { defaultWarehouseId: body.defaultWarehouseId }),
+      ...(body.webhookSecret === undefined ? {} : { webhookSecret: body.webhookSecret }),
     });
     return StorefrontConnectionWithKeyDto.fromSecret(result);
   }
@@ -136,6 +137,7 @@ export class StorefrontConnectionsController {
           ? {}
           : { defaultWarehouseId: body.defaultWarehouseId }),
         ...(body.status === undefined ? {} : { status: body.status }),
+        ...(body.webhookSecret === undefined ? {} : { webhookSecret: body.webhookSecret }),
       }),
     );
   }

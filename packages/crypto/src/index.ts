@@ -15,6 +15,7 @@ export {
 } from "./totp";
 export type { TotpOptions, VerifyTotpOptions, OtpAuthUriInput } from "./totp";
 export { signWebhookPayload, verifyWebhookSignature } from "./webhook-signature";
+export { verifyWooCommerceWebhookSignature } from "./woocommerce-webhook-signature";
 export {
   CryptoError,
   EncryptionError,

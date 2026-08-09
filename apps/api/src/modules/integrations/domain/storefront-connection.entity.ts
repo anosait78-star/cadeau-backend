@@ -71,6 +71,7 @@ export interface StorefrontWebhookEventView {
 export interface ResolvedStorefrontConnection {
   readonly connectionId: string;
   readonly companyId: string;
+  readonly platform: StorefrontPlatform;
   readonly defaultWarehouseId: string | null;
   readonly actorId: string | null;
 }

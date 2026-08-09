@@ -37,3 +37,27 @@ export class InvalidListCursorError extends Error {
     this.name = "InvalidListCursorError";
   }
 }
+
+/** Thrown when a connection's `platform` has no registered {@link StorefrontAdapterPort}. */
+export class UnsupportedPlatformError extends Error {
+  constructor(readonly platform: string) {
+    super(`No adapter is registered for storefront platform "${platform}".`);
+    this.name = "UnsupportedPlatformError";
+  }
+}
+
+/**
+ * Thrown by a platform adapter when a raw webhook payload is missing a field
+ * required to build a {@link NormalizedOrder}/{@link NormalizedProduct} (e.g.
+ * a WooCommerce order with no `billing.phone`). Distinct from
+ * {@link UnknownSkuError} — this is a shape/content problem in the raw
+ * payload itself, not a lookup miss against existing catalog data. Always
+ * carries a human-readable reason so it lands verbatim in the webhook
+ * event's `error` column.
+ */
+export class StorefrontPayloadMappingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StorefrontPayloadMappingError";
+  }
+}
