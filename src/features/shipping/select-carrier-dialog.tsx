@@ -128,7 +128,8 @@ export function SelectCarrierDialog({
     return [...seen.entries()].map(([id, name]) => ({ id, name }));
   }, [bostaDistricts]);
   const districtsInZone = useMemo(
-    () => (bostaZoneId === "" ? bostaDistricts : bostaDistricts.filter((d) => d.zoneId === bostaZoneId)),
+    () =>
+      bostaZoneId === "" ? bostaDistricts : bostaDistricts.filter((d) => d.zoneId === bostaZoneId),
     [bostaDistricts, bostaZoneId],
   );
 

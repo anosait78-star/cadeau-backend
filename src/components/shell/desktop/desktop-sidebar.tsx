@@ -36,7 +36,9 @@ export function DesktopSidebar(): ReactNode {
   }, []);
 
   const { primaryItems, coreItems } = useMemo(() => {
-    const core = navItems.filter((item) => CORE_SECTION_PREFIXES.some((prefix) => item.to.startsWith(prefix)));
+    const core = navItems.filter((item) =>
+      CORE_SECTION_PREFIXES.some((prefix) => item.to.startsWith(prefix)),
+    );
     const primary = navItems.filter((item) => !core.includes(item));
     return { primaryItems: primary, coreItems: core };
   }, [navItems]);
@@ -141,7 +143,9 @@ export function DesktopSidebar(): ReactNode {
             >
               {t("sidebar.section.core")}
             </p>
-            {collapsed && <div className="mx-2 mb-2 border-t border-border/70" aria-hidden="true" />}
+            {collapsed && (
+              <div className="mx-2 mb-2 border-t border-border/70" aria-hidden="true" />
+            )}
             {coreItems.map(renderNavLink)}
           </div>
         )}
@@ -154,14 +158,19 @@ export function DesktopSidebar(): ReactNode {
             collapsed && "flex-col justify-center gap-2 bg-transparent p-0",
           )}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-2.5" title={collapsed ? identity : undefined}>
+          <div
+            className="flex min-w-0 flex-1 items-center gap-2.5"
+            title={collapsed ? identity : undefined}
+          >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <UserRound className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
             <span className={cn("min-w-0 flex-1", collapsed && "sr-only")}>
               <span className="block truncate text-sm font-medium text-foreground">{identity}</span>
               {user?.email && identity !== user.email && (
-                <span className="block truncate text-caption text-muted-foreground">{user.email}</span>
+                <span className="block truncate text-caption text-muted-foreground">
+                  {user.email}
+                </span>
               )}
             </span>
           </div>

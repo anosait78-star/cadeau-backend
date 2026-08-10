@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Users,
+  UsersRound,
   Warehouse,
   Wallet,
 } from "lucide-react";
@@ -58,6 +59,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permission: "master-data.read",
   },
   { to: "/settings/roles", labelKey: "nav.roles", icon: ShieldCheck, permission: "access.read" },
+  { to: "/settings/team", labelKey: "nav.team", icon: UsersRound, permission: "access.read" },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
   { to: "/admin", labelKey: "nav.admin", icon: ShieldAlert, superAdmin: true },
 ];

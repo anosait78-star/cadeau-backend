@@ -74,7 +74,10 @@ export async function fetchOrdersListKpis(): Promise<OrdersListKpis> {
   const [dayBuckets, allCounts, todayOrders, yesterdayOrders] = await Promise.all([
     Promise.all(
       days.map((from) =>
-        orderStatusCounts({ createdAtFrom: from.toISOString(), createdAtTo: nextDay(from).toISOString() }),
+        orderStatusCounts({
+          createdAtFrom: from.toISOString(),
+          createdAtTo: nextDay(from).toISOString(),
+        }),
       ),
     ),
     orderStatusCounts({}),

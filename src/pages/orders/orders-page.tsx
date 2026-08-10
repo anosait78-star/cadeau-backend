@@ -440,111 +440,111 @@ function OrdersScreen(): ReactNode {
       {/* Full-width table (no more filter sidebar). */}
       <div className="flex min-w-0 flex-col gap-4">
         {isDesktop ? (
-            <BulkActionsBar
-              count={selection.selectedIds.size}
-              onClear={selection.clear}
-              countLabel={(n) => t("orders.bulk.selected").replace("{{count}}", String(n))}
-              clearLabel={t("orders.bulk.clear")}
-              actions={
-                <>
-                  <PermissionGate permission="orders.manage">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          {t("orders.bulk.changeStatus")}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        {bulkStatusTargets.map((s) => (
-                          <DropdownMenuItem key={s} onSelect={() => void onBulkStatus(s)}>
-                            {t(`orders.status.${s}` as TranslationKey)}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button variant="outline" size="sm" onClick={() => void onBulkAssign()}>
-                      {t("orders.bulk.assign")}
+          <BulkActionsBar
+            count={selection.selectedIds.size}
+            onClear={selection.clear}
+            countLabel={(n) => t("orders.bulk.selected").replace("{{count}}", String(n))}
+            clearLabel={t("orders.bulk.clear")}
+            actions={
+              <>
+                <PermissionGate permission="orders.manage">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        {t("orders.bulk.changeStatus")}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {bulkStatusTargets.map((s) => (
+                        <DropdownMenuItem key={s} onSelect={() => void onBulkStatus(s)}>
+                          {t(`orders.status.${s}` as TranslationKey)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button variant="outline" size="sm" onClick={() => void onBulkAssign()}>
+                    {t("orders.bulk.assign")}
+                  </Button>
+                </PermissionGate>
+                {singleSelectedOrder !== null ? (
+                  <PermissionGate permission="shipping.manage" feature="shipping">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShippingOrder(singleSelectedOrder)}
+                    >
+                      {t("shipping.actions.create")}
                     </Button>
                   </PermissionGate>
-                  {singleSelectedOrder !== null ? (
-                    <PermissionGate permission="shipping.manage" feature="shipping">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShippingOrder(singleSelectedOrder)}
-                      >
-                        {t("shipping.actions.create")}
-                      </Button>
-                    </PermissionGate>
-                  ) : null}
-                </>
-              }
+                ) : null}
+              </>
+            }
+          />
+        ) : null}
+
+        {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
+
+        {state.kind !== "error" ? (
+          isDesktop ? (
+            <DataGrid<OrderListItem>
+              columns={columns}
+              rows={visibleRows}
+              getRowId={(row) => row.id}
+              loading={state.kind === "loading"}
+              hasMore={state.kind === "ready" && state.nextCursor !== null}
+              onLoadMore={loadMore}
+              sortState={{ key: "createdAt", direction: sortDesc ? "desc" : "asc" }}
+              onSort={(key) => {
+                if (key === "createdAt") {
+                  setSortDesc((v) => !v);
+                }
+              }}
+              selection={selection}
+              onRowClick={setSelectedOrder}
+              rowActions={(row) => (
+                <OrderRowActions
+                  order={row}
+                  t={t}
+                  onOpenDetail={setSelectedOrder}
+                  onTransition={onTransition}
+                  onCancelRequiresReason={() => flash(t("orders.reasonRequired"))}
+                />
+              )}
+              rowClassName={(row) => {
+                const index = visibleRows.findIndex((r) => r.id === row.id);
+                return cn("[&>td]:py-3.5", index % 2 === 1 && "bg-muted/30");
+              }}
+              emptyState={<EmptyState title={t("orders.empty")} />}
+              sortHintLabel={t("orders.grid.sortHint")}
             />
-          ) : null}
+          ) : (
+            <MobileCardList<OrderListItem>
+              items={visibleRows}
+              loading={state.kind === "loading"}
+              getRowId={(row) => row.id}
+              renderCard={(order) => (
+                <OrderCard order={order} t={t} locale={locale} onOpenDetail={setSelectedOrder} />
+              )}
+              emptyTitle={t("orders.empty")}
+              hasMore={state.kind === "ready" && state.nextCursor !== null}
+              onLoadMore={loadMore}
+              loadMoreLabel={t("orders.loadMore")}
+            />
+          )
+        ) : null}
 
-          {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
-
-          {state.kind !== "error" ? (
-            isDesktop ? (
-              <DataGrid<OrderListItem>
-                columns={columns}
-                rows={visibleRows}
-                getRowId={(row) => row.id}
-                loading={state.kind === "loading"}
-                hasMore={state.kind === "ready" && state.nextCursor !== null}
-                onLoadMore={loadMore}
-                sortState={{ key: "createdAt", direction: sortDesc ? "desc" : "asc" }}
-                onSort={(key) => {
-                  if (key === "createdAt") {
-                    setSortDesc((v) => !v);
-                  }
-                }}
-                selection={selection}
-                onRowClick={setSelectedOrder}
-                rowActions={(row) => (
-                  <OrderRowActions
-                    order={row}
-                    t={t}
-                    onOpenDetail={setSelectedOrder}
-                    onTransition={onTransition}
-                    onCancelRequiresReason={() => flash(t("orders.reasonRequired"))}
-                  />
-                )}
-                rowClassName={(row) => {
-                  const index = visibleRows.findIndex((r) => r.id === row.id);
-                  return cn("[&>td]:py-3.5", index % 2 === 1 && "bg-muted/30");
-                }}
-                emptyState={<EmptyState title={t("orders.empty")} />}
-                sortHintLabel={t("orders.grid.sortHint")}
-              />
-            ) : (
-              <MobileCardList<OrderListItem>
-                items={visibleRows}
-                loading={state.kind === "loading"}
-                getRowId={(row) => row.id}
-                renderCard={(order) => (
-                  <OrderCard order={order} t={t} locale={locale} onOpenDetail={setSelectedOrder} />
-                )}
-                emptyTitle={t("orders.empty")}
-                hasMore={state.kind === "ready" && state.nextCursor !== null}
-                onLoadMore={loadMore}
-                loadMoreLabel={t("orders.loadMore")}
-              />
-            )
-          ) : null}
-
-          {state.kind === "ready" && visibleRows.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-caption text-muted-foreground">
-              <span dir="ltr" className="tabular-nums">
-                {t("orders.footer.showing", { count: visibleRows.length, total: totalCount })}
-              </span>
-              {state.nextCursor !== null ? (
-                <Button variant="outline" size="sm" onClick={() => void loadMore()}>
-                  {t("orders.loadMore")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+        {state.kind === "ready" && visibleRows.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-caption text-muted-foreground">
+            <span dir="ltr" className="tabular-nums">
+              {t("orders.footer.showing", { count: visibleRows.length, total: totalCount })}
+            </span>
+            {state.nextCursor !== null ? (
+              <Button variant="outline" size="sm" onClick={() => void loadMore()}>
+                {t("orders.loadMore")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <DetailPanel
@@ -652,7 +652,10 @@ function OrdersKpiRow({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6" data-testid="orders-kpi-row">
+    <div
+      className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6"
+      data-testid="orders-kpi-row"
+    >
       {tiles.map((tile) => (
         <OrdersKpiCard key={tile.label} tile={tile} trendSuffix={t("orders.kpi.vsYesterday")} />
       ))}
@@ -679,11 +682,20 @@ function OrdersKpiCard({
   return (
     <div className="flex h-[140px] flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-xs">
       <div className="flex items-start justify-between">
-        <span className={cn("flex h-9 w-9 items-center justify-center rounded-full", tile.iconToneClassName)}>
+        <span
+          className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-full",
+            tile.iconToneClassName,
+          )}
+        >
           {tile.icon}
         </span>
         {tile.series !== null ? (
-          <OrdersSparkline values={tile.series} className="h-6 w-16" toneClassName="text-muted-foreground" />
+          <OrdersSparkline
+            values={tile.series}
+            className="h-6 w-16"
+            toneClassName="text-muted-foreground"
+          />
         ) : null}
       </div>
       <div>
@@ -700,7 +712,11 @@ function OrdersKpiCard({
             <ArrowDownRight className="h-3.5 w-3.5" aria-hidden="true" />
           )
         ) : null}
-        <span dir="ltr">{tile.trendPct === null ? "—" : `${tile.trendPct > 0 ? "+" : ""}${tile.trendPct.toFixed(1)}%`}</span>
+        <span dir="ltr">
+          {tile.trendPct === null
+            ? "—"
+            : `${tile.trendPct > 0 ? "+" : ""}${tile.trendPct.toFixed(1)}%`}
+        </span>
         <span className="truncate text-muted-foreground">
           {tile.approximate === true ? "· ≈" : trendSuffix}
         </span>
@@ -774,7 +790,10 @@ function OrderCard({
           <span>#{order.orderNumber}</span>
           <span className="text-muted-foreground">·</span>
           <span>{order.customerName}</span>
-          <StatusBadge status={order.status} label={t(`orders.status.${order.status}` as TranslationKey)} />
+          <StatusBadge
+            status={order.status}
+            label={t(`orders.status.${order.status}` as TranslationKey)}
+          />
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">

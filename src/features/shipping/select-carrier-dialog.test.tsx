@@ -55,7 +55,14 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
       if (url.includes("/shipping/bosta/cities/") && url.includes("/districts")) {
         return Promise.resolve(
           json(200, {
-            data: [{ districtId: "d1", districtName: "1st Settlement", zoneId: "z1", zoneName: "New Cairo" }],
+            data: [
+              {
+                districtId: "d1",
+                districtName: "1st Settlement",
+                zoneId: "z1",
+                zoneName: "New Cairo",
+              },
+            ],
           }),
         );
       }
@@ -200,7 +207,8 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
 
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     const call = fetchMock.mock.calls.find(
-      ([u, i]) => String(u).endsWith("/shipping/shipments") && (i as RequestInit)?.method === "POST",
+      ([u, i]) =>
+        String(u).endsWith("/shipping/shipments") && (i as RequestInit)?.method === "POST",
     );
     const body = JSON.parse(String((call?.[1] as RequestInit).body));
     expect(body).toMatchObject({

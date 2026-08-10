@@ -25,7 +25,13 @@ export function PaymentBadge({
   return <Badge tone={PAYMENT_TONE[status]} label={label} testId="payment-status" />;
 }
 
-export function StatusBadge({ label, status }: { label: string; status: OrderListItem["status"] }): ReactNode {
+export function StatusBadge({
+  label,
+  status,
+}: {
+  label: string;
+  status: OrderListItem["status"];
+}): ReactNode {
   return <Badge tone={ORDER_STATUS_TONE[status]} label={label} testId="status" />;
 }
 
@@ -90,7 +96,15 @@ function CustomerCell({ name, itemsLabel }: { name: string; itemsLabel: string }
   );
 }
 
-function OrderNumberCell({ orderNumber, copyLabel, copiedLabel }: { orderNumber: number; copyLabel: string; copiedLabel: string }): ReactNode {
+function OrderNumberCell({
+  orderNumber,
+  copyLabel,
+  copiedLabel,
+}: {
+  orderNumber: number;
+  copyLabel: string;
+  copiedLabel: string;
+}): ReactNode {
   const [copied, setCopied] = useState(false);
 
   const onCopy = (): void => {
@@ -113,7 +127,11 @@ function OrderNumberCell({ orderNumber, copyLabel, copiedLabel }: { orderNumber:
         data-stop-row-click
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+        {copied ? (
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
       </button>
     </div>
   );
@@ -165,7 +183,10 @@ export function buildOrderColumns({
       key: "status",
       header: t("orders.status.title"),
       render: (row) => (
-        <StatusBadge status={row.status} label={t(`orders.status.${row.status}` as TranslationKey)} />
+        <StatusBadge
+          status={row.status}
+          label={t(`orders.status.${row.status}` as TranslationKey)}
+        />
       ),
     },
     {
