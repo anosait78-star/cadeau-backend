@@ -187,3 +187,65 @@ export function reprocessStorefrontEvent(
     { method: "POST" },
   );
 }
+
+// ---- Vendor -> warehouse mapping (multi-vendor discovery, 2026-08-10) -------
+
+/**
+ * One marketplace vendor routed to one CRM warehouse, for one connection.
+ * Never created automatically — an unmapped vendor fails the ingestion event
+ * closed rather than falling back to a default warehouse.
+ */
+export interface VendorWarehouseMapping {
+  readonly id: string;
+  readonly connectionId: string;
+  /** The vendor's id as the platform reports it (WooCommerce/WCFM: WordPress user id). */
+  readonly externalVendorId: string;
+  readonly warehouseId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CreateVendorWarehouseMappingInput {
+  readonly externalVendorId: string;
+  readonly warehouseId: string;
+}
+
+/** `GET .../connections/{connectionId}/vendor-warehouses` — keyset, `createdAt desc, id desc`. */
+export function listVendorWarehouseMappings(
+  connectionId: string,
+  params?: { cursor?: string; limit?: number },
+): Promise<Page<VendorWarehouseMapping>> {
+  const query = new URLSearchParams();
+  if (params?.cursor !== undefined) query.set("cursor", params.cursor);
+  if (params?.limit !== undefined) query.set("limit", String(params.limit));
+  const qs = query.toString();
+  return apiFetch<Page<VendorWarehouseMapping>>(
+    `/integrations/storefront/connections/${encodeURIComponent(connectionId)}/vendor-warehouses${
+      qs.length > 0 ? `?${qs}` : ""
+    }`,
+  );
+}
+
+/** `POST .../connections/{connectionId}/vendor-warehouses` — maps one vendor to one warehouse. */
+export function createVendorWarehouseMapping(
+  connectionId: string,
+  body: CreateVendorWarehouseMappingInput,
+): Promise<VendorWarehouseMapping> {
+  return apiFetch<VendorWarehouseMapping>(
+    `/integrations/storefront/connections/${encodeURIComponent(connectionId)}/vendor-warehouses`,
+    { method: "POST", body },
+  );
+}
+
+/** `DELETE .../connections/{connectionId}/vendor-warehouses/{mappingId}` — removes the mapping. */
+export function deleteVendorWarehouseMapping(
+  connectionId: string,
+  mappingId: string,
+): Promise<void> {
+  return apiFetch<void>(
+    `/integrations/storefront/connections/${encodeURIComponent(connectionId)}/vendor-warehouses/${encodeURIComponent(
+      mappingId,
+    )}`,
+    { method: "DELETE" },
+  );
+}

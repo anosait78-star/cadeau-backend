@@ -345,6 +345,76 @@ describe("OrdersRepository — transition", () => {
     // The default-warehouse lookup is skipped entirely when the order carries its own.
     expect(models.warehouse.findFirst).not.toHaveBeenCalled();
   });
+
+  // ---- storefront multi-vendor routing (each order item may carry its own warehouseId) ----
+
+  it("reserves each line at its own per-item warehouseId, not the order's single warehouse", async () => {
+    const { repo, models, lock } = makeRepo();
+    lock.warehouseId = "w-order-default";
+    models.orderItem.findMany.mockResolvedValue([
+      { variantId: "v1", quantity: 2n, warehouseId: "w-A" },
+      { variantId: "v2", quantity: 3n, warehouseId: "w-B" },
+    ]);
+
+    await repo.transition(actor, "o1", { toStatus: "processing", applyStock: true });
+
+    expect(models.stockReservation.create).toHaveBeenCalledTimes(2);
+    const warehouseIds = models.stockReservation.create.mock.calls.map(
+      (call) => (call[0] as { data: Record<string, unknown> }).data["warehouseId"],
+    );
+    expect(warehouseIds.sort()).toEqual(["w-A", "w-B"]);
+    // Neither line used the order's own warehouse — both had their own override.
+    expect(warehouseIds).not.toContain("w-order-default");
+  });
+
+  it("falls back to the order's single warehouseId for any line with no override — manual/CSV orders are untouched", async () => {
+    const { repo, models, lock } = makeRepo();
+    lock.warehouseId = "w-order-default";
+    // No warehouseId on the item at all — exactly what every non-storefront order looks like.
+    models.orderItem.findMany.mockResolvedValue([{ variantId: "v1", quantity: 2n }]);
+
+    await repo.transition(actor, "o1", { toStatus: "processing", applyStock: true });
+
+    const resData = models.stockReservation.create.mock.calls[0]![0].data as Record<
+      string,
+      unknown
+    >;
+    expect(resData["warehouseId"]).toBe("w-order-default");
+  });
+
+  it("is atomic across warehouses: a shortage on ANY line's warehouse creates NO reservations at all", async () => {
+    const { repo, models, level } = makeRepo();
+    // Shared mocked stock level is short for the demanded quantity.
+    level.onHand = 1n;
+    level.committed = 0n;
+    models.orderItem.findMany.mockResolvedValue([
+      { variantId: "v1", quantity: 2n, warehouseId: "w-A" },
+      { variantId: "v2", quantity: 1n, warehouseId: "w-B" },
+    ]);
+
+    await expect(
+      repo.transition(actor, "o1", { toStatus: "processing", applyStock: true }),
+    ).rejects.toBeInstanceOf(InsufficientStockError);
+
+    // Neither line's warehouse — including the one that actually had enough
+    // stock — was committed or reserved. Check-then-apply, never partial.
+    expect(models.stockReservation.create).not.toHaveBeenCalled();
+    expect(models.inventoryStock.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("aggregates demand for the same variant at the same warehouse across multiple lines before checking availability", async () => {
+    const { repo, models } = makeRepo();
+    models.orderItem.findMany.mockResolvedValue([
+      { variantId: "v1", quantity: 6n, warehouseId: "w-A" },
+      { variantId: "v1", quantity: 6n, warehouseId: "w-A" },
+    ]);
+
+    // Shared mocked level has onHand=10n — 6+6=12 exceeds it, so this must
+    // shortage even though neither individual line does on its own.
+    await expect(
+      repo.transition(actor, "o1", { toStatus: "processing", applyStock: true }),
+    ).rejects.toBeInstanceOf(InsufficientStockError);
+  });
 });
 
 describe("OrdersRepository — assign, bulk, activity, list", () => {

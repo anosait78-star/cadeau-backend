@@ -22,6 +22,7 @@ import type {
 } from "../../domain/storefront-connection.entity";
 import { STOREFRONT_PLATFORMS } from "../../domain/storefront-connection.entity";
 import type { IngestResult } from "../../application/storefront-ingestion.service";
+import type { VendorWarehouseMappingView } from "../../domain/vendor-warehouse-mapping.entity";
 
 // ---- Management request DTOs ------------------------------------------------
 
@@ -340,6 +341,70 @@ export class IngestResultDto {
     const dto = new IngestResultDto();
     dto.entityId = result.entityId;
     dto.status = result.status;
+    return dto;
+  }
+}
+
+// ---- Vendor -> warehouse mapping (multi-vendor discovery, 2026-08-10) -------
+
+export class CreateVendorWarehouseMappingDto {
+  @ApiProperty({
+    description:
+      "The vendor's id as the platform reports it (WooCommerce/WCFM: WordPress user id).",
+    maxLength: 200,
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  externalVendorId!: string;
+
+  @ApiProperty({ format: "uuid" })
+  @IsUUID()
+  warehouseId!: string;
+}
+
+export class VendorWarehouseMappingDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ format: "uuid" })
+  connectionId!: string;
+
+  @ApiProperty()
+  externalVendorId!: string;
+
+  @ApiProperty({ format: "uuid" })
+  warehouseId!: string;
+
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  @ApiProperty({ format: "date-time" })
+  updatedAt!: string;
+
+  static from(view: VendorWarehouseMappingView): VendorWarehouseMappingDto {
+    const dto = new VendorWarehouseMappingDto();
+    dto.id = view.id;
+    dto.connectionId = view.connectionId;
+    dto.externalVendorId = view.externalVendorId;
+    dto.warehouseId = view.warehouseId;
+    dto.createdAt = view.createdAt;
+    dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+export class VendorWarehouseMappingListDto {
+  @ApiProperty({ type: [VendorWarehouseMappingDto] })
+  data!: VendorWarehouseMappingDto[];
+
+  @ApiProperty()
+  page!: { limit: number; nextCursor: string | null; hasMore: boolean };
+
+  static from(page: KeysetPage<VendorWarehouseMappingView>): VendorWarehouseMappingListDto {
+    const dto = new VendorWarehouseMappingListDto();
+    dto.data = page.data.map((v) => VendorWarehouseMappingDto.from(v));
+    dto.page = page.page;
     return dto;
   }
 }

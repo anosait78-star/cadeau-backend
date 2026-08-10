@@ -39,6 +39,68 @@ function baseProduct(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
+describe("WooCommerceAdapter.parseOrder — vendor id (multi-vendor discovery, 2026-08-10)", () => {
+  it("extracts _vendor_id from a line item's meta_data when present", () => {
+    const order = baseOrder({
+      line_items: [
+        {
+          sku: "SKU-001",
+          quantity: 1,
+          total: "150.00",
+          meta_data: [
+            { id: 1, key: "📝 تفاصيل الطلب الخاص", value: "رانيا" },
+            {
+              id: 2,
+              key: "_vendor_id",
+              value: "1527",
+              display_key: "محل",
+              display_value: "The House Of RoRo",
+            },
+          ],
+        },
+      ],
+    });
+    expect(adapter.parseOrder(order).items[0]?.vendorExternalId).toBe("1527");
+  });
+
+  it("leaves vendorExternalId undefined when a line has no _vendor_id meta — real WooCommerce data confirmed at least one such gap", () => {
+    const order = baseOrder({
+      line_items: [{ sku: "SKU-001", quantity: 1, total: "150.00", meta_data: [] }],
+    });
+    expect(adapter.parseOrder(order).items[0]?.vendorExternalId).toBeUndefined();
+  });
+
+  it("leaves vendorExternalId undefined when the line has no meta_data at all — never throws for it", () => {
+    const order = baseOrder({
+      line_items: [{ sku: "SKU-001", quantity: 1, total: "150.00" }],
+    });
+    expect(() => adapter.parseOrder(order)).not.toThrow();
+    expect(adapter.parseOrder(order).items[0]?.vendorExternalId).toBeUndefined();
+  });
+
+  it("maps each line's own vendor independently in a real multi-vendor order", () => {
+    const order = baseOrder({
+      line_items: [
+        {
+          sku: "SKU-A",
+          quantity: 1,
+          total: "100.00",
+          meta_data: [{ id: 1, key: "_vendor_id", value: "1223", display_value: "maurice" }],
+        },
+        {
+          sku: "SKU-B",
+          quantity: 1,
+          total: "50.00",
+          meta_data: [{ id: 2, key: "_vendor_id", value: "37", display_value: "Crazy Shop" }],
+        },
+      ],
+    });
+    const items = adapter.parseOrder(order).items;
+    expect(items[0]).toMatchObject({ sku: "SKU-A", vendorExternalId: "1223" });
+    expect(items[1]).toMatchObject({ sku: "SKU-B", vendorExternalId: "37" });
+  });
+});
+
 describe("WooCommerceAdapter.parseOrder", () => {
   it("maps a valid WooCommerce order to the normalized contract", () => {
     const result = adapter.parseOrder(baseOrder());

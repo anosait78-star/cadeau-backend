@@ -61,3 +61,37 @@ export class StorefrontPayloadMappingError extends Error {
     this.name = "StorefrontPayloadMappingError";
   }
 }
+
+/** Thrown when `(connectionId, externalVendorId)` already has a mapping (must delete first). */
+export class DuplicateVendorMappingError extends Error {
+  constructor() {
+    super("This vendor is already mapped to a warehouse on this connection.");
+    this.name = "DuplicateVendorMappingError";
+  }
+}
+
+/**
+ * Thrown for a multi-vendor order line whose vendor has no
+ * `storefront_connection_vendor_warehouses` row on this connection — a
+ * deliberate fail-closed (multi-vendor discovery §D4: "no silent fallback").
+ * Reprocessable once an admin creates the mapping.
+ */
+export class VendorNotMappedError extends Error {
+  constructor(readonly externalVendorId: string) {
+    super(`Vendor ${externalVendorId} is not mapped to a warehouse.`);
+    this.name = "VendorNotMappedError";
+  }
+}
+
+/**
+ * Thrown when a multi-vendor order (at least one line already carries a
+ * vendor id) has a line with none — every line must resolve a vendor once
+ * the order is multi-vendor-routed, so partial routing is never silently
+ * accepted (multi-vendor discovery §D5).
+ */
+export class MissingVendorIdError extends Error {
+  constructor(readonly sku: string) {
+    super(`Order line for sku "${sku}" has no vendor id, but this order has other lines that do.`);
+    this.name = "MissingVendorIdError";
+  }
+}

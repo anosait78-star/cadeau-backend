@@ -22,6 +22,13 @@ export interface CreateOrderItemInput {
   readonly quantity: number;
   /** Unit sell price, integer minor units. */
   readonly price: number;
+  /**
+   * Per-line warehouse override (storefront multi-vendor routing). `null`/
+   * omitted means "use the order's single `warehouseId`" — the behavior for
+   * every manual/CSV/bulk order, unchanged. Set only by storefront ingestion
+   * when the connection has vendor->warehouse mappings for this order.
+   */
+  readonly warehouseId?: string | null;
 }
 
 /** Fields accepted when creating an order. */

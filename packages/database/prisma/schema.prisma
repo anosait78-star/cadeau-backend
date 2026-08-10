@@ -151,6 +151,7 @@ model Company {
   notificationDeliveries       NotificationDelivery[]
   storefrontConnections        StorefrontConnection[]
   storefrontWebhookEvents      StorefrontWebhookEvent[]
+  storefrontConnectionVendorWarehouses StorefrontConnectionVendorWarehouse[]
 
   @@map("companies")
 }
@@ -759,7 +760,9 @@ model Warehouse {
   transfersIn           StockTransfer[]        @relation("StockTransferTo")
   purchaseOrderReceipts PurchaseOrderReceipt[]
   orders                Order[]
+  orderItems            OrderItem[]
   storefrontConnections StorefrontConnection[]
+  vendorMappings        StorefrontConnectionVendorWarehouse[]
 
   @@unique([companyId, name], map: "warehouses_company_name_key")
   @@index([companyId, name, id], map: "warehouses_keyset_idx")
@@ -1041,6 +1044,12 @@ model OrderItem {
   companyId    String   @map("company_id") @db.Uuid
   orderId      String   @map("order_id") @db.Uuid
   variantId    String   @map("variant_id") @db.Uuid
+  /// Per-line warehouse override (storefront multi-vendor routing, D8). NULL
+  /// means "use the order's single warehouseId" — the behavior for every
+  /// manual/CSV/bulk order and every order created before this column
+  /// existed. Set only by storefront ingestion when the connection has
+  /// vendor->warehouse mappings for the order's vendors.
+  warehouseId  String?  @map("warehouse_id") @db.Uuid
   nameSnapshot String   @map("name_snapshot")
   quantity     BigInt
   price        BigInt   @default(0)
@@ -1050,9 +1059,10 @@ model OrderItem {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  warehouse Warehouse?     @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([orderId], map: "order_items_order_idx")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_items_keyset_idx")
@@ -1231,10 +1241,38 @@ model StorefrontConnection {
   company         Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   defaultWarehouse Warehouse?              @relation(fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
   webhookEvents   StorefrontWebhookEvent[]
+  vendorWarehouses StorefrontConnectionVendorWarehouse[]
 
   @@unique([companyId, label], map: "storefront_connections_company_label_key")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "storefront_connections_company_idx")
   @@map("storefront_connections")
+}
+
+/// Explicit, admin-managed WCFM/marketplace vendor -> CRM warehouse routing
+/// for one storefront connection (multi-vendor order routing, discovery
+/// report 2026-08-10). No row is ever created automatically — an unmapped
+/// vendor fails the ingestion event closed rather than falling back to a
+/// default warehouse.
+model StorefrontConnectionVendorWarehouse {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  connectionId      String   @map("connection_id") @db.Uuid
+  /// The vendor's id as it appears in the storefront platform's own data
+  /// (WooCommerce/WCFM: the vendor's WordPress user id, as a string).
+  externalVendorId  String   @map("external_vendor_id")
+  warehouseId       String   @map("warehouse_id") @db.Uuid
+  createdBy         String?  @map("created_by") @db.Uuid
+  updatedBy         String?  @map("updated_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company    Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection StorefrontConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  warehouse  Warehouse            @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@unique([connectionId, externalVendorId], map: "storefront_connection_vendor_warehouses_unique")
+  @@index([connectionId], map: "storefront_connection_vendor_warehouses_connection_idx")
+  @@map("storefront_connection_vendor_warehouses")
 }
 
 /// Append-first inbox row for one inbound storefront order/product (D7).

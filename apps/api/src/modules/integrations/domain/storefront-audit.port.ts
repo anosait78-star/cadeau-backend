@@ -13,8 +13,13 @@ export interface StorefrontAuditRecord {
     | "storefront_connection.updated"
     | "storefront_connection.key_rotated"
     | "storefront_connection.revoked"
-    | "storefront_event.reprocessed";
-  readonly entityType: "storefront_connection" | "storefront_webhook_event";
+    | "storefront_event.reprocessed"
+    | "storefront_vendor_warehouse_mapping.created"
+    | "storefront_vendor_warehouse_mapping.deleted";
+  readonly entityType:
+    | "storefront_connection"
+    | "storefront_webhook_event"
+    | "storefront_vendor_warehouse_mapping";
   readonly entityId: string;
   readonly changes?: unknown;
 }

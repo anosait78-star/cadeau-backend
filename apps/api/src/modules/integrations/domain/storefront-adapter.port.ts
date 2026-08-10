@@ -12,6 +12,16 @@ export interface NormalizedOrderItem {
   readonly quantity: number;
   /** Integer minor units. */
   readonly unitPriceMinor: number;
+  /**
+   * The marketplace vendor that owns this line, as the platform's own id
+   * (WooCommerce/WCFM: the vendor's WordPress user id, as a string) —
+   * `undefined` when the platform has no vendor concept, or this specific
+   * line carries none. Used only for multi-vendor warehouse routing
+   * (storefront-integration multi-vendor discovery, 2026-08-10); absent for
+   * every non-multi-vendor order, which keeps using the connection's single
+   * default warehouse exactly as before.
+   */
+  readonly vendorExternalId?: string;
 }
 
 export interface NormalizedCustomer {

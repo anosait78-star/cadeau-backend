@@ -52,6 +52,7 @@ function order(extra: Partial<OrderView> = {}): OrderView {
       {
         id: "i1",
         variantId: "v1",
+        warehouseId: null,
         nameSnapshot: "T — L",
         quantity: 2,
         price: 15000,

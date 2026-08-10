@@ -86,6 +86,7 @@ const ORDER_LIST_SELECT = {
 const ITEM_SELECT = {
   id: true,
   variantId: true,
+  warehouseId: true,
   nameSnapshot: true,
   quantity: true,
   price: true,
@@ -261,7 +262,16 @@ export class OrdersRepository implements OrdersRepositoryPort {
       const discount = data.discount ?? Number(current.discount);
       const money = this.computeMoney(
         // computeMoney takes lines; reuse via a synthetic subtotal
-        [{ price: subtotal, quantity: 1, variantId: "", nameSnapshot: "", costSnapshot: 0 }],
+        [
+          {
+            price: subtotal,
+            quantity: 1,
+            variantId: "",
+            nameSnapshot: "",
+            costSnapshot: 0,
+            warehouseId: null,
+          },
+        ],
         shippingFee,
         discount,
       );
@@ -509,6 +519,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
   private toItemView(row: {
     id: string;
     variantId: string;
+    warehouseId: string | null;
     nameSnapshot: string;
     quantity: bigint;
     price: bigint;
@@ -517,6 +528,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
     return {
       id: row.id,
       variantId: row.variantId,
+      warehouseId: row.warehouseId,
       nameSnapshot: row.nameSnapshot,
       quantity: Number(row.quantity),
       price: Number(row.price),
@@ -572,12 +584,16 @@ export class OrdersRepository implements OrdersRepositoryPort {
         select: { id: true, name: true, averageCost: true, product: { select: { name: true } } },
       });
       if (variant === null) throw new ReferenceNotFoundError("variantId");
+      if (item.warehouseId !== undefined && item.warehouseId !== null) {
+        await this.assertWarehouse(tx, companyId, item.warehouseId, "items.warehouseId");
+      }
       lines.push({
         variantId: variant.id,
         nameSnapshot: `${variant.product.name} — ${variant.name}`,
         quantity: item.quantity,
         price: item.price,
         costSnapshot: Number(variant.averageCost),
+        warehouseId: item.warehouseId ?? null,
       });
     }
     return lines;
@@ -594,6 +610,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
         data: stampForCreate(actor, {
           orderId,
           variantId: line.variantId,
+          warehouseId: line.warehouseId,
           nameSnapshot: line.nameSnapshot,
           quantity: BigInt(line.quantity),
           price: BigInt(line.price),
@@ -635,63 +652,86 @@ export class OrdersRepository implements OrdersRepositoryPort {
     if (effect === "none") return;
 
     if (effect === "reserve") {
-      const warehouseId = orderWarehouseId ?? (await this.defaultWarehouse(tx, actor.companyId));
+      const fallbackWarehouseId =
+        orderWarehouseId ?? (await this.defaultWarehouse(tx, actor.companyId));
       const items = await tx.orderItem.findMany({
         where: { orderId, companyId: actor.companyId },
-        select: { variantId: true, quantity: true },
+        select: { variantId: true, quantity: true, warehouseId: true },
       });
 
-      // Aggregate by variant first — an order can list the same variant
-      // across multiple lines, and availability must be checked against the
-      // *total* quantity demanded, not each line in isolation.
-      const demandByVariant = new Map<string, number>();
-      for (const item of items) {
-        demandByVariant.set(
-          item.variantId,
-          (demandByVariant.get(item.variantId) ?? 0) + Number(item.quantity),
-        );
+      // Storefront multi-vendor routing (D8): a line's own warehouseId wins
+      // over the order's; every manual/CSV/bulk order has none on any line,
+      // so every item resolves to the same fallbackWarehouseId exactly as
+      // before this feature existed.
+      const resolved = items.map((item) => ({
+        variantId: item.variantId,
+        quantity: Number(item.quantity),
+        warehouseId: item.warehouseId ?? fallbackWarehouseId,
+      }));
+
+      // Aggregate by (warehouse, variant) — an order can list the same
+      // variant across multiple lines (possibly at different warehouses via
+      // multi-vendor routing), and availability must be checked against the
+      // *total* quantity demanded per warehouse, not each line in isolation.
+      interface DemandGroup {
+        readonly warehouseId: string;
+        readonly variantId: string;
+        readonly quantity: number;
+      }
+      const demand = new Map<string, DemandGroup>();
+      for (const item of resolved) {
+        const key = `${item.warehouseId}::${item.variantId}`;
+        const existing = demand.get(key);
+        demand.set(key, {
+          warehouseId: item.warehouseId,
+          variantId: item.variantId,
+          quantity: (existing?.quantity ?? 0) + item.quantity,
+        });
       }
 
       // Check pass: lock every level up front and collect *all* shortages
       // (not just the first) so the caller can surface a complete picture.
+      // Nothing is written yet — a shortage anywhere aborts the whole
+      // transition atomically, same guarantee as the single-warehouse path.
       const levels = new Map<string, { id: string; onHand: number; committed: number }>();
       const shortages: InsufficientStockError["shortages"] = [];
-      for (const [variantId, qty] of demandByVariant) {
-        const level = await this.lockLevel(tx, actor, warehouseId, variantId);
-        levels.set(variantId, level);
-        const allowOversell = await this.variantOversell(tx, actor.companyId, variantId);
+      for (const [key, group] of demand) {
+        const level = await this.lockLevel(tx, actor, group.warehouseId, group.variantId);
+        levels.set(key, level);
+        const allowOversell = await this.variantOversell(tx, actor.companyId, group.variantId);
         const available = level.onHand - level.committed;
-        if (!allowOversell && qty > available) {
+        if (!allowOversell && group.quantity > available) {
           const variant = await tx.productVariant.findFirst({
-            where: { id: variantId },
+            where: { id: group.variantId },
             select: { name: true, product: { select: { name: true } } },
           });
           shortages.push({
-            variantId,
-            variantName: variant?.name ?? variantId,
+            variantId: group.variantId,
+            variantName: variant?.name ?? group.variantId,
             productName: variant?.product.name ?? "",
-            requested: qty,
+            requested: group.quantity,
             available: Math.max(available, 0),
           });
         }
       }
       if (shortages.length > 0) throw new InsufficientStockError(shortages);
 
-      // Apply pass: all items cleared the check, so commit the reservations.
-      for (const item of items) {
-        const qty = Number(item.quantity);
-        const level = levels.get(item.variantId)!;
+      // Apply pass: every group cleared the check, so commit one reservation
+      // per original line, each at its own resolved warehouse.
+      for (const item of resolved) {
+        const key = `${item.warehouseId}::${item.variantId}`;
+        const level = levels.get(key)!;
         await tx.inventoryStock.updateMany({
           where: { id: level.id },
           data: stampForUpdate(actor, {
-            committed: { increment: BigInt(qty) },
+            committed: { increment: BigInt(item.quantity) },
           }) as Prisma.InventoryStockUncheckedUpdateManyInput,
         });
         await tx.stockReservation.create({
           data: stampForCreate(actor, {
-            warehouseId,
+            warehouseId: item.warehouseId,
             variantId: item.variantId,
-            quantity: BigInt(qty),
+            quantity: BigInt(item.quantity),
             orderId,
             status: "active",
           }) as Prisma.StockReservationUncheckedCreateInput,
@@ -1040,4 +1080,5 @@ interface ResolvedLine {
   readonly quantity: number;
   readonly price: number;
   readonly costSnapshot: number;
+  readonly warehouseId: string | null;
 }

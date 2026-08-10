@@ -3,6 +3,7 @@ import { systemClockProvider } from "../../shared/time/clock";
 import { StorefrontAdapterResolver } from "./application/storefront-adapter.resolver";
 import { StorefrontConnectionsService } from "./application/storefront-connections.service";
 import { StorefrontIngestionService } from "./application/storefront-ingestion.service";
+import { VendorWarehouseMappingsService } from "./application/vendor-warehouse-mappings.service";
 import { STOREFRONT_ADAPTER_RESOLVER } from "./domain/storefront-adapter-resolver.port";
 import {
   GENERIC_STOREFRONT_ADAPTER,
@@ -11,11 +12,13 @@ import {
 import { STOREFRONT_AUDIT } from "./domain/storefront-audit.port";
 import { STOREFRONT_CONNECTIONS_REPOSITORY } from "./domain/storefront-connections-repository.port";
 import { STOREFRONT_WEBHOOK_INBOX } from "./domain/storefront-webhook-inbox.port";
+import { VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY } from "./domain/vendor-warehouse-mappings-repository.port";
 import { StorefrontAuditLogAdapter } from "./infrastructure/audit-log.adapter";
 import { GenericJsonAdapter } from "./infrastructure/generic-json.adapter";
 import { integrationsPrismaClientProvider } from "./infrastructure/prisma-client.provider";
 import { StorefrontConnectionsRepository } from "./infrastructure/storefront-connections.repository";
 import { StorefrontWebhookInboxRepository } from "./infrastructure/storefront-webhook-inbox.repository";
+import { VendorWarehouseMappingsRepository } from "./infrastructure/vendor-warehouse-mappings.repository";
 import { WooCommerceAdapter } from "./infrastructure/woocommerce.adapter";
 import { StorefrontApiKeyGuard } from "./presentation/storefront-api-key.guard";
 import { StorefrontConnectionsController } from "./presentation/storefront-connections.controller";
@@ -57,12 +60,14 @@ import { StorefrontIngestionController } from "./presentation/storefront-ingesti
   providers: [
     StorefrontConnectionsService,
     StorefrontIngestionService,
+    VendorWarehouseMappingsService,
     StorefrontApiKeyGuard,
     systemClockProvider,
     integrationsPrismaClientProvider,
     { provide: STOREFRONT_CONNECTIONS_REPOSITORY, useClass: StorefrontConnectionsRepository },
     { provide: STOREFRONT_WEBHOOK_INBOX, useClass: StorefrontWebhookInboxRepository },
     { provide: STOREFRONT_AUDIT, useClass: StorefrontAuditLogAdapter },
+    { provide: VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY, useClass: VendorWarehouseMappingsRepository },
     { provide: GENERIC_STOREFRONT_ADAPTER, useClass: GenericJsonAdapter },
     { provide: WOOCOMMERCE_STOREFRONT_ADAPTER, useClass: WooCommerceAdapter },
     { provide: STOREFRONT_ADAPTER_RESOLVER, useClass: StorefrontAdapterResolver },

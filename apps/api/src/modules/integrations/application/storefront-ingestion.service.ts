@@ -36,7 +36,16 @@ import {
   STOREFRONT_WEBHOOK_INBOX,
   type StorefrontWebhookInboxPort,
 } from "../domain/storefront-webhook-inbox.port";
-import { NotReprocessableError, UnknownSkuError } from "../domain/storefront.errors";
+import {
+  VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY,
+  type VendorWarehouseMappingsRepositoryPort,
+} from "../domain/vendor-warehouse-mappings-repository.port";
+import {
+  MissingVendorIdError,
+  NotReprocessableError,
+  UnknownSkuError,
+  VendorNotMappedError,
+} from "../domain/storefront.errors";
 
 /** A system-actor session id; never checked, only satisfies the `RequestPrincipal` shape. */
 const SYSTEM_SESSION = "storefront-sync";
@@ -68,6 +77,8 @@ export class StorefrontIngestionService {
     @Inject(PRODUCTS_CATALOG) private readonly products: ProductsCatalogPort,
     @Inject(INVENTORY_ADJUSTMENT) private readonly inventory: InventoryAdjustmentPort,
     @Inject(CUSTOMERS_DIRECTORY) private readonly customers: CustomersDirectoryPort,
+    @Inject(VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY)
+    private readonly vendorWarehouses: VendorWarehouseMappingsRepositoryPort,
   ) {}
 
   async ingestOrder(connection: ResolvedStorefrontConnection, raw: unknown): Promise<IngestResult> {
@@ -168,11 +179,43 @@ export class StorefrontIngestionService {
     normalized: NormalizedOrder,
   ): Promise<string> {
     const principal = this.systemPrincipal(connection);
+    // Multi-vendor routing (discovery report, 2026-08-10) is entirely
+    // data-driven, never configuration-driven: it activates only when the
+    // order itself carries a vendor id on at least one line. A store with no
+    // vendor concept (or a WooCommerce order none of whose lines carry
+    // `_vendor_id`) never enters this branch — items resolve exactly as
+    // before, one shared warehouse for the whole order.
+    const isMultiVendor = normalized.items.some(
+      (line) => line.vendorExternalId !== undefined && line.vendorExternalId.length > 0,
+    );
+    // Resolve EVERY line (sku → variant, and — for a multi-vendor order —
+    // vendor → warehouse) before calling `orders.create`. Any failure here
+    // throws before a single row is written, so a multi-vendor order with
+    // one unmapped vendor never partially reserves for the others (D6:
+    // atomic all-or-nothing).
     const items: OrdersIngestionItem[] = [];
     for (const line of normalized.items) {
       const variant = await this.products.findVariantBySku(principal, line.sku);
       if (variant === null) throw new UnknownSkuError(line.sku);
-      items.push({ variantId: variant.id, quantity: line.quantity, price: line.unitPriceMinor });
+      let warehouseId: string | undefined;
+      if (isMultiVendor) {
+        if (line.vendorExternalId === undefined || line.vendorExternalId.length === 0) {
+          throw new MissingVendorIdError(line.sku);
+        }
+        const mapped = await this.vendorWarehouses.findWarehouseId(
+          connection.companyId,
+          connection.connectionId,
+          line.vendorExternalId,
+        );
+        if (mapped === null) throw new VendorNotMappedError(line.vendorExternalId);
+        warehouseId = mapped;
+      }
+      items.push({
+        variantId: variant.id,
+        quantity: line.quantity,
+        price: line.unitPriceMinor,
+        ...(warehouseId !== undefined ? { warehouseId } : {}),
+      });
     }
     const customerId = await this.resolveCustomer(principal, normalized.customer);
     const { order } = await this.orders.create(principal, {

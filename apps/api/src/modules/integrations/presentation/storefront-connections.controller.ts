@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -26,13 +27,17 @@ import { CurrentUser } from "../../../shared/auth/current-user.decorator";
 import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
 import { StorefrontConnectionsService } from "../application/storefront-connections.service";
 import { StorefrontIngestionService } from "../application/storefront-ingestion.service";
+import { VendorWarehouseMappingsService } from "../application/vendor-warehouse-mappings.service";
 import {
   ConnectionListDto,
   CreateConnectionDto,
+  CreateVendorWarehouseMappingDto,
   IngestResultDto,
   StorefrontConnectionDto,
   StorefrontConnectionWithKeyDto,
   UpdateConnectionDto,
+  VendorWarehouseMappingDto,
+  VendorWarehouseMappingListDto,
   WebhookEventListDto,
 } from "./dto/storefront.dto";
 import { StorefrontEventsQueryDto } from "./dto/storefront-events-query.dto";
@@ -62,6 +67,7 @@ export class StorefrontConnectionsController {
   constructor(
     private readonly service: StorefrontConnectionsService,
     private readonly ingestion: StorefrontIngestionService,
+    private readonly vendorWarehouses: VendorWarehouseMappingsService,
     @Inject(STOREFRONT_WEBHOOK_INBOX) private readonly inbox: StorefrontWebhookInboxPort,
   ) {}
 
@@ -215,5 +221,62 @@ export class StorefrontConnectionsController {
     return IngestResultDto.from(
       await this.ingestion.reprocessEvent(principal, connectionId, eventId),
     );
+  }
+
+  @Get(":connectionId/vendor-warehouses")
+  @RequireCapability({ feature: STOREFRONT_FEATURE, permission: MANAGE })
+  @ApiOperation({
+    summary: "List this connection's vendor -> warehouse mappings",
+    operationId: "listStorefrontVendorWarehouseMappings",
+  })
+  @ApiOkResponse({ type: VendorWarehouseMappingListDto })
+  async listVendorWarehouses(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("connectionId", ParseUUIDPipe) connectionId: string,
+    @Query("limit") limit?: string,
+    @Query("cursor") cursor?: string,
+  ): Promise<VendorWarehouseMappingListDto> {
+    const page = await this.vendorWarehouses.list(
+      principal,
+      connectionId,
+      limit === undefined ? undefined : Number(limit),
+      cursor,
+    );
+    return VendorWarehouseMappingListDto.from(page);
+  }
+
+  @Post(":connectionId/vendor-warehouses")
+  @RequireCapability({ feature: STOREFRONT_FEATURE, permission: MANAGE })
+  @ApiOperation({
+    summary: "Map a marketplace vendor to a warehouse for this connection",
+    operationId: "createStorefrontVendorWarehouseMapping",
+  })
+  @ApiCreatedResponse({ type: VendorWarehouseMappingDto })
+  async createVendorWarehouse(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("connectionId", ParseUUIDPipe) connectionId: string,
+    @Body() body: CreateVendorWarehouseMappingDto,
+  ): Promise<VendorWarehouseMappingDto> {
+    return VendorWarehouseMappingDto.from(
+      await this.vendorWarehouses.create(principal, connectionId, {
+        externalVendorId: body.externalVendorId,
+        warehouseId: body.warehouseId,
+      }),
+    );
+  }
+
+  @Delete(":connectionId/vendor-warehouses/:mappingId")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireCapability({ feature: STOREFRONT_FEATURE, permission: MANAGE })
+  @ApiOperation({
+    summary: "Remove a vendor -> warehouse mapping",
+    operationId: "deleteStorefrontVendorWarehouseMapping",
+  })
+  async deleteVendorWarehouse(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("connectionId", ParseUUIDPipe) connectionId: string,
+    @Param("mappingId", ParseUUIDPipe) mappingId: string,
+  ): Promise<void> {
+    await this.vendorWarehouses.delete(principal, connectionId, mappingId);
   }
 }

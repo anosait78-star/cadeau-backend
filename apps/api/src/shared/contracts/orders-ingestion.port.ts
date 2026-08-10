@@ -6,6 +6,12 @@ export interface OrdersIngestionItem {
   readonly quantity: number;
   /** Unit sell price, integer minor units. */
   readonly price: number;
+  /**
+   * Per-line warehouse override (storefront multi-vendor routing). Omitted
+   * for every non-multi-vendor order, which keeps using the order-level
+   * `warehouseId` below exactly as before this field existed.
+   */
+  readonly warehouseId?: string | null;
 }
 
 /** The subset of `CreateOrderInput` the storefront-integration module needs. */

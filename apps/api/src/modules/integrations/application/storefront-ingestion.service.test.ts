@@ -9,7 +9,12 @@ import type { StorefrontAdapterPort } from "../domain/storefront-adapter.port";
 import type { ResolvedStorefrontConnection } from "../domain/storefront-connection.entity";
 import type { StorefrontConnectionsRepositoryPort } from "../domain/storefront-connections-repository.port";
 import type { StorefrontWebhookInboxPort } from "../domain/storefront-webhook-inbox.port";
-import { UnknownSkuError } from "../domain/storefront.errors";
+import type { VendorWarehouseMappingsRepositoryPort } from "../domain/vendor-warehouse-mappings-repository.port";
+import {
+  MissingVendorIdError,
+  UnknownSkuError,
+  VendorNotMappedError,
+} from "../domain/storefront.errors";
 import { StorefrontIngestionService } from "./storefront-ingestion.service";
 
 const CONNECTION: ResolvedStorefrontConnection = {
@@ -59,6 +64,12 @@ function makeHarness() {
   };
   const inventory = { listStock: vi.fn(), listWarehouses: vi.fn(), adjust: vi.fn() };
   const customers = { list: vi.fn(), create: vi.fn() };
+  const vendorWarehouses = {
+    findWarehouseId: vi.fn(),
+    list: vi.fn(),
+    create: vi.fn(),
+    delete: vi.fn(),
+  };
 
   const service = new StorefrontIngestionService(
     inbox as unknown as StorefrontWebhookInboxPort,
@@ -68,8 +79,20 @@ function makeHarness() {
     products as unknown as ProductsCatalogPort,
     inventory as unknown as InventoryAdjustmentPort,
     customers as unknown as CustomersDirectoryPort,
+    vendorWarehouses as unknown as VendorWarehouseMappingsRepositoryPort,
   );
-  return { service, inbox, adapter, adapters, connections, orders, products, inventory, customers };
+  return {
+    service,
+    inbox,
+    adapter,
+    adapters,
+    connections,
+    orders,
+    products,
+    inventory,
+    customers,
+    vendorWarehouses,
+  };
 }
 
 const ORDER_PAYLOAD = {
@@ -77,6 +100,16 @@ const ORDER_PAYLOAD = {
   placedAt: "2026-08-08T10:00:00Z",
   customer: { name: "Ahmed", phone: "+201001234567" },
   items: [{ sku: "SKU-1", quantity: 2, unitPriceMinor: 15000 }],
+};
+
+const MULTI_VENDOR_ORDER_PAYLOAD = {
+  externalId: "ext-order-mv-1",
+  placedAt: "2026-08-08T10:00:00Z",
+  customer: { name: "Ahmed", phone: "+201001234567" },
+  items: [
+    { sku: "SKU-A", quantity: 1, unitPriceMinor: 10000, vendorExternalId: "vendor-A" },
+    { sku: "SKU-B", quantity: 2, unitPriceMinor: 5000, vendorExternalId: "vendor-B" },
+  ],
 };
 
 const PRODUCT_PAYLOAD = {
@@ -225,6 +258,137 @@ describe("StorefrontIngestionService.ingestOrder", () => {
       AppException,
     );
     expect(h.inbox.markFailed).toHaveBeenCalled();
+  });
+
+  it("does not consult the vendor mapping at all for a plain (non-multi-vendor) order — regression guard", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.customers.list.mockResolvedValue({ data: [{ id: "cust-1" }], page: emptyPage().page });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
+
+    await h.service.ingestOrder(CONNECTION, ORDER_PAYLOAD);
+
+    expect(h.vendorWarehouses.findWarehouseId).not.toHaveBeenCalled();
+    expect(h.orders.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ items: [{ variantId: "variant-1", quantity: 2, price: 15000 }] }),
+    );
+  });
+});
+
+describe("StorefrontIngestionService.ingestOrder — multi-vendor routing", () => {
+  let h: ReturnType<typeof makeHarness>;
+  beforeEach(() => {
+    h = makeHarness();
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.customers.list.mockResolvedValue({ data: [{ id: "cust-1" }], page: emptyPage().page });
+  });
+
+  it("routes each line to its own vendor's mapped warehouse, in one order", async () => {
+    h.products.findVariantBySku.mockImplementation((_p: unknown, sku: string) =>
+      Promise.resolve(
+        sku === "SKU-A"
+          ? { id: "variant-A", productId: "product-A" }
+          : { id: "variant-B", productId: "product-B" },
+      ),
+    );
+    h.vendorWarehouses.findWarehouseId.mockImplementation(
+      (_co: string, _conn: string, vendorId: string) =>
+        Promise.resolve(vendorId === "vendor-A" ? "wh-A" : "wh-B"),
+    );
+    h.orders.create.mockResolvedValue({ order: { id: "order-mv-1" }, replayed: false });
+
+    const result = await h.service.ingestOrder(CONNECTION, MULTI_VENDOR_ORDER_PAYLOAD);
+
+    expect(result).toEqual({ entityId: "order-mv-1", status: "created" });
+    expect(h.orders.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        items: [
+          { variantId: "variant-A", quantity: 1, price: 10000, warehouseId: "wh-A" },
+          { variantId: "variant-B", quantity: 2, price: 5000, warehouseId: "wh-B" },
+        ],
+      }),
+    );
+  });
+
+  it("fails the whole order atomically — never calls orders.create — when one vendor has no mapping", async () => {
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-x", productId: "product-x" });
+    // vendor-A resolves, vendor-B does not: order of items in the payload
+    // puts vendor-A first, so this proves the failure on B stops everything
+    // before any write, not just before B's own line.
+    h.vendorWarehouses.findWarehouseId.mockImplementation(
+      (_co: string, _conn: string, vendorId: string) =>
+        Promise.resolve(vendorId === "vendor-A" ? "wh-A" : null),
+    );
+
+    await expect(
+      h.service.ingestOrder(CONNECTION, MULTI_VENDOR_ORDER_PAYLOAD),
+    ).rejects.toBeInstanceOf(VendorNotMappedError);
+    expect(h.orders.create).not.toHaveBeenCalled();
+    expect(h.inbox.markFailed).toHaveBeenCalledWith(
+      "co-1",
+      "evt-1",
+      expect.stringContaining("vendor-B"),
+    );
+  });
+
+  it("fails atomically when one line in a multi-vendor order carries no vendor id at all", async () => {
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-x", productId: "product-x" });
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-A");
+    const payload = {
+      ...MULTI_VENDOR_ORDER_PAYLOAD,
+      items: [
+        { sku: "SKU-A", quantity: 1, unitPriceMinor: 10000, vendorExternalId: "vendor-A" },
+        { sku: "SKU-B", quantity: 2, unitPriceMinor: 5000 }, // no vendorExternalId
+      ],
+    };
+
+    await expect(h.service.ingestOrder(CONNECTION, payload)).rejects.toBeInstanceOf(
+      MissingVendorIdError,
+    );
+    expect(h.orders.create).not.toHaveBeenCalled();
+  });
+
+  it("succeeds on reprocess once the admin creates the missing mapping (retry after mapping)", async () => {
+    // First delivery: vendor-B unmapped, fails closed.
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-x", productId: "product-x" });
+    h.vendorWarehouses.findWarehouseId.mockImplementation(
+      (_co: string, _conn: string, vendorId: string) =>
+        Promise.resolve(vendorId === "vendor-A" ? "wh-A" : null),
+    );
+    await expect(
+      h.service.ingestOrder(CONNECTION, MULTI_VENDOR_ORDER_PAYLOAD),
+    ).rejects.toBeInstanceOf(VendorNotMappedError);
+    expect(h.orders.create).not.toHaveBeenCalled();
+
+    // Admin creates the mapping; the same event is reprocessed.
+    h.inbox.findById.mockResolvedValue({
+      id: "evt-1",
+      connectionId: "conn-1",
+      eventType: "order",
+      status: "failed",
+    });
+    h.inbox.getPayload.mockResolvedValue(MULTI_VENDOR_ORDER_PAYLOAD);
+    h.connections.findById.mockResolvedValue({
+      id: "conn-1",
+      platform: "generic",
+      defaultWarehouseId: "wh-1",
+    });
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-B"); // now mapped
+    h.orders.create.mockResolvedValue({ order: { id: "order-mv-1" }, replayed: false });
+
+    const principal = { userId: "admin-1", sessionId: "s", companyId: "co-1" };
+    const result = await h.service.reprocessEvent(principal, "conn-1", "evt-1");
+
+    expect(result).toEqual({ entityId: "order-mv-1", status: "updated" });
+    expect(h.orders.create).toHaveBeenCalled();
   });
 });
 

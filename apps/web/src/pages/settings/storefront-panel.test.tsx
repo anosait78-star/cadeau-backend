@@ -226,4 +226,116 @@ describe("StorefrontPanel", () => {
 
     expect(await screen.findByText("تمت إعادة معالجة الحدث.")).toBeInTheDocument();
   });
+
+  it("lists, adds, and removes vendor -> warehouse mappings from the connection's detail panel", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/vendor-warehouses")) {
+        // Handled per-call below via mockImplementationOnce; this default
+        // only covers the final reload after the delete.
+        return Promise.resolve(
+          json(200, { data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
+        );
+      }
+      if (url.includes("/integrations/storefront/connections") && !url.includes("events")) {
+        return Promise.resolve(
+          json(200, { data: [CONNECTION], page: { limit: 25, nextCursor: null, hasMore: false } }),
+        );
+      }
+      if (url.includes("/warehouses")) {
+        return Promise.resolve(
+          json(200, {
+            data: [{ id: "wh-1", name: "Main" }],
+            page: { limit: 25, nextCursor: null, hasMore: false },
+          }),
+        );
+      }
+      return Promise.resolve(json(200, { data: [] }));
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByText("متجري الرئيسي");
+
+    // Opening the panel defaults to the Events tab; the vendor-warehouses tab
+    // mounts (and fetches) only once selected.
+    await user.click(screen.getByRole("button", { name: "عرض الأحداث" }));
+
+    fetchMock.mockImplementationOnce((input: RequestInfo | URL) => {
+      expect(String(input)).toContain(
+        "/integrations/storefront/connections/conn-1/vendor-warehouses",
+      );
+      return Promise.resolve(
+        json(200, {
+          data: [
+            {
+              id: "map-1",
+              connectionId: "conn-1",
+              externalVendorId: "1527",
+              warehouseId: "wh-1",
+              createdAt: "2026-08-01T00:00:00.000Z",
+              updatedAt: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+          page: { limit: 25, nextCursor: null, hasMore: false },
+        }),
+      );
+    });
+    await user.click(screen.getByRole("tab", { name: "مستودعات التجار" }));
+
+    expect(await screen.findByText("1527")).toBeInTheDocument();
+
+    // Add a new mapping.
+    await user.type(screen.getByLabelText("معرّف التاجر"), "1223");
+    await user.click(screen.getByLabelText("المستودع"));
+    await user.click(await screen.findByRole("option", { name: "Main" }));
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        json(201, {
+          id: "map-2",
+          connectionId: "conn-1",
+          externalVendorId: "1223",
+          warehouseId: "wh-2",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+        }),
+      ),
+    );
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        json(200, {
+          data: [
+            {
+              id: "map-1",
+              connectionId: "conn-1",
+              externalVendorId: "1527",
+              warehouseId: "wh-1",
+              createdAt: "2026-08-01T00:00:00.000Z",
+              updatedAt: "2026-08-01T00:00:00.000Z",
+            },
+            {
+              id: "map-2",
+              connectionId: "conn-1",
+              externalVendorId: "1223",
+              warehouseId: "wh-2",
+              createdAt: "2026-08-01T00:00:00.000Z",
+              updatedAt: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+          page: { limit: 25, nextCursor: null, hasMore: false },
+        }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "إضافة ربط" }));
+    expect(await screen.findByText("1223")).toBeInTheDocument();
+
+    // Remove the first mapping, with confirmation.
+    const row = screen.getByText("1527").closest("li");
+    expect(row).not.toBeNull();
+    await user.click(within(row as HTMLElement).getByRole("button", { name: "إزالة" }));
+    await screen.findByText("إزالة ربط هذا التاجر؟");
+    fetchMock.mockImplementationOnce(() => Promise.resolve(json(204, null)));
+    await user.click(screen.getByRole("button", { name: "نعم، إزالة الربط" }));
+
+    expect(await screen.findByText("تمت إزالة الربط.")).toBeInTheDocument();
+  });
 });

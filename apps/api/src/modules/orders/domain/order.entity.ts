@@ -17,6 +17,12 @@ export interface OrderItemView {
   readonly price: number;
   /** The variant's moving-average cost frozen at add time — stable COGS. */
   readonly costSnapshot: number;
+  /**
+   * Per-line warehouse override (storefront multi-vendor routing). `null`
+   * for every manual/CSV/bulk order — those use the order's single
+   * `warehouseId` instead.
+   */
+  readonly warehouseId: string | null;
 }
 
 /** The money block, all integer minor units. `total = subtotal + shippingFee − discount`. */

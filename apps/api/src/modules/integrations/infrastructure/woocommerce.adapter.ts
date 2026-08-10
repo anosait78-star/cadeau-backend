@@ -126,7 +126,39 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       throw new StorefrontPayloadMappingError(`${context}: missing total/subtotal.`);
     }
     const totalMinor = this.toMinorUnits(lineTotal, context);
-    return { sku, quantity, unitPriceMinor: Math.round(totalMinor / quantity) };
+    const vendorExternalId = this.parseVendorExternalId(line);
+    return {
+      sku,
+      quantity,
+      unitPriceMinor: Math.round(totalMinor / quantity),
+      ...(vendorExternalId !== undefined ? { vendorExternalId } : {}),
+    };
+  }
+
+  /**
+   * WCFM marketplace vendor id for one order line (multi-vendor discovery,
+   * 2026-08-10): `line_items[].meta_data[]` carries a `_vendor_id` entry
+   * whose `value` is the vendor's WordPress user id as a string — confirmed
+   * against real production order data (WooCommerce `/wc/v3/orders`
+   * response, the exact shape webhooks deliver). `undefined` — never a
+   * thrown error — when absent: a purely non-multi-vendor order (no line
+   * carries `_vendor_id` at all) must keep working exactly as before: this
+   * is a translation step only, not the place that decides whether a
+   * missing vendor id is fatal (that judgment needs to see the *whole*
+   * order, made by `StorefrontIngestionService`, D4).
+   */
+  private parseVendorExternalId(line: JsonRecord): string | undefined {
+    const metaData = line["meta_data"];
+    if (!Array.isArray(metaData)) return undefined;
+    for (const entry of metaData) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const record = entry as JsonRecord;
+      if (record["key"] !== "_vendor_id") continue;
+      const value = record["value"];
+      if (typeof value === "string" && value.trim().length > 0) return value.trim();
+      if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    }
+    return undefined;
   }
 
   private parseCustomer(order: JsonRecord, externalId: string): NormalizedCustomer {
