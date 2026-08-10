@@ -480,6 +480,42 @@ describe("StorefrontIngestionService.ingestProduct", () => {
       expect.objectContaining({ warehouseId: "wh-default" }),
     );
   });
+
+  it("routes stock into the vendor's mapped warehouse when the product carries a vendor id", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.inventory.listStock.mockResolvedValue(emptyPage());
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-vendor-A");
+
+    await h.service.ingestProduct(CONNECTION, { ...PRODUCT_PAYLOAD, vendorExternalId: "vendor-A" });
+
+    expect(h.vendorWarehouses.findWarehouseId).toHaveBeenCalledWith("co-1", "conn-1", "vendor-A");
+    expect(h.inventory.adjust).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ warehouseId: "wh-vendor-A" }),
+    );
+  });
+
+  it("fails closed when the product's vendor has no warehouse mapping on this connection", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue(null);
+
+    await expect(
+      h.service.ingestProduct(CONNECTION, { ...PRODUCT_PAYLOAD, vendorExternalId: "vendor-A" }),
+    ).rejects.toBeInstanceOf(VendorNotMappedError);
+    expect(h.inventory.adjust).not.toHaveBeenCalled();
+  });
 });
 
 describe("StorefrontIngestionService.reprocessEvent", () => {

@@ -271,4 +271,15 @@ describe("WooCommerceAdapter.parseProduct", () => {
     delete product["id"];
     expect(() => adapter.parseProduct(product)).toThrow(/id/);
   });
+
+  it("extracts _vendor_id from the product's own meta_data when present (trusted post_author, injected by the CRM WPCode snippet)", () => {
+    const product = baseProduct({
+      meta_data: [{ id: 1, key: "_vendor_id", value: "1527" }],
+    });
+    expect(adapter.parseProduct(product).vendorExternalId).toBe("1527");
+  });
+
+  it("leaves vendorExternalId undefined when the product has no _vendor_id meta", () => {
+    expect(adapter.parseProduct(baseProduct()).vendorExternalId).toBeUndefined();
+  });
 });

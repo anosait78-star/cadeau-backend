@@ -280,7 +280,11 @@ export class StorefrontIngestionService {
     variantId: string,
     normalized: NormalizedProduct,
   ): Promise<void> {
-    const warehouseId = await this.resolveWarehouseId(principal, connection);
+    const warehouseId = await this.resolveWarehouseId(
+      principal,
+      connection,
+      normalized.vendorExternalId,
+    );
     const page = await this.inventory.listStock(principal, {
       warehouseId,
       variantId,
@@ -301,7 +305,21 @@ export class StorefrontIngestionService {
   private async resolveWarehouseId(
     principal: RequestPrincipal,
     connection: ResolvedStorefrontConnection,
+    vendorExternalId?: string,
   ): Promise<string> {
+    // A product carrying a vendor id always routes through that vendor's
+    // mapping — fail closed (no silent default-warehouse fallback) exactly
+    // like the order-line path, so stock is never attributed to the wrong
+    // vendor's warehouse (multi-vendor discovery §D4).
+    if (vendorExternalId !== undefined && vendorExternalId.length > 0) {
+      const mapped = await this.vendorWarehouses.findWarehouseId(
+        connection.companyId,
+        connection.connectionId,
+        vendorExternalId,
+      );
+      if (mapped === null) throw new VendorNotMappedError(vendorExternalId);
+      return mapped;
+    }
     if (connection.defaultWarehouseId !== null) return connection.defaultWarehouseId;
     const page = await this.inventory.listWarehouses(principal, { limit: "100", active: "true" });
     const fallback = page.data.find((w) => w.isDefault) ?? page.data[0];

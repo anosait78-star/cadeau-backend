@@ -51,6 +51,16 @@ export interface NormalizedProduct {
   /** Absolute on-hand quantity, applied via an inventory adjustment (D5). */
   readonly stockQuantity: number;
   readonly active?: boolean;
+  /**
+   * The marketplace vendor that owns this product, as the platform's own id
+   * (WooCommerce/WCFM: the vendor's WordPress user id, as a string) —
+   * `undefined` when the platform has no vendor concept, or this product
+   * carries none. Used only for multi-vendor warehouse routing at product
+   * sync time (mirrors {@link NormalizedOrderItem.vendorExternalId}); absent
+   * products keep syncing stock into the connection's single default
+   * warehouse exactly as before.
+   */
+  readonly vendorExternalId?: string;
 }
 
 /**

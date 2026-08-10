@@ -83,6 +83,7 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     const priceMinor = this.parsePrice(product, externalId);
     const stockQuantity = this.parseStockQuantity(product, externalId);
     const active = product["status"] === "publish";
+    const vendorExternalId = this.parseVendorExternalId(product);
 
     return {
       externalId,
@@ -92,6 +93,7 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       priceMinor,
       stockQuantity,
       active,
+      ...(vendorExternalId !== undefined ? { vendorExternalId } : {}),
     };
   }
 
@@ -136,16 +138,19 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
   }
 
   /**
-   * WCFM marketplace vendor id for one order line (multi-vendor discovery,
-   * 2026-08-10): `line_items[].meta_data[]` carries a `_vendor_id` entry
-   * whose `value` is the vendor's WordPress user id as a string — confirmed
-   * against real production order data (WooCommerce `/wc/v3/orders`
-   * response, the exact shape webhooks deliver). `undefined` — never a
-   * thrown error — when absent: a purely non-multi-vendor order (no line
-   * carries `_vendor_id` at all) must keep working exactly as before: this
-   * is a translation step only, not the place that decides whether a
-   * missing vendor id is fatal (that judgment needs to see the *whole*
-   * order, made by `StorefrontIngestionService`, D4).
+   * WCFM marketplace vendor id (multi-vendor discovery, 2026-08-10): the
+   * record's own `meta_data[]` carries a `_vendor_id` entry whose `value` is
+   * the vendor's WordPress user id as a string — confirmed against real
+   * production order data (WooCommerce `/wc/v3/orders` response, the exact
+   * shape webhooks deliver) and reused as-is for products (`/wc/v3/products`
+   * has the same `meta_data[]` shape; the CRM Storefront Webhook WPCode
+   * snippet injects a trusted `_vendor_id` — sourced from `post_author` —
+   * onto both). `undefined` — never a thrown error — when absent: a purely
+   * non-multi-vendor order/product (no `_vendor_id` at all) must keep
+   * working exactly as before: this is a translation step only, not the
+   * place that decides whether a missing vendor id is fatal (that judgment
+   * needs to see the *whole* order, made by `StorefrontIngestionService`,
+   * D4).
    */
   private parseVendorExternalId(line: JsonRecord): string | undefined {
     const metaData = line["meta_data"];
