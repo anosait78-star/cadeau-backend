@@ -24,8 +24,11 @@ import {
   STOREFRONT_EVENT_TYPES,
   STOREFRONT_PLATFORMS,
   createStorefrontConnection,
+  createVendorWarehouseMapping,
+  deleteVendorWarehouseMapping,
   listStorefrontConnections,
   listStorefrontEvents,
+  listVendorWarehouseMappings,
   reprocessStorefrontEvent,
   revokeStorefrontConnection,
   rotateStorefrontConnectionKey,
@@ -37,6 +40,7 @@ import {
   type StorefrontEventType,
   type StorefrontPlatform,
   type StorefrontWebhookEvent,
+  type VendorWarehouseMapping,
 } from "@/features/integrations/storefront-api";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import type { TranslationKey } from "@/i18n/dictionaries";
@@ -308,6 +312,13 @@ function StorefrontConnectionsScreen(): ReactNode {
                   key: "events",
                   label: t("storefront.events.title"),
                   content: <ConnectionEventsSection connection={eventsFor} />,
+                },
+                {
+                  key: "vendor-warehouses",
+                  label: t("storefront.vendorWarehouses.title"),
+                  content: (
+                    <VendorWarehousesSection connection={eventsFor} warehouses={warehouses} />
+                  ),
                 },
               ]
         }
@@ -891,6 +902,198 @@ function ConnectionEventsSection({ connection }: { connection: StorefrontConnect
           {t("storefront.loadMore")}
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+type VendorWarehousesState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "error" }
+  | {
+      readonly kind: "ready";
+      readonly items: VendorWarehouseMapping[];
+      readonly nextCursor: string | null;
+    };
+
+/**
+ * Marketplace vendor -> warehouse routing for one connection (multi-vendor
+ * discovery, 2026-08-10). No mapping is ever created automatically — an
+ * unmapped vendor's orders fail closed until an admin adds one here.
+ */
+function VendorWarehousesSection({
+  connection,
+  warehouses,
+}: {
+  connection: StorefrontConnection;
+  warehouses: Warehouse[];
+}): ReactNode {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [state, setState] = useState<VendorWarehousesState>({ kind: "loading" });
+  const [vendorId, setVendorId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<VendorWarehouseMapping | null>(null);
+
+  const load = useCallback(async (): Promise<void> => {
+    setState({ kind: "loading" });
+    try {
+      const page = await listVendorWarehouseMappings(connection.id);
+      setState({ kind: "ready", items: page.data, nextCursor: page.page.nextCursor });
+    } catch {
+      setState({ kind: "error" });
+    }
+  }, [connection.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const loadMore = async (): Promise<void> => {
+    if (state.kind !== "ready" || state.nextCursor === null) return;
+    const page = await listVendorWarehouseMappings(connection.id, { cursor: state.nextCursor });
+    setState({
+      kind: "ready",
+      items: [...state.items, ...page.data],
+      nextCursor: page.page.nextCursor,
+    });
+  };
+
+  const warehouseName = (id: string): string => warehouses.find((w) => w.id === id)?.name ?? id;
+
+  const add = async (): Promise<void> => {
+    const trimmed = vendorId.trim();
+    if (trimmed.length === 0 || warehouseId === "") return;
+    setAdding(true);
+    setAddError(null);
+    try {
+      await createVendorWarehouseMapping(connection.id, {
+        externalVendorId: trimmed,
+        warehouseId,
+      });
+      setVendorId("");
+      setWarehouseId("");
+      await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "CONFLICT") {
+        setAddError(t("storefront.vendorWarehouses.duplicateVendor"));
+      } else {
+        setAddError(t("storefront.vendorWarehouses.addFailed"));
+      }
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const remove = async (mapping: VendorWarehouseMapping): Promise<void> => {
+    try {
+      await deleteVendorWarehouseMapping(connection.id, mapping.id);
+      toast.show(t("storefront.vendorWarehouses.removed"));
+      await load();
+    } catch {
+      toast.show(t("storefront.vendorWarehouses.removeFailed"), { variant: "error" });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      <p className="text-sm text-muted-foreground">
+        {t("storefront.vendorWarehouses.description")}
+      </p>
+
+      <PermissionGate permission="integrations.manage">
+        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <FormField
+              label={t("storefront.vendorWarehouses.field.vendorId")}
+              htmlFor="vendor-warehouse-vendor-id"
+              hint={t("storefront.vendorWarehouses.field.vendorIdHint")}
+              className="flex-1"
+            >
+              <Input
+                id="vendor-warehouse-vendor-id"
+                value={vendorId}
+                onChange={(e) => setVendorId(e.target.value)}
+                aria-label={t("storefront.vendorWarehouses.field.vendorId")}
+              />
+            </FormField>
+            <FormField
+              label={t("storefront.vendorWarehouses.field.warehouse")}
+              htmlFor="vendor-warehouse-warehouse"
+              className="flex-1"
+            >
+              <Combobox
+                id="vendor-warehouse-warehouse"
+                ariaLabel={t("storefront.vendorWarehouses.field.warehouse")}
+                value={warehouseId}
+                onChange={setWarehouseId}
+                options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+              />
+            </FormField>
+            <Button
+              size="sm"
+              disabled={adding || vendorId.trim().length === 0 || warehouseId === ""}
+              onClick={() => void add()}
+            >
+              {t("storefront.vendorWarehouses.actions.add")}
+            </Button>
+          </div>
+          {addError !== null ? (
+            <p role="alert" className="text-sm text-destructive">
+              {addError}
+            </p>
+          ) : null}
+        </div>
+      </PermissionGate>
+
+      {state.kind === "loading" ? <LoadingState /> : null}
+      {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
+      {state.kind === "ready" && state.items.length === 0 ? (
+        <EmptyState title={t("storefront.vendorWarehouses.empty")} />
+      ) : null}
+
+      {state.kind === "ready" && state.items.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {state.items.map((mapping) => (
+            <li
+              key={mapping.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3 text-sm"
+            >
+              <span className="font-medium">{mapping.externalVendorId}</span>
+              <span className="text-muted-foreground">{warehouseName(mapping.warehouseId)}</span>
+              <PermissionGate permission="integrations.manage">
+                <Button size="sm" variant="ghost" onClick={() => setRemoving(mapping)}>
+                  {t("storefront.vendorWarehouses.actions.remove")}
+                </Button>
+              </PermissionGate>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {state.kind === "ready" && state.nextCursor !== null ? (
+        <Button variant="outline" size="sm" className="self-center" onClick={() => void loadMore()}>
+          {t("storefront.loadMore")}
+        </Button>
+      ) : null}
+
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null);
+        }}
+        title={t("storefront.vendorWarehouses.remove.confirmTitle")}
+        description={t("storefront.vendorWarehouses.remove.confirmDescription")}
+        confirmLabel={t("storefront.vendorWarehouses.remove.confirmAction")}
+        cancelLabel={t("storefront.actions.cancel")}
+        destructive
+        onConfirm={async () => {
+          if (removing === null) return;
+          await remove(removing);
+          setRemoving(null);
+        }}
+      />
     </div>
   );
 }
