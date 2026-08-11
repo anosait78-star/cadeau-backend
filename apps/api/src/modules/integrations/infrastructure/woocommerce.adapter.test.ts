@@ -107,7 +107,7 @@ describe("WooCommerceAdapter.parseOrder", () => {
     expect(result).toEqual({
       externalId: "4321",
       placedAt: "2026-08-08T10:00:00.000Z",
-      customer: { name: "أحمد محمد", phone: "01001234567", email: "ahmed@example.com" },
+      customer: { name: "أحمد محمد", phone: "+201001234567", email: "ahmed@example.com" },
       items: [{ sku: "SKU-001", quantity: 2, unitPriceMinor: 15000 }],
       currency: "EGP",
       notes: "Please gift-wrap",
@@ -138,7 +138,22 @@ describe("WooCommerceAdapter.parseOrder", () => {
       billing: { first_name: "أحمد", last_name: "محمد" },
       shipping: { phone: "01009998888" },
     });
-    expect(adapter.parseOrder(order).customer.phone).toBe("01009998888");
+    expect(adapter.parseOrder(order).customer.phone).toBe("+201009998888");
+  });
+
+  it("normalizes a local Egyptian mobile number (01xxxxxxxxx) to +20", () => {
+    const order = baseOrder({ billing: { phone: "01234567890" } });
+    expect(adapter.parseOrder(order).customer.phone).toBe("+201234567890");
+  });
+
+  it("leaves an already-international phone number unchanged", () => {
+    const order = baseOrder({ billing: { phone: "+201001234567" } });
+    expect(adapter.parseOrder(order).customer.phone).toBe("+201001234567");
+  });
+
+  it("leaves a phone number that isn't a bare Egyptian local number unchanged", () => {
+    const order = baseOrder({ billing: { phone: "0044123456789" } });
+    expect(adapter.parseOrder(order).customer.phone).toBe("0044123456789");
   });
 
   it("maps multiple line items", () => {

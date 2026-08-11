@@ -207,7 +207,27 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       );
     }
     const email = this.optionalString(billing, "email");
-    return { name, phone: phoneRaw.trim(), ...(email !== undefined ? { email } : {}) };
+    return {
+      name,
+      phone: this.normalizeEgyptianPhone(phoneRaw.trim()),
+      ...(email !== undefined ? { email } : {}),
+    };
+  }
+
+  /**
+   * WooCommerce checkout phone fields hold whatever the customer typed — for
+   * this store (cadeauegypt.com) that's almost always a local Egyptian mobile
+   * number (`01xxxxxxxxx`, 11 digits) with no country code. The CRM's phone
+   * normalizer deliberately rejects bare national numbers (there's no
+   * per-company default country yet — see `customers/domain/phone.ts`), so
+   * left as-is every such order would fail ingestion. This adapter already
+   * knows the store is Egypt-only, so it's the right place to fill in `+20`:
+   * strip the leading `0` and prepend the country code. Anything else
+   * (already has a `+`, a different length/shape) is passed through
+   * unchanged and left for the CRM's own validation to accept or reject.
+   */
+  private normalizeEgyptianPhone(phone: string): string {
+    return /^0\d{10}$/.test(phone) ? `+20${phone.slice(1)}` : phone;
   }
 
   private fullName(record: JsonRecord): string | undefined {
