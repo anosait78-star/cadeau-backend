@@ -10,6 +10,7 @@ const PRODUCT: Product = {
   description: "A nice box",
   categoryId: "cat1",
   unitId: "u1",
+  imageUrl: null,
   allowOversell: false,
   active: true,
   createdAt: "2026-01-01T00:00:00.000Z",
