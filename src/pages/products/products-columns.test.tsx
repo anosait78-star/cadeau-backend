@@ -13,6 +13,7 @@ const PRODUCT: Product = {
   imageUrl: null,
   allowOversell: false,
   active: true,
+  warehouseNames: [],
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -60,6 +61,14 @@ describe("buildProductColumns", () => {
       </div>,
     );
     expect(screen.getAllByText("—")).toHaveLength(2);
+  });
+
+  it("joins multiple warehouse names, and falls back to 'none' when there are no stock rows", () => {
+    const warehouse = columns.find((c) => c.key === "warehouse");
+    render(<div>{warehouse?.render({ ...PRODUCT, warehouseNames: ["Cairo", "Alexandria"] })}</div>);
+    expect(screen.getByText("Cairo، Alexandria")).toBeInTheDocument();
+    render(<div>{warehouse?.render(PRODUCT)}</div>);
+    expect(screen.getByText("products.field.warehouseNone")).toBeInTheDocument();
   });
 
   it("renders active and inactive status badges", () => {
