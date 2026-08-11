@@ -88,8 +88,8 @@ function InventoryScreen(): ReactNode {
   const loadWarehouses = useCallback(async (): Promise<void> => {
     setWarehouses({ kind: "loading" });
     try {
-      const page = await listWarehouses({ active: "all" });
-      setWarehouses({ kind: "ready", items: page.data });
+      const warehouses = await listWarehouses({ active: "all" });
+      setWarehouses({ kind: "ready", items: warehouses });
     } catch {
       setWarehouses({ kind: "error" });
     }
