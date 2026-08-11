@@ -101,16 +101,30 @@ export interface WarehouseInput {
   readonly active?: boolean;
 }
 
-/** `GET /v1/warehouses` — keyset-paginated stock locations. */
-export function listWarehouses(options: WarehouseListOptions = {}): Promise<Page<Warehouse>> {
-  return apiFetch<Page<Warehouse>>(
-    `/warehouses${buildQuery({
-      cursor: options.cursor,
-      active: options.active === undefined ? undefined : String(options.active),
-      q: options.q,
-      sort: "name",
-    })}`,
-  );
+/**
+ * `GET /v1/warehouses` — every caller treats this as the company's complete
+ * warehouse set (a dropdown/filter source, never a browsable paginated
+ * list), so this walks every keyset page itself and returns the flat
+ * result — a company with more warehouses than the API's page size no
+ * longer loses the rest of them silently.
+ */
+export async function listWarehouses(options: WarehouseListOptions = {}): Promise<Warehouse[]> {
+  const all: Warehouse[] = [];
+  let cursor = options.cursor;
+  for (;;) {
+    const page = await apiFetch<Page<Warehouse>>(
+      `/warehouses${buildQuery({
+        cursor,
+        active: options.active === undefined ? undefined : String(options.active),
+        q: options.q,
+        sort: "name",
+      })}`,
+    );
+    all.push(...page.data);
+    if (!page.page.hasMore || page.page.nextCursor === null) break;
+    cursor = page.page.nextCursor;
+  }
+  return all;
 }
 
 /** `POST /v1/warehouses` — create a stock location. */

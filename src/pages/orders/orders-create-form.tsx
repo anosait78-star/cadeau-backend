@@ -109,7 +109,7 @@ export function OrderForm({
 
   useEffect(() => {
     void listWarehouses({ active: true })
-      .then((page) => setWarehouses(page.data))
+      .then((warehouses) => setWarehouses(warehouses))
       .catch(() => setWarehouses([]));
   }, []);
 
