@@ -268,13 +268,56 @@ export class StorefrontIngestionService {
       variantId = variant.id;
     }
 
-    // No absolute figure (e.g. WooCommerce manage_stock=false) → skip the
-    // stock-sync step entirely rather than guess; the catalog fields above
-    // already synced.
+    // No absolute figure (e.g. WooCommerce manage_stock=false) → skip
+    // guessing a quantity; the catalog fields above already synced. Still
+    // register the vendor's warehouse (if any) so the product isn't shown
+    // as unassigned (products list warehouse column, 2026-08-11).
     if (normalized.stockQuantity !== undefined) {
       await this.syncStock(principal, connection, variantId, normalized.stockQuantity, normalized);
+    } else {
+      await this.registerKnownVendorWarehouse(principal, connection, variantId, normalized);
     }
     return productId;
+  }
+
+  /**
+   * No absolute stock figure to sync, but the product carries a vendor id
+   * that resolves to a mapped warehouse (multi-vendor routing) — register
+   * presence there with a single zero-delta adjustment. Not a quantity
+   * claim; purely so the product shows its warehouse instead of "none".
+   * Skipped when there's no vendor id, no mapping for it, or a stock row
+   * already exists (idempotent — a resync doesn't spam the adjustment
+   * history with repeated zero-delta entries).
+   */
+  private async registerKnownVendorWarehouse(
+    principal: RequestPrincipal,
+    connection: ResolvedStorefrontConnection,
+    variantId: string,
+    normalized: NormalizedProduct,
+  ): Promise<void> {
+    const { vendorExternalId } = normalized;
+    if (vendorExternalId === undefined || vendorExternalId.length === 0) return;
+    const warehouseId = await this.vendorWarehouses.findWarehouseId(
+      connection.companyId,
+      connection.connectionId,
+      vendorExternalId,
+    );
+    if (warehouseId === null) return;
+    const existing = await this.inventory.listStock(principal, {
+      warehouseId,
+      variantId,
+      limit: "1",
+    });
+    if (existing.data.length > 0) return;
+    await this.inventory.adjust(principal, {
+      warehouseId,
+      variantId,
+      quantityDelta: 0,
+      reason: "storefront_sync",
+      note:
+        `Storefront sync (externalId=${normalized.externalId}): vendor known, ` +
+        "no stock figure to sync — registering the warehouse only.",
+    });
   }
 
   /**

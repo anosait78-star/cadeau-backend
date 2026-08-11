@@ -515,6 +515,80 @@ describe("StorefrontIngestionService.ingestProduct", () => {
     expect(h.inventory.adjust).not.toHaveBeenCalled();
   });
 
+  it("registers the vendor's mapped warehouse with a zero-delta adjustment when the vendor is known but there's no stock figure", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-vendor-A");
+    h.inventory.listStock.mockResolvedValue(emptyPage());
+
+    const { stockQuantity: _omit, ...payloadWithoutStock } = PRODUCT_PAYLOAD;
+    await h.service.ingestProduct(CONNECTION, {
+      ...payloadWithoutStock,
+      vendorExternalId: "vendor-A",
+    });
+
+    expect(h.vendorWarehouses.findWarehouseId).toHaveBeenCalledWith("co-1", "conn-1", "vendor-A");
+    expect(h.inventory.listStock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ warehouseId: "wh-vendor-A", variantId: "variant-1" }),
+    );
+    expect(h.inventory.adjust).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        warehouseId: "wh-vendor-A",
+        variantId: "variant-1",
+        quantityDelta: 0,
+        reason: "storefront_sync",
+      }),
+    );
+  });
+
+  it("does not register a warehouse when the vendor id has no mapping, and does not throw", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue(null);
+
+    const { stockQuantity: _omit, ...payloadWithoutStock } = PRODUCT_PAYLOAD;
+    const result = await h.service.ingestProduct(CONNECTION, {
+      ...payloadWithoutStock,
+      vendorExternalId: "vendor-unmapped",
+    });
+
+    expect(result).toEqual({ entityId: "product-1", status: "created" });
+    expect(h.inventory.listStock).not.toHaveBeenCalled();
+    expect(h.inventory.adjust).not.toHaveBeenCalled();
+  });
+
+  it("does not re-register (or spam the adjustment history) when a stock row already exists for that variant+warehouse", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-vendor-A");
+    h.inventory.listStock.mockResolvedValue({ data: [{ onHand: 0 }], page: emptyPage().page });
+
+    const { stockQuantity: _omit, ...payloadWithoutStock } = PRODUCT_PAYLOAD;
+    await h.service.ingestProduct(CONNECTION, {
+      ...payloadWithoutStock,
+      vendorExternalId: "vendor-A",
+    });
+
+    expect(h.inventory.adjust).not.toHaveBeenCalled();
+  });
+
   it("updates an existing product+variant when the sku already resolves, and skips the adjustment when stock already matches", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },
