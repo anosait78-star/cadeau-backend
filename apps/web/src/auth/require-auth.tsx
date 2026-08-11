@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { LoadingState } from "@/components/states/loading-state";
+import { useCapabilities } from "@/features/access/use-capabilities";
 import { useAuth } from "./use-auth";
 
 /**
@@ -9,13 +10,17 @@ import { useAuth } from "./use-auth";
  * are redirected to `/login` (preserving the attempted location so login can
  * return them). Authenticated callers with no company yet are redirected to
  * `/onboarding` (there is nothing for {@link AppShell} to render without an
- * active tenant); everyone else renders the nested routes.
+ * active tenant) — *unless* they're a platform Super-Admin: that privilege is
+ * company-independent (`platform_admins`, EPIC-5), so an admin account with no
+ * tenant membership must still reach `/admin` instead of being stuck in
+ * onboarding forever. Everyone else renders the nested routes.
  */
 export function RequireAuth(): ReactNode {
   const { status, user } = useAuth();
+  const { status: capsStatus, isSuperAdmin } = useCapabilities();
   const location = useLocation();
 
-  if (status === "loading") {
+  if (status === "loading" || (status === "authenticated" && capsStatus === "loading")) {
     return (
       <div className="flex min-h-full items-center justify-center">
         <LoadingState />
@@ -30,9 +35,22 @@ export function RequireAuth(): ReactNode {
   if (
     user !== null &&
     user.companies.length === 0 &&
+    !isSuperAdmin &&
     !location.pathname.startsWith("/onboarding")
   ) {
     return <Navigate to="/onboarding" replace />;
+  }
+
+  // A Super-Admin with no tenant membership has nothing for the regular,
+  // company-scoped shell (dashboard, orders, ...) to show — send them
+  // straight to the platform admin surface instead of a broken/empty page.
+  if (
+    user !== null &&
+    user.companies.length === 0 &&
+    isSuperAdmin &&
+    location.pathname !== "/admin"
+  ) {
+    return <Navigate to="/admin" replace />;
   }
 
   return <Outlet />;
