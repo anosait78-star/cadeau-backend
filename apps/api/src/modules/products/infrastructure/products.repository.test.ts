@@ -138,6 +138,37 @@ describe("ProductsRepository — reads", () => {
     expect(where.isActive).toBeUndefined();
   });
 
+  it("list selects nested variant stock/warehouse names and derives a distinct, sorted list", async () => {
+    const { repo, models } = makeRepo();
+    models.product.findMany.mockResolvedValueOnce([
+      productRow({
+        variants: [
+          { stock: [{ warehouse: { name: "Cairo" } }, { warehouse: { name: "Alexandria" } }] },
+          { stock: [{ warehouse: { name: "Cairo" } }] },
+        ],
+      }),
+    ]);
+    const page = await repo.list(COMPANY, {
+      sort: { field: "name", dir: "asc" },
+      active: true,
+      hasStock: false,
+    });
+    expect(page.data[0]?.warehouseNames).toEqual(["Alexandria", "Cairo"]);
+    const select = models.product.findMany.mock.calls[0]?.[0].select;
+    expect(select.variants.select.stock.select.warehouse.select).toEqual({ name: true });
+  });
+
+  it("list yields no warehouse names for a product with no stock rows", async () => {
+    const { repo, models } = makeRepo();
+    models.product.findMany.mockResolvedValueOnce([productRow({ variants: [] })]);
+    const page = await repo.list(COMPANY, {
+      sort: { field: "name", dir: "asc" },
+      active: true,
+      hasStock: false,
+    });
+    expect(page.data[0]?.warehouseNames).toEqual([]);
+  });
+
   it("listVariants returns null when the product is absent", async () => {
     const { repo } = makeRepo();
     expect(await repo.listVariants(COMPANY, "p9")).toBeNull();

@@ -12,6 +12,8 @@ export interface Product {
   /** Oversell policy (EPIC-9): allow reservations beyond available stock. */
   readonly allowOversell: boolean;
   readonly active: boolean;
+  /** Distinct warehouse names holding stock for this product's variants; empty when none. */
+  readonly warehouseNames: readonly string[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }

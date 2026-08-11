@@ -229,6 +229,13 @@ export class ProductDto {
   @ApiProperty({ description: "Soft-delete flag; false means archived." })
   active!: boolean;
 
+  @ApiProperty({
+    type: [String],
+    description:
+      "Distinct warehouse names holding stock for this product's variants. Empty when none.",
+  })
+  warehouseNames!: string[];
+
   @ApiProperty({ format: "date-time" })
   createdAt!: string;
 
@@ -245,6 +252,7 @@ export class ProductDto {
     dto.imageUrl = view.imageUrl;
     dto.allowOversell = view.allowOversell;
     dto.active = view.active;
+    dto.warehouseNames = [...view.warehouseNames];
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;
     return dto;
@@ -314,6 +322,7 @@ export class ProductDetailDto extends ProductDto {
     dto.imageUrl = view.imageUrl;
     dto.allowOversell = view.allowOversell;
     dto.active = view.active;
+    dto.warehouseNames = [...view.warehouseNames];
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;
     dto.variants = view.variants.map((v) => ProductVariantDto.from(v));

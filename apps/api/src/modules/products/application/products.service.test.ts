@@ -31,6 +31,7 @@ function product(id: string, extra: Partial<ProductView> = {}): ProductView {
     imageUrl: null,
     allowOversell: false,
     active: true,
+    warehouseNames: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...extra,

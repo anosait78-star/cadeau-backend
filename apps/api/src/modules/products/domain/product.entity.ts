@@ -17,6 +17,13 @@ export interface ProductView {
   readonly allowOversell: boolean;
   /** Soft-delete flag; `false` means archived. */
   readonly active: boolean;
+  /**
+   * Names of every warehouse holding stock for one of this product's variants
+   * (EPIC-9 `InventoryStock`) — there is no direct product→warehouse column;
+   * this is derived and can be empty (no stock rows yet) or hold more than
+   * one name (variants split across warehouses). Sorted, deduplicated.
+   */
+  readonly warehouseNames: readonly string[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }

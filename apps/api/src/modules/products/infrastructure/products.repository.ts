@@ -55,6 +55,19 @@ const PRODUCT_SELECT = {
   updatedAt: true,
 } as const;
 
+/**
+ * `PRODUCT_SELECT` plus enough to derive `warehouseNames` (product.entity.ts)
+ * in one query — used only by `list()`, where the column is displayed. The
+ * write paths (create/update/archive) return `PRODUCT_SELECT` alone; a
+ * freshly written product has no stock rows to report yet regardless.
+ */
+const PRODUCT_SELECT_WITH_WAREHOUSES = {
+  ...PRODUCT_SELECT,
+  variants: {
+    select: { stock: { select: { warehouse: { select: { name: true } } } } },
+  },
+} as const;
+
 const VARIANT_SELECT = {
   id: true,
   productId: true,
@@ -85,7 +98,12 @@ export class ProductsRepository implements ProductsRepositoryPort {
     const where = this.buildWhere(companyId, query, cursor);
     const orderBy = [{ [query.sort.field]: query.sort.dir }, { id: query.sort.dir }];
     const rows = await this.tenantTx(companyId, (tx) =>
-      tx.product.findMany({ where, orderBy, take: limit + 1, select: PRODUCT_SELECT }),
+      tx.product.findMany({
+        where,
+        orderBy,
+        take: limit + 1,
+        select: PRODUCT_SELECT_WITH_WAREHOUSES,
+      }),
     );
     const views = rows.map((r) => this.toProductView(r));
     return buildKeysetPage(views, limit, (view) => this.toCursor(query, view));
@@ -280,6 +298,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
+    variants?: readonly { stock: readonly { warehouse: { name: string } }[] }[];
   }): ProductView {
     return {
       id: row.id,
@@ -290,9 +309,22 @@ export class ProductsRepository implements ProductsRepositoryPort {
       imageUrl: row.imageUrl,
       allowOversell: row.allowOversell,
       active: row.isActive,
+      warehouseNames: this.deriveWarehouseNames(row.variants),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  /** Distinct, sorted warehouse names across every variant's stock rows. */
+  private deriveWarehouseNames(
+    variants?: readonly { stock: readonly { warehouse: { name: string } }[] }[],
+  ): readonly string[] {
+    if (variants === undefined) return [];
+    const names = new Set<string>();
+    for (const variant of variants) {
+      for (const stock of variant.stock) names.add(stock.warehouse.name);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
   }
 
   private toVariantView(row: {
