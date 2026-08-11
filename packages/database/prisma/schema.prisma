@@ -676,8 +676,10 @@ model Product {
   /// hosted wherever the source is (a storefront's own CDN for a synced
   /// product, or entered by hand) — this column never stores file bytes.
   imageUrl      String?  @map("image_url")
-  /// Oversell policy (EPIC-9): when true, reservations may exceed available stock.
-  allowOversell Boolean  @default(false) @map("allow_oversell")
+  /// Oversell policy (EPIC-9): when true, reservations may exceed available
+  /// stock. Defaults true (2026-08-26) so orders go through even at zero
+  /// stock unless a product opts out explicitly.
+  allowOversell Boolean  @default(true) @map("allow_oversell")
   isActive      Boolean  @default(true) @map("is_active")
   createdBy     String?  @map("created_by") @db.Uuid
   updatedBy     String?  @map("updated_by") @db.Uuid

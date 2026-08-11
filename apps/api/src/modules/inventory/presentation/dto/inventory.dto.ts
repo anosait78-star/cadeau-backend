@@ -161,6 +161,22 @@ export class CreateAdjustmentDto {
   note?: string | null;
 }
 
+/**
+ * Assign a variant to a warehouse without a quantity claim: ensures a
+ * zero-value stock row in `warehouseId` and drops the variant's other
+ * already-empty (zero on-hand, zero committed) rows. Use `POST /transfers`
+ * first when the old warehouse still holds real quantity.
+ */
+export class SetVariantWarehouseDto {
+  @ApiProperty({ format: "uuid" })
+  @IsUUID()
+  warehouseId!: string;
+
+  @ApiProperty({ format: "uuid" })
+  @IsUUID()
+  variantId!: string;
+}
+
 /** Set the low-stock threshold for one (warehouse, variant) level. */
 export class SetReorderPointDto {
   @ApiProperty({ format: "uuid" })

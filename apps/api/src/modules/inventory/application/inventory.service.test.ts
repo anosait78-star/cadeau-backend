@@ -106,6 +106,7 @@ function makeHarness(): Harness {
     archiveWarehouse: vi.fn(),
     listStock: vi.fn().mockResolvedValue(emptyPage()),
     setReorderPoint: vi.fn(),
+    setVariantWarehouse: vi.fn(),
     reserve: vi.fn(),
     release: vi.fn(),
     transfer: vi.fn(),

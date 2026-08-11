@@ -37,6 +37,7 @@ import {
   CreateTransferDto,
   ReservationDto,
   SetReorderPointDto,
+  SetVariantWarehouseDto,
   StockLevelDto,
   StockListDto,
   TransferDto,
@@ -87,6 +88,20 @@ export class InventoryController {
     @Body() body: SetReorderPointDto,
   ): Promise<StockLevelDto> {
     return StockLevelDto.from(await this.service.setReorderPoint(principal, body));
+  }
+
+  @Put("variant-warehouse")
+  @RequireCapability({ feature: INVENTORY_FEATURE, permission: "inventory.manage" })
+  @ApiOperation({
+    summary: "Assign a variant to a warehouse (no quantity claim)",
+    operationId: "setVariantWarehouse",
+  })
+  @ApiOkResponse({ type: StockLevelDto })
+  async setVariantWarehouse(
+    @CurrentUser() principal: RequestPrincipal,
+    @Body() body: SetVariantWarehouseDto,
+  ): Promise<StockLevelDto> {
+    return StockLevelDto.from(await this.service.setVariantWarehouse(principal, body));
   }
 
   @Post("reservations")

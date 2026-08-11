@@ -70,6 +70,12 @@ export interface SetReorderPointInput {
   readonly reorderPoint: number;
 }
 
+/** Assign a variant to a warehouse with no quantity claim (see {@link InventoryRepositoryPort.setVariantWarehouse}). */
+export interface SetVariantWarehouseInput {
+  readonly warehouseId: string;
+  readonly variantId: string;
+}
+
 /**
  * Port for reading and moving inventory (EPIC-9). The Prisma adapter binds the
  * tenant under RLS for every unit of work (the app-layer half of the two-layer
@@ -110,6 +116,16 @@ export interface InventoryRepositoryPort {
 
   /** Upsert the low-stock threshold for a level. `null` when a reference is unknown. */
   setReorderPoint(actor: WriteActor, data: SetReorderPointInput): Promise<StockLevelView>;
+
+  /**
+   * Assign a variant to a warehouse without moving any quantity: ensures a
+   * (zero-value, if new) stock row exists for (warehouseId, variantId), and
+   * drops the variant's other stock rows that are already at zero on-hand and
+   * zero committed — so a plain "set the warehouse" doesn't leave stale empty
+   * rows behind in the old warehouse. Rows that still hold real quantity or
+   * committed units are left untouched; move those with `transfer` first.
+   */
+  setVariantWarehouse(actor: WriteActor, data: SetVariantWarehouseInput): Promise<StockLevelView>;
 
   // ---- Atomic stock writes -------------------------------------------------
 

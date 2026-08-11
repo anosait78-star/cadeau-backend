@@ -23,6 +23,7 @@ export interface RawProductListQuery {
   readonly active?: string;
   readonly categoryId?: string;
   readonly hasStock?: string;
+  readonly warehouseId?: string;
 }
 
 /** A normalized, validated list query. */
@@ -36,6 +37,8 @@ export interface ParsedProductListQuery {
   readonly categoryId?: string;
   /** When true, only products with at least one variant holding available stock (EPIC-9). */
   readonly hasStock: boolean;
+  /** When set, only products with a variant holding a stock row in this warehouse. */
+  readonly warehouseId?: string;
 }
 
 const SORT_WHITELIST: readonly ProductSortField[] = ["name", "createdAt"];
@@ -90,6 +93,10 @@ export function parseProductListQuery(raw: RawProductListQuery): {
     errors.push({ field: "categoryId", messages: ["categoryId must be a uuid"] });
   }
 
+  if (raw.warehouseId !== undefined && !UUID_RE.test(raw.warehouseId)) {
+    errors.push({ field: "warehouseId", messages: ["warehouseId must be a uuid"] });
+  }
+
   let hasStock = false;
   if (raw.hasStock === "true") hasStock = true;
   else if (raw.hasStock !== undefined && raw.hasStock !== "false") {
@@ -108,6 +115,7 @@ export function parseProductListQuery(raw: RawProductListQuery): {
     active,
     ...(raw.categoryId !== undefined ? { categoryId: raw.categoryId } : {}),
     hasStock,
+    ...(raw.warehouseId !== undefined ? { warehouseId: raw.warehouseId } : {}),
   };
   return { query, errors };
 }

@@ -175,6 +175,20 @@ export function createAdjustment(body: {
   return apiFetch<Adjustment>("/inventory/adjustments", { method: "POST", body });
 }
 
+/**
+ * `PUT /v1/inventory/variant-warehouse` — assign a variant to a warehouse
+ * with no quantity claim (creates a zero-value row if none exists there yet,
+ * and drops the variant's other already-empty rows). If the variant still
+ * holds real stock in a different warehouse, move it with {@link createTransfer}
+ * first — this call leaves rows with on-hand or committed units untouched.
+ */
+export function setVariantWarehouse(body: {
+  warehouseId: string;
+  variantId: string;
+}): Promise<StockLevel> {
+  return apiFetch<StockLevel>("/inventory/variant-warehouse", { method: "PUT", body });
+}
+
 /** `POST /v1/inventory/transfers` — move stock between two warehouses. */
 export function createTransfer(body: {
   fromWarehouseId: string;

@@ -13,6 +13,7 @@ import {
   type InventoryRepositoryPort,
   type ReserveInput,
   type SetReorderPointInput,
+  type SetVariantWarehouseInput,
   type TransferInput,
   type UpdateWarehouseInput,
 } from "../domain/inventory-repository.port";
@@ -163,6 +164,26 @@ export class InventoryService {
     }
     await this.record(companyId, principal.userId, {
       action: "inventory.reorder_point_set",
+      entityType: "inventory_stock",
+      entityId: level.id,
+      changes: level,
+    });
+    return level;
+  }
+
+  async setVariantWarehouse(
+    principal: RequestPrincipal,
+    data: SetVariantWarehouseInput,
+  ): Promise<StockLevelView> {
+    const companyId = this.requireTenant(principal);
+    let level: StockLevelView;
+    try {
+      level = await this.repo.setVariantWarehouse({ companyId, actorId: principal.userId }, data);
+    } catch (error) {
+      throw this.mapError(error);
+    }
+    await this.record(companyId, principal.userId, {
+      action: "inventory.variant_warehouse_set",
       entityType: "inventory_stock",
       entityId: level.id,
       changes: level,

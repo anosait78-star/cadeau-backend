@@ -18,6 +18,7 @@ import type {
   InventoryRepositoryPort,
   ReserveInput,
   SetReorderPointInput,
+  SetVariantWarehouseInput,
   TransferInput,
   UpdateWarehouseInput,
   WriteActor,
@@ -282,6 +283,27 @@ export class InventoryRepository implements InventoryRepositoryPort {
         data: stampForUpdate(actor, {
           reorderPoint: BigInt(data.reorderPoint),
         }) as Prisma.InventoryStockUncheckedUpdateManyInput,
+      });
+      return this.readLevel(tx, level.id);
+    });
+  }
+
+  async setVariantWarehouse(
+    actor: WriteActor,
+    data: SetVariantWarehouseInput,
+  ): Promise<StockLevelView> {
+    return this.tenantTx(actor.companyId, async (tx) => {
+      await this.assertWarehouse(tx, actor.companyId, data.warehouseId);
+      await this.assertVariant(tx, actor.companyId, data.variantId);
+      const level = await this.ensureLevel(tx, actor, data.warehouseId, data.variantId);
+      await tx.inventoryStock.deleteMany({
+        where: {
+          companyId: actor.companyId,
+          variantId: data.variantId,
+          warehouseId: { not: data.warehouseId },
+          onHand: BigInt(0),
+          committed: BigInt(0),
+        },
       });
       return this.readLevel(tx, level.id);
     });

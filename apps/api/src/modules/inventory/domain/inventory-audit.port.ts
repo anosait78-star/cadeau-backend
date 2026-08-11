@@ -10,7 +10,8 @@ export interface InventoryAuditRecord {
     | "inventory.released"
     | "inventory.transferred"
     | "inventory.adjusted"
-    | "inventory.reorder_point_set";
+    | "inventory.reorder_point_set"
+    | "inventory.variant_warehouse_set";
   /** The kind of row the change landed on. */
   readonly entityType:
     | "warehouse"

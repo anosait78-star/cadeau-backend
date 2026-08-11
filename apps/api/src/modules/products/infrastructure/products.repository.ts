@@ -371,9 +371,15 @@ export class ProductsRepository implements ProductsRepositoryPort {
     const where: Prisma.ProductWhereInput = { companyId };
     if (query.active !== "all") where.isActive = query.active;
     if (query.categoryId !== undefined) where.categoryId = query.categoryId;
-    // EPIC-9: "in stock" means some variant has a level with units left to sell.
-    if (query.hasStock) {
-      where.variants = { some: { stock: { some: { available: { gt: 0 } } } } };
+    // EPIC-9: "in stock" means some variant has a level with units left to sell;
+    // warehouseId narrows to a variant holding a stock row in that warehouse.
+    // Both conditions are combined into the same stock-row filter so a
+    // (warehouseId + hasStock) pair must be satisfied by one and the same row.
+    if (query.hasStock || query.warehouseId !== undefined) {
+      const stockWhere: Prisma.InventoryStockWhereInput = {};
+      if (query.hasStock) stockWhere.available = { gt: 0 };
+      if (query.warehouseId !== undefined) stockWhere.warehouseId = query.warehouseId;
+      where.variants = { some: { stock: { some: stockWhere } } };
     }
     if (query.q !== undefined) {
       where.OR = [
