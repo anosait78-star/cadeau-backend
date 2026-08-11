@@ -28,8 +28,10 @@
  * skipped.
  *
  * Usage (on the server, from the cadeau-backend repo root):
- *   node scripts/backfill-vendor-warehouses.mjs <companyId>
+ *   node apps/api/scripts/backfill-vendor-warehouses.mjs <companyId>
  */
+import console from "node:console";
+import process from "node:process";
 import { PrismaClient } from "@cadeau/database";
 
 async function main() {
