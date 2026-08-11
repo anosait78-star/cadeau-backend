@@ -114,8 +114,8 @@ function FinanceScreen(): ReactNode {
     let cancelled = false;
     void (async () => {
       try {
-        const page = await listWarehouses({ active: true });
-        if (!cancelled) setWarehouses(page.data.map((w) => ({ id: w.id, name: w.name })));
+        const warehouses = await listWarehouses({ active: true });
+        if (!cancelled) setWarehouses(warehouses.map((w) => ({ id: w.id, name: w.name })));
       } catch {
         if (!cancelled) setWarehouses([]);
       }

@@ -112,7 +112,7 @@ function StorefrontConnectionsScreen(): ReactNode {
 
   useEffect(() => {
     void listWarehouses({ active: true })
-      .then((page) => setWarehouses(page.data))
+      .then((warehouses) => setWarehouses(warehouses))
       .catch(() => setWarehouses([]));
   }, []);
 
