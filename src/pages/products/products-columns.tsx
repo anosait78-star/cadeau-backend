@@ -55,6 +55,16 @@ export function buildProductColumns({
       render: (row) => <span>{(row.unitId && unitNames.get(row.unitId)) || DASH}</span>,
     },
     {
+      key: "warehouse",
+      header: t("products.field.warehouse"),
+      render: (row) =>
+        row.warehouseNames.length > 0 ? (
+          <span>{row.warehouseNames.join("، ")}</span>
+        ) : (
+          <span className="text-muted-foreground">{t("products.field.warehouseNone")}</span>
+        ),
+    },
+    {
       key: "status",
       header: t("products.status.title"),
       render: (row) => (

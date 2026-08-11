@@ -335,6 +335,14 @@ function ProductCard({
             <dt className="text-xs text-muted-foreground">{t("products.field.unit")}</dt>
             <dd>{(product.unitId && unitNames.get(product.unitId)) || dash}</dd>
           </div>
+          <div className="flex flex-col">
+            <dt className="text-xs text-muted-foreground">{t("products.field.warehouse")}</dt>
+            <dd>
+              {product.warehouseNames.length > 0
+                ? product.warehouseNames.join("، ")
+                : t("products.field.warehouseNone")}
+            </dd>
+          </div>
           <div className="col-span-2 flex flex-col sm:col-span-3">
             <dt className="text-xs text-muted-foreground">{t("products.field.description")}</dt>
             <dd>{product.description ?? dash}</dd>
