@@ -239,10 +239,9 @@ describe("WooCommerceAdapter.parseProduct", () => {
     expect(adapter.parseProduct(baseProduct({ stock_quantity: 7 })).stockQuantity).toBe(7);
   });
 
-  it("throws a clear, reprocessable error when stock is not managed (manage_stock=false)", () => {
+  it("leaves stockQuantity undefined when stock is not managed (manage_stock=false) — the product still syncs", () => {
     const product = baseProduct({ manage_stock: false, stock_quantity: null });
-    expect(() => adapter.parseProduct(product)).toThrow(StorefrontPayloadMappingError);
-    expect(() => adapter.parseProduct(product)).toThrow(/manage_stock/);
+    expect(adapter.parseProduct(product).stockQuantity).toBeUndefined();
   });
 
   it("throws when stock is managed but stock_quantity is null/malformed", () => {

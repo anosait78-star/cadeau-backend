@@ -271,7 +271,12 @@ export class StorefrontIngestionService {
       variantId = variant.id;
     }
 
-    await this.syncStock(principal, connection, variantId, normalized);
+    // No absolute figure (e.g. WooCommerce manage_stock=false) → skip the
+    // stock-sync step entirely rather than guess; the catalog fields above
+    // already synced.
+    if (normalized.stockQuantity !== undefined) {
+      await this.syncStock(principal, connection, variantId, normalized.stockQuantity, normalized);
+    }
     return productId;
   }
 
@@ -280,6 +285,7 @@ export class StorefrontIngestionService {
     principal: RequestPrincipal,
     connection: ResolvedStorefrontConnection,
     variantId: string,
+    stockQuantity: number,
     normalized: NormalizedProduct,
   ): Promise<void> {
     const warehouseId = await this.resolveWarehouseId(
@@ -293,7 +299,7 @@ export class StorefrontIngestionService {
       limit: "1",
     });
     const onHand = page.data[0]?.onHand ?? 0;
-    const delta = normalized.stockQuantity - onHand;
+    const delta = stockQuantity - onHand;
     if (delta === 0) return;
     await this.inventory.adjust(principal, {
       warehouseId,

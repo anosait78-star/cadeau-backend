@@ -50,8 +50,14 @@ export interface NormalizedProduct {
   readonly imageUrl?: string | null;
   /** Integer minor units — maps to `ProductVariant.sellingPriceMinor` (§8). */
   readonly priceMinor: number;
-  /** Absolute on-hand quantity, applied via an inventory adjustment (D5). */
-  readonly stockQuantity: number;
+  /**
+   * Absolute on-hand quantity, applied via an inventory adjustment (D5).
+   * `undefined` when the platform has no absolute figure to give (e.g.
+   * WooCommerce `manage_stock: false`) — the catalog fields (name, price,
+   * image, ...) still sync; only the stock-sync step is skipped, leaving
+   * the CRM's own inventory untouched rather than guessing.
+   */
+  readonly stockQuantity?: number;
   readonly active?: boolean;
   /**
    * The marketplace vendor that owns this product, as the platform's own id

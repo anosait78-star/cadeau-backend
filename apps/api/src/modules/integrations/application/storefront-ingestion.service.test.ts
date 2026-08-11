@@ -452,6 +452,24 @@ describe("StorefrontIngestionService.ingestProduct", () => {
     );
   });
 
+  it("still creates the product+variant but skips the stock-sync step when stockQuantity is undefined (manage_stock=false)", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+
+    const { stockQuantity: _omit, ...payloadWithoutStock } = PRODUCT_PAYLOAD;
+    const result = await h.service.ingestProduct(CONNECTION, payloadWithoutStock);
+
+    expect(result).toEqual({ entityId: "product-1", status: "created" });
+    expect(h.products.create).toHaveBeenCalledWith(expect.anything(), { name: "Mug" });
+    expect(h.inventory.listStock).not.toHaveBeenCalled();
+    expect(h.inventory.adjust).not.toHaveBeenCalled();
+  });
+
   it("updates an existing product+variant when the sku already resolves, and skips the adjustment when stock already matches", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },

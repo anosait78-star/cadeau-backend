@@ -92,7 +92,7 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       ...(description !== undefined && description.length > 0 ? { description } : {}),
       sku,
       priceMinor,
-      stockQuantity,
+      ...(stockQuantity !== undefined ? { stockQuantity } : {}),
       active,
       ...(vendorExternalId !== undefined ? { vendorExternalId } : {}),
       ...(imageUrl !== undefined ? { imageUrl } : {}),
@@ -249,13 +249,16 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     return this.toMinorUnits(source, `WooCommerce product ${externalId} price`);
   }
 
-  private parseStockQuantity(product: JsonRecord, externalId: string): number {
+  /**
+   * `undefined` — never a thrown error — when WooCommerce reports
+   * `manage_stock: false`: there is no absolute on-hand figure to give, but
+   * that alone doesn't make the rest of the product unsyncable (name,
+   * price, image, ...). `StorefrontIngestionService` skips the stock-sync
+   * step entirely in that case rather than guessing (D5).
+   */
+  private parseStockQuantity(product: JsonRecord, externalId: string): number | undefined {
     if (product["manage_stock"] === false) {
-      throw new StorefrontPayloadMappingError(
-        `WooCommerce product ${externalId}: stock is not managed on this product ` +
-          "(manage_stock=false) — there is no absolute on-hand figure to sync. Enable stock " +
-          "management on this WooCommerce product, or manage its inventory manually in the CRM.",
-      );
+      return undefined;
     }
     const quantity = product["stock_quantity"];
     if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 0) {
