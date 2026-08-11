@@ -14,6 +14,7 @@ import {
   type OrdersIngestionPort,
 } from "../../../shared/contracts/orders-ingestion.port";
 import {
+  type CatalogProduct,
   PRODUCTS_CATALOG,
   type ProductsCatalogPort,
 } from "../../../shared/contracts/products-catalog.port";
@@ -256,14 +257,10 @@ export class StorefrontIngestionService {
         ...(normalized.active === undefined ? {} : { active: normalized.active }),
       });
     } else {
-      const product = await this.products.create(principal, {
-        name: normalized.name,
-        ...(normalized.description === undefined ? {} : { description: normalized.description }),
-        ...(normalized.imageUrl === undefined ? {} : { imageUrl: normalized.imageUrl }),
-      });
+      const { product, name } = await this.createProductWithUniqueName(principal, normalized);
       productId = product.id;
       const variant = await this.products.createVariant(principal, productId, {
-        name: normalized.name,
+        name,
         sku: normalized.sku,
         ...(normalized.barcode === undefined ? {} : { barcode: normalized.barcode }),
         sellingPriceMinor: normalized.priceMinor,
@@ -278,6 +275,45 @@ export class StorefrontIngestionService {
       await this.syncStock(principal, connection, variantId, normalized.stockQuantity, normalized);
     }
     return productId;
+  }
+
+  /**
+   * `Product.name` is unique per company (D8), but a storefront's catalog has
+   * no such rule — WooCommerce sellers commonly list colour/size variants as
+   * separate products and leave the title identical. The first one syncs
+   * fine; every later one collides. Rather than let the whole product fail
+   * to sync (or relax the uniqueness constraint the rest of the CRM relies
+   * on), retry once with the storefront's own external id appended — enough
+   * to disambiguate without the user ever seeing a failed sync for this.
+   */
+  private async createProductWithUniqueName(
+    principal: RequestPrincipal,
+    normalized: NormalizedProduct,
+  ): Promise<{ product: CatalogProduct; name: string }> {
+    const input = {
+      ...(normalized.description === undefined ? {} : { description: normalized.description }),
+      ...(normalized.imageUrl === undefined ? {} : { imageUrl: normalized.imageUrl }),
+    };
+    try {
+      const product = await this.products.create(principal, { ...input, name: normalized.name });
+      return { product, name: normalized.name };
+    } catch (error) {
+      if (!this.isNameConflict(error)) throw error;
+      const name = `${normalized.name} (${normalized.externalId})`;
+      const product = await this.products.create(principal, { ...input, name });
+      return { product, name };
+    }
+  }
+
+  private isNameConflict(error: unknown): boolean {
+    if (!(error instanceof AppException)) return false;
+    const response = error.getResponse();
+    if (typeof response !== "object" || response === null || !("code" in response)) return false;
+    if ((response as { code?: unknown }).code !== "CONFLICT") return false;
+    const details = (response as { details?: unknown }).details;
+    return (
+      Array.isArray(details) && details.some((d) => (d as { field?: unknown })?.field === "name")
+    );
   }
 
   /** Absolute stock quantity → a signed adjustment via the existing atomic path (D5). */

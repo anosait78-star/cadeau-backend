@@ -431,6 +431,51 @@ describe("StorefrontIngestionService.ingestProduct", () => {
     );
   });
 
+  it("retries product creation with the external id appended when the name collides with an existing product", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create
+      .mockRejectedValueOnce(
+        AppErrors.conflict("A record with this name already exists.", [
+          { field: "name", messages: ["A record with this name already exists."] },
+        ]),
+      )
+      .mockResolvedValueOnce({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.inventory.listStock.mockResolvedValue(emptyPage());
+
+    const result = await h.service.ingestProduct(CONNECTION, PRODUCT_PAYLOAD);
+
+    expect(result).toEqual({ entityId: "product-1", status: "created" });
+    expect(h.products.create).toHaveBeenCalledTimes(2);
+    expect(h.products.create).toHaveBeenNthCalledWith(1, expect.anything(), { name: "Mug" });
+    expect(h.products.create).toHaveBeenNthCalledWith(2, expect.anything(), {
+      name: "Mug (ext-product-1)",
+    });
+    expect(h.products.createVariant).toHaveBeenCalledWith(
+      expect.anything(),
+      "product-1",
+      expect.objectContaining({ name: "Mug (ext-product-1)", sku: "SKU-1" }),
+    );
+  });
+
+  it("does not retry when products.create fails for a reason other than a name conflict", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockRejectedValue(AppErrors.badRequest("Something else went wrong."));
+
+    await expect(h.service.ingestProduct(CONNECTION, PRODUCT_PAYLOAD)).rejects.toThrow(
+      "Something else went wrong.",
+    );
+    expect(h.products.create).toHaveBeenCalledTimes(1);
+  });
+
   it("passes imageUrl through to products.create when the payload carries one", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },
