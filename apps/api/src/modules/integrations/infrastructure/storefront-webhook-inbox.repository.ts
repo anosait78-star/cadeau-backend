@@ -55,9 +55,9 @@ export class StorefrontWebhookInboxRepository implements StorefrontWebhookInboxP
     externalId: string,
     payload: unknown,
   ): Promise<EnqueueResult> {
-    return this.tenantTx(companyId, async (tx) => {
-      try {
-        const row = await tx.storefrontWebhookEvent.create({
+    try {
+      const row = await this.tenantTx(companyId, (tx) =>
+        tx.storefrontWebhookEvent.create({
           data: {
             companyId,
             connectionId,
@@ -69,19 +69,28 @@ export class StorefrontWebhookInboxRepository implements StorefrontWebhookInboxP
             receivedAt: new Date(),
           } as Prisma.StorefrontWebhookEventUncheckedCreateInput,
           select: EVENT_SELECT,
-        });
-        return { event: this.toView(row), enqueued: true };
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-          const existing = await tx.storefrontWebhookEvent.findFirst({
+        }),
+      );
+      return { event: this.toView(row), enqueued: true };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        // Postgres aborts a transaction on the first error inside it — every
+        // later statement on that same `tx` fails with 25P02 ("current
+        // transaction is aborted"), even a harmless read. The duplicate this
+        // catch is meant to recover from is common (a real duplicate storefront
+        // delivery, or two of a product's webhooks racing each other), so this
+        // lookup runs in a fresh transaction, never the one the create() just
+        // poisoned.
+        const existing = await this.tenantTx(companyId, (tx) =>
+          tx.storefrontWebhookEvent.findFirst({
             where: { connectionId, eventType, externalId },
             select: EVENT_SELECT,
-          });
-          if (existing !== null) return { event: this.toView(existing), enqueued: false };
-        }
-        throw error;
+          }),
+        );
+        if (existing !== null) return { event: this.toView(existing), enqueued: false };
       }
-    });
+      throw error;
+    }
   }
 
   async markProcessed(companyId: string, id: string, internalEntityId: string): Promise<void> {
