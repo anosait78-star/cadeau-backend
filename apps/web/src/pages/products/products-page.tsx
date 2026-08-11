@@ -497,6 +497,7 @@ function ProductForm({
   const [description, setDescription] = useState(product?.description ?? "");
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
   const [unitId, setUnitId] = useState(product?.unitId ?? "");
+  const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? "");
   const [allowOversell, setAllowOversell] = useState(product?.allowOversell ?? false);
   const [submitting, setSubmitting] = useState(false);
   const editing = product !== undefined;
@@ -512,6 +513,11 @@ function ProductForm({
           : {}),
       ...(categoryId.length > 0 ? { categoryId } : editing ? { categoryId: null } : {}),
       ...(unitId.length > 0 ? { unitId } : editing ? { unitId: null } : {}),
+      ...(imageUrl.trim().length > 0
+        ? { imageUrl: imageUrl.trim() }
+        : editing
+          ? { imageUrl: null }
+          : {}),
       allowOversell,
     };
     setSubmitting(true);
@@ -572,6 +578,33 @@ function ProductForm({
               onChange={(e) => setDescription(e.target.value)}
               aria-label={t("products.field.description")}
             />
+          </FormField>
+          <FormField
+            label={t("products.field.image")}
+            htmlFor="product-image"
+            optional
+            hint={t("products.field.imageHint")}
+            className="sm:col-span-2"
+          >
+            <div className="flex items-center gap-3">
+              <Input
+                id="product-image"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                aria-label={t("products.field.image")}
+                className="flex-1"
+              />
+              {imageUrl.trim().length > 0 ? (
+                <img
+                  src={imageUrl.trim()}
+                  alt=""
+                  className="h-12 w-12 shrink-0 rounded-md border border-border object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              ) : null}
+            </div>
           </FormField>
         </div>
         <label className="flex items-center gap-2 text-sm">

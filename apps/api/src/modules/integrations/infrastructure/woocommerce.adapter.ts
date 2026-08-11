@@ -84,6 +84,7 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     const stockQuantity = this.parseStockQuantity(product, externalId);
     const active = product["status"] === "publish";
     const vendorExternalId = this.parseVendorExternalId(product);
+    const imageUrl = this.parseImageUrl(product);
 
     return {
       externalId,
@@ -94,7 +95,23 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       stockQuantity,
       active,
       ...(vendorExternalId !== undefined ? { vendorExternalId } : {}),
+      ...(imageUrl !== undefined ? { imageUrl } : {}),
     };
+  }
+
+  /**
+   * WooCommerce's product `images[]` is ordered — the first entry is the
+   * product's main/featured image (`/wc/v3/products` response shape).
+   * `undefined` when the product has none; never fatal (storefront-sync
+   * §images: a missing image is not a mapping error).
+   */
+  private parseImageUrl(product: JsonRecord): string | undefined {
+    const images = product["images"];
+    if (!Array.isArray(images) || images.length === 0) return undefined;
+    const first = images[0];
+    if (typeof first !== "object" || first === null) return undefined;
+    const src = (first as JsonRecord)["src"];
+    return typeof src === "string" && src.trim().length > 0 ? src.trim() : undefined;
   }
 
   // ---- order helpers ---------------------------------------------------

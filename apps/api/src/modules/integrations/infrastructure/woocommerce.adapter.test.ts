@@ -282,4 +282,18 @@ describe("WooCommerceAdapter.parseProduct", () => {
   it("leaves vendorExternalId undefined when the product has no _vendor_id meta", () => {
     expect(adapter.parseProduct(baseProduct()).vendorExternalId).toBeUndefined();
   });
+
+  it("extracts imageUrl from the first entry of images[]", () => {
+    const product = baseProduct({
+      images: [{ id: 1, src: "https://cadeauegypt.com/wp-content/uploads/mug.jpg" }],
+    });
+    expect(adapter.parseProduct(product).imageUrl).toBe(
+      "https://cadeauegypt.com/wp-content/uploads/mug.jpg",
+    );
+  });
+
+  it("leaves imageUrl undefined when images is empty or missing", () => {
+    expect(adapter.parseProduct(baseProduct({ images: [] })).imageUrl).toBeUndefined();
+    expect(adapter.parseProduct(baseProduct()).imageUrl).toBeUndefined();
+  });
 });

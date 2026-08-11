@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   IsUUID,
   Min,
   MaxLength,
@@ -46,6 +47,12 @@ export class CreateProductDto {
   @IsUUID()
   unitId?: string | null;
 
+  @ApiPropertyOptional({ nullable: true, description: "Display image URL." })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  imageUrl?: string | null;
+
   @ApiPropertyOptional({
     description: "Oversell policy (EPIC-9): allow reservations beyond available stock.",
   })
@@ -78,6 +85,12 @@ export class UpdateProductDto {
   @IsOptional()
   @IsUUID()
   unitId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: "Display image URL." })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
+  imageUrl?: string | null;
 
   @ApiPropertyOptional({ description: "Oversell policy (EPIC-9)." })
   @IsOptional()
@@ -207,6 +220,9 @@ export class ProductDto {
   @ApiProperty({ format: "uuid", nullable: true })
   unitId!: string | null;
 
+  @ApiProperty({ nullable: true, description: "Display image URL." })
+  imageUrl!: string | null;
+
   @ApiProperty({ description: "Oversell policy (EPIC-9); false means stock-bound." })
   allowOversell!: boolean;
 
@@ -226,6 +242,7 @@ export class ProductDto {
     dto.description = view.description;
     dto.categoryId = view.categoryId;
     dto.unitId = view.unitId;
+    dto.imageUrl = view.imageUrl;
     dto.allowOversell = view.allowOversell;
     dto.active = view.active;
     dto.createdAt = view.createdAt;
@@ -294,6 +311,7 @@ export class ProductDetailDto extends ProductDto {
     dto.description = view.description;
     dto.categoryId = view.categoryId;
     dto.unitId = view.unitId;
+    dto.imageUrl = view.imageUrl;
     dto.allowOversell = view.allowOversell;
     dto.active = view.active;
     dto.createdAt = view.createdAt;

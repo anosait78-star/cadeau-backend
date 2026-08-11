@@ -48,6 +48,7 @@ const PRODUCT_SELECT = {
   description: true,
   categoryId: true,
   unitId: true,
+  imageUrl: true,
   allowOversell: true,
   isActive: true,
   createdAt: true,
@@ -262,6 +263,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
       out["description"] = data.description;
     if ("categoryId" in data && data.categoryId !== undefined) out["categoryId"] = data.categoryId;
     if ("unitId" in data && data.unitId !== undefined) out["unitId"] = data.unitId;
+    if ("imageUrl" in data && data.imageUrl !== undefined) out["imageUrl"] = data.imageUrl;
     if ("allowOversell" in data && data.allowOversell !== undefined)
       out["allowOversell"] = data.allowOversell;
     return out;
@@ -273,6 +275,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
     description: string | null;
     categoryId: string | null;
     unitId: string | null;
+    imageUrl: string | null;
     allowOversell: boolean;
     isActive: boolean;
     createdAt: Date;
@@ -284,6 +287,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
       description: row.description,
       categoryId: row.categoryId,
       unitId: row.unitId,
+      imageUrl: row.imageUrl,
       allowOversell: row.allowOversell,
       active: row.isActive,
       createdAt: row.createdAt.toISOString(),

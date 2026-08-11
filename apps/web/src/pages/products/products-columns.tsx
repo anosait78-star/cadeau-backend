@@ -20,6 +20,24 @@ export function buildProductColumns({
 }): Column<Product>[] {
   return [
     {
+      key: "image",
+      header: t("products.field.image"),
+      render: (row) =>
+        row.imageUrl !== null ? (
+          <img
+            src={row.imageUrl}
+            alt=""
+            className="h-9 w-9 rounded-md border border-border object-cover"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+        ) : (
+          <span className="text-muted-foreground">{DASH}</span>
+        ),
+      width: "4rem",
+    },
+    {
       key: "name",
       header: t("products.field.name"),
       render: (row) => <span className="font-medium">{row.name}</span>,

@@ -14,6 +14,7 @@ export interface CreateProductInput {
   readonly description?: string | null;
   readonly categoryId?: string | null;
   readonly unitId?: string | null;
+  readonly imageUrl?: string | null;
   /** Oversell policy (EPIC-9); defaults to `false`. */
   readonly allowOversell?: boolean;
 }
@@ -24,6 +25,7 @@ export interface UpdateProductInput {
   readonly description?: string | null;
   readonly categoryId?: string | null;
   readonly unitId?: string | null;
+  readonly imageUrl?: string | null;
   readonly allowOversell?: boolean;
 }
 

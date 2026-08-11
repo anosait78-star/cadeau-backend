@@ -246,6 +246,7 @@ export class StorefrontIngestionService {
       await this.products.update(principal, productId, {
         name: normalized.name,
         ...(normalized.description === undefined ? {} : { description: normalized.description }),
+        ...(normalized.imageUrl === undefined ? {} : { imageUrl: normalized.imageUrl }),
       });
       await this.products.updateVariant(principal, productId, variantId, {
         name: normalized.name,
@@ -258,6 +259,7 @@ export class StorefrontIngestionService {
       const product = await this.products.create(principal, {
         name: normalized.name,
         ...(normalized.description === undefined ? {} : { description: normalized.description }),
+        ...(normalized.imageUrl === undefined ? {} : { imageUrl: normalized.imageUrl }),
       });
       productId = product.id;
       const variant = await this.products.createVariant(principal, productId, {

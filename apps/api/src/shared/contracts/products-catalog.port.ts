@@ -14,6 +14,7 @@ export interface CatalogVariant {
 export interface CatalogProductInput {
   readonly name: string;
   readonly description?: string | null;
+  readonly imageUrl?: string | null;
 }
 
 export interface CatalogVariantInput {

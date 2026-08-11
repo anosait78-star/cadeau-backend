@@ -431,6 +431,27 @@ describe("StorefrontIngestionService.ingestProduct", () => {
     );
   });
 
+  it("passes imageUrl through to products.create when the payload carries one", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-1" });
+    h.products.createVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.inventory.listStock.mockResolvedValue(emptyPage());
+
+    await h.service.ingestProduct(CONNECTION, {
+      ...PRODUCT_PAYLOAD,
+      imageUrl: "https://cadeauegypt.com/wp-content/uploads/mug.jpg",
+    });
+
+    expect(h.products.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ imageUrl: "https://cadeauegypt.com/wp-content/uploads/mug.jpg" }),
+    );
+  });
+
   it("updates an existing product+variant when the sku already resolves, and skips the adjustment when stock already matches", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },

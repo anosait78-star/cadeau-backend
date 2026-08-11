@@ -46,6 +46,8 @@ export interface NormalizedProduct {
   readonly description?: string | null;
   readonly sku: string;
   readonly barcode?: string | null;
+  /** A display image URL, when the platform's payload carries one. */
+  readonly imageUrl?: string | null;
   /** Integer minor units — maps to `ProductVariant.sellingPriceMinor` (§8). */
   readonly priceMinor: number;
   /** Absolute on-hand quantity, applied via an inventory adjustment (D5). */
