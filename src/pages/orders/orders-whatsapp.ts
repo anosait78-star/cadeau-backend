@@ -39,7 +39,12 @@ function isValidE164(phone: string): boolean {
  *
  * The tab is opened synchronously (before the async phone lookup) so browsers
  * don't treat the eventual `wa.me` navigation as a blocked popup; it's
- * redirected once the customer's phone is known.
+ * redirected once the customer's phone is known. Deliberately opened
+ * *without* `noopener` — most modern browsers (Firefox 96+ among them) return
+ * `null` from `window.open` when `noopener` is set, which would leave us with
+ * no handle to redirect: the user would see an empty blank tab instead of
+ * WhatsApp, and the actual `wa.me` navigation (attempted after the `await`,
+ * outside the click's call stack) would get silently popup-blocked.
  */
 export async function openWhatsappForOrder(
   order: Pick<OrderListItem, "customerId" | "customerName" | "orderNumber">,
@@ -48,7 +53,7 @@ export async function openWhatsappForOrder(
   t: Translate,
   onError: (message: string) => void,
 ): Promise<void> {
-  const tab = window.open("", "_blank", "noopener,noreferrer");
+  const tab = window.open("", "_blank");
   try {
     const customer = await getCustomer(order.customerId);
     if (!isValidE164(customer.phone)) {
@@ -66,7 +71,10 @@ export async function openWhatsappForOrder(
     if (tab !== null) {
       tab.location.href = url;
     } else {
-      window.open(url, "_blank", "noopener,noreferrer");
+      // Popup was blocked outright (e.g. browser setting) — try once more;
+      // this one is a same-tick call so it isn't blocked for the "outside the
+      // gesture" reason, only if popups are disabled entirely.
+      window.open(url, "_blank");
     }
   } catch {
     tab?.close();
