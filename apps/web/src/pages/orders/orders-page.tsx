@@ -4,7 +4,6 @@ import {
   CalendarDays,
   Clock,
   Download,
-  MessageCircle,
   MoreHorizontal,
   Plus,
   Printer,
@@ -23,12 +22,14 @@ import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { useDataGridSelection } from "@/components/data-grid/use-data-grid-selection";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import type { Translate } from "@/components/i18n/translate-type";
+import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
+import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -123,6 +124,10 @@ function OrdersScreen(): ReactNode {
   // The floating "send a WhatsApp message?" prompt, offered right after a
   // single order's status lands on one of WHATSAPP_STATUSES.
   const [waPrompt, setWaPrompt] = useState<OrderListItem | null>(null);
+  // The order id whose WhatsApp send is currently in flight (the customer
+  // phone lookup) — drives the spinner + disables that one button so a slow
+  // network can't be double-clicked into two tabs.
+  const [sendingWhatsappId, setSendingWhatsappId] = useState<string | null>(null);
 
   const selection = useDataGridSelection();
 
@@ -295,6 +300,19 @@ function OrdersScreen(): ReactNode {
   const onExport = (): void => {
     if (state.kind !== "ready") return;
     downloadCsv(ordersToCsv(state.items), `orders-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
+  const sendWhatsapp = async (
+    order: Pick<OrderListItem, "id" | "customerId" | "customerName" | "orderNumber">,
+    orderStatus: WhatsappStatus,
+  ): Promise<void> => {
+    if (sendingWhatsappId !== null) return; // one send in flight at a time
+    setSendingWhatsappId(order.id);
+    try {
+      await openWhatsappForOrder(order, orderStatus, companyName, t, flash);
+    } finally {
+      setSendingWhatsappId(null);
+    }
   };
 
   const detailData = useOrderDetailData(selectedOrder?.id ?? null);
@@ -523,19 +541,17 @@ function OrdersScreen(): ReactNode {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
+                      className="h-8 w-8 rounded-full bg-[#25D366] text-white hover:bg-[#1ebe57] hover:text-white"
+                      title={t("orders.whatsapp.rowButtonLabel")}
                       aria-label={t("orders.whatsapp.rowButtonLabel")}
-                      onClick={() =>
-                        void openWhatsappForOrder(
-                          row,
-                          row.status as WhatsappStatus,
-                          companyName,
-                          t,
-                          flash,
-                        )
-                      }
+                      disabled={sendingWhatsappId === row.id}
+                      onClick={() => void sendWhatsapp(row, row.status as WhatsappStatus)}
                     >
-                      <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                      {sendingWhatsappId === row.id ? (
+                        <Spinner className="h-4 w-4 text-white" />
+                      ) : (
+                        <WhatsAppIcon className="h-4 w-4" />
+                      )}
                     </Button>
                   ) : null}
                   <OrderRowActions
@@ -564,9 +580,9 @@ function OrdersScreen(): ReactNode {
                   order={order}
                   t={t}
                   locale={locale}
-                  companyName={companyName}
+                  sendingWhatsapp={sendingWhatsappId === order.id}
                   onOpenDetail={setSelectedOrder}
-                  onWhatsappError={flash}
+                  onSendWhatsapp={() => void sendWhatsapp(order, order.status as WhatsappStatus)}
                 />
               )}
               emptyTitle={t("orders.empty")}
@@ -624,15 +640,11 @@ function OrdersScreen(): ReactNode {
         <WhatsappPromptCard
           order={waPrompt}
           t={t}
+          sending={sendingWhatsappId === waPrompt.id}
           onSend={() => {
-            void openWhatsappForOrder(
-              waPrompt,
-              waPrompt.status as WhatsappStatus,
-              companyName,
-              t,
-              flash,
+            void sendWhatsapp(waPrompt, waPrompt.status as WhatsappStatus).then(() =>
+              setWaPrompt(null),
             );
-            setWaPrompt(null);
           }}
           onDismiss={() => setWaPrompt(null)}
         />
@@ -651,11 +663,13 @@ function OrdersScreen(): ReactNode {
 function WhatsappPromptCard({
   order,
   t,
+  sending,
   onSend,
   onDismiss,
 }: {
   order: OrderListItem;
   t: Translate;
+  sending: boolean;
   onSend: () => void;
   onDismiss: () => void;
 }): ReactNode {
@@ -666,19 +680,26 @@ function WhatsappPromptCard({
       className="fixed bottom-4 start-4 end-4 z-50 mx-auto flex max-w-sm flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-lg sm:end-4 sm:start-auto"
     >
       <div className="flex items-start gap-2">
-        <MessageCircle
-          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
+        <WhatsAppIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#25D366]" />
         <p className="text-sm font-medium">
           #{order.orderNumber} · {t("orders.whatsapp.promptTitle")}
         </p>
       </div>
       <div className="flex gap-2">
-        <Button size="sm" onClick={onSend}>
+        <Button
+          size="sm"
+          disabled={sending}
+          className="bg-[#25D366] text-white hover:bg-[#1ebe57]"
+          onClick={onSend}
+        >
+          {sending ? (
+            <Spinner className="h-4 w-4 text-white" />
+          ) : (
+            <WhatsAppIcon className="h-4 w-4" />
+          )}
           {t("orders.whatsapp.send")}
         </Button>
-        <Button size="sm" variant="ghost" onClick={onDismiss}>
+        <Button size="sm" variant="ghost" disabled={sending} onClick={onDismiss}>
           {t("orders.actions.cancel")}
         </Button>
       </div>
@@ -875,16 +896,16 @@ function OrderCard({
   order,
   t,
   locale,
-  companyName,
+  sendingWhatsapp,
   onOpenDetail,
-  onWhatsappError,
+  onSendWhatsapp,
 }: {
   order: OrderListItem;
   t: Translate;
   locale: string;
-  companyName: string;
+  sendingWhatsapp: boolean;
   onOpenDetail: (order: OrderListItem) => void;
-  onWhatsappError: (message: string) => void;
+  onSendWhatsapp: () => void;
 }): ReactNode {
   return (
     <Card
@@ -923,21 +944,19 @@ function OrderCard({
         </dl>
         {isWhatsappStatus(order.status) ? (
           <Button
-            variant="outline"
             size="sm"
-            className="self-start"
+            className="self-start bg-[#25D366] text-white hover:bg-[#1ebe57]"
+            disabled={sendingWhatsapp}
             onClick={(e) => {
               e.stopPropagation();
-              void openWhatsappForOrder(
-                order,
-                order.status as WhatsappStatus,
-                companyName,
-                t,
-                onWhatsappError,
-              );
+              onSendWhatsapp();
             }}
           >
-            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            {sendingWhatsapp ? (
+              <Spinner className="h-4 w-4 text-white" />
+            ) : (
+              <WhatsAppIcon className="h-4 w-4" />
+            )}
             {t("orders.whatsapp.rowButtonLabel")}
           </Button>
         ) : null}
