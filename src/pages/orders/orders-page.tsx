@@ -4,6 +4,7 @@ import {
   CalendarDays,
   Clock,
   Download,
+  MessageCircle,
   MoreHorizontal,
   Plus,
   Printer,
@@ -65,6 +66,7 @@ import { OrdersFilterBar } from "./orders-filter-bar";
 import { fetchOrdersListKpis, type OrdersListKpis } from "./orders-list-kpis";
 import { OrderRowActions, TRANSITIONS } from "./orders-row-actions";
 import { OrdersSparkline } from "./orders-sparkline";
+import { isWhatsappStatus, openWhatsappForOrder, type WhatsappStatus } from "./orders-whatsapp";
 
 type State =
   | { readonly kind: "loading" }
@@ -99,6 +101,8 @@ function OrdersScreen(): ReactNode {
   const isDesktop = useIsDesktop();
   const auth = useContext(AuthContext);
   const currentUserId = auth?.user?.id ?? null;
+  const companyName =
+    auth?.user?.companies.find((c) => c.id === auth.user?.activeCompanyId)?.name ?? "";
 
   const [state, setState] = useState<State>({ kind: "loading" });
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -116,6 +120,9 @@ function OrdersScreen(): ReactNode {
   // Shipments are always created one order at a time (no bulk shipping) — set
   // when exactly one row is selected and "Create shipment" is clicked.
   const [shippingOrder, setShippingOrder] = useState<OrderListItem | null>(null);
+  // The floating "send a WhatsApp message?" prompt, offered right after a
+  // single order's status lands on one of WHATSAPP_STATUSES.
+  const [waPrompt, setWaPrompt] = useState<OrderListItem | null>(null);
 
   const selection = useDataGridSelection();
 
@@ -132,9 +139,7 @@ function OrdersScreen(): ReactNode {
     return {
       ...restFilters,
       ...(dateFrom.length > 0 ? { createdAtFrom: new Date(dateFrom).toISOString() } : {}),
-      ...(dateTo.length > 0
-        ? { createdAtTo: new Date(`${dateTo}T23:59:59`).toISOString() }
-        : {}),
+      ...(dateTo.length > 0 ? { createdAtTo: new Date(`${dateTo}T23:59:59`).toISOString() } : {}),
       ...(status !== "all" ? { status } : {}),
       ...(search.trim().length > 0 ? { q: search.trim() } : {}),
       ...(sortDesc ? { sort: "-createdAt" } : {}),
@@ -230,9 +235,11 @@ function OrdersScreen(): ReactNode {
 
   const onTransition = async (id: string, toStatus: OrderStatus): Promise<void> => {
     try {
-      patchRow(await transitionOrder(id, { toStatus }));
+      const updated = await transitionOrder(id, { toStatus });
+      patchRow(updated);
       flash(t("orders.saved"));
       void refreshCounts();
+      if (isWhatsappStatus(toStatus)) setWaPrompt(toListItem(updated));
     } catch (error) {
       flash(saveErrorText(error, t));
     }
@@ -252,12 +259,21 @@ function OrdersScreen(): ReactNode {
       flash(t("orders.reasonRequired"));
       return;
     }
+    // The WhatsApp prompt only ever targets one order — capture it (if the
+    // selection is exactly one row) before `selection.clear()` wipes it.
+    const promptCandidate =
+      state.kind === "ready" && selection.selectedIds.size === 1
+        ? (state.items.find((o) => o.id === [...selection.selectedIds][0]) ?? null)
+        : null;
     try {
       const { results } = await bulkStatus([...selection.selectedIds], toStatus);
       const failed = results.filter((r) => !r.ok);
       selection.clear();
       flash(failed.length > 0 ? t("orders.saveFailed") : t("orders.saved"));
       void load();
+      if (promptCandidate !== null && failed.length === 0 && isWhatsappStatus(toStatus)) {
+        setWaPrompt({ ...promptCandidate, status: toStatus });
+      }
     } catch (error) {
       flash(saveErrorText(error, t));
     }
@@ -502,13 +518,34 @@ function OrdersScreen(): ReactNode {
               selection={selection}
               onRowClick={setSelectedOrder}
               rowActions={(row) => (
-                <OrderRowActions
-                  order={row}
-                  t={t}
-                  onOpenDetail={setSelectedOrder}
-                  onTransition={onTransition}
-                  onCancelRequiresReason={() => flash(t("orders.reasonRequired"))}
-                />
+                <div className="flex items-center gap-1">
+                  {isWhatsappStatus(row.status) ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label={t("orders.whatsapp.rowButtonLabel")}
+                      onClick={() =>
+                        void openWhatsappForOrder(
+                          row,
+                          row.status as WhatsappStatus,
+                          companyName,
+                          t,
+                          flash,
+                        )
+                      }
+                    >
+                      <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  ) : null}
+                  <OrderRowActions
+                    order={row}
+                    t={t}
+                    onOpenDetail={setSelectedOrder}
+                    onTransition={onTransition}
+                    onCancelRequiresReason={() => flash(t("orders.reasonRequired"))}
+                  />
+                </div>
               )}
               rowClassName={(row) => {
                 const index = visibleRows.findIndex((r) => r.id === row.id);
@@ -523,7 +560,14 @@ function OrdersScreen(): ReactNode {
               loading={state.kind === "loading"}
               getRowId={(row) => row.id}
               renderCard={(order) => (
-                <OrderCard order={order} t={t} locale={locale} onOpenDetail={setSelectedOrder} />
+                <OrderCard
+                  order={order}
+                  t={t}
+                  locale={locale}
+                  companyName={companyName}
+                  onOpenDetail={setSelectedOrder}
+                  onWhatsappError={flash}
+                />
               )}
               emptyTitle={t("orders.empty")}
               hasMore={state.kind === "ready" && state.nextCursor !== null}
@@ -575,6 +619,69 @@ function OrdersScreen(): ReactNode {
           }}
         />
       ) : null}
+
+      {waPrompt !== null ? (
+        <WhatsappPromptCard
+          order={waPrompt}
+          t={t}
+          onSend={() => {
+            void openWhatsappForOrder(
+              waPrompt,
+              waPrompt.status as WhatsappStatus,
+              companyName,
+              t,
+              flash,
+            );
+            setWaPrompt(null);
+          }}
+          onDismiss={() => setWaPrompt(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Floating "send the customer a WhatsApp message?" card, offered right after
+ * a single order's status lands on `confirming`/`ready`/`shipped`. Purely a
+ * prompt — dismissing it does nothing; sending opens `wa.me` in a new tab for
+ * the user to review and send themselves (no message ever goes out on its
+ * own).
+ */
+function WhatsappPromptCard({
+  order,
+  t,
+  onSend,
+  onDismiss,
+}: {
+  order: OrderListItem;
+  t: Translate;
+  onSend: () => void;
+  onDismiss: () => void;
+}): ReactNode {
+  return (
+    <div
+      role="alertdialog"
+      aria-label={t("orders.whatsapp.promptTitle")}
+      className="fixed bottom-4 start-4 end-4 z-50 mx-auto flex max-w-sm flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-lg sm:end-4 sm:start-auto"
+    >
+      <div className="flex items-start gap-2">
+        <MessageCircle
+          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <p className="text-sm font-medium">
+          #{order.orderNumber} · {t("orders.whatsapp.promptTitle")}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={onSend}>
+          {t("orders.whatsapp.send")}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onDismiss}>
+          {t("orders.actions.cancel")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -768,12 +875,16 @@ function OrderCard({
   order,
   t,
   locale,
+  companyName,
   onOpenDetail,
+  onWhatsappError,
 }: {
   order: OrderListItem;
   t: Translate;
   locale: string;
+  companyName: string;
   onOpenDetail: (order: OrderListItem) => void;
+  onWhatsappError: (message: string) => void;
 }): ReactNode {
   return (
     <Card
@@ -810,6 +921,26 @@ function OrderCard({
             />
           </Field>
         </dl>
+        {isWhatsappStatus(order.status) ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={(e) => {
+              e.stopPropagation();
+              void openWhatsappForOrder(
+                order,
+                order.status as WhatsappStatus,
+                companyName,
+                t,
+                onWhatsappError,
+              );
+            }}
+          >
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            {t("orders.whatsapp.rowButtonLabel")}
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );
