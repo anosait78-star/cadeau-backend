@@ -23,6 +23,7 @@ import {
   SetSubscriptionDto,
   SubscriptionResultDto,
 } from "./dto/admin.dto";
+import { FeatureListDto } from "./dto/feature.dto";
 
 /**
  * Platform Super-Admin endpoints under `/v1/admin` (contract: docs/api/access.md).
@@ -50,6 +51,16 @@ export class AdminController {
     const parsedLimit = limit === undefined ? undefined : Number(limit);
     const page = await this.admin.listCompanies(principal, parsedLimit, cursor);
     return AdminCompanyListDto.from(page);
+  }
+
+  @Get("features")
+  @ApiOperation({
+    summary: "The full feature catalog (Super-Admin, no active tenant needed)",
+    operationId: "adminListFeatureCatalog",
+  })
+  @ApiOkResponse({ type: FeatureListDto })
+  async listFeatureCatalog(): Promise<FeatureListDto> {
+    return FeatureListDto.from(await this.admin.listFeatureCatalog());
   }
 
   @Put("companies/:companyId/features/:featureKey")

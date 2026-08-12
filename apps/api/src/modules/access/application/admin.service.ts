@@ -11,7 +11,7 @@ import {
   type AccessManagementRepositoryPort,
 } from "../domain/access-management.port";
 import { InvalidCursorInputError } from "../domain/access.errors";
-import type { AdminCompanyView } from "../domain/access.types";
+import type { AdminCompanyView, FeatureView } from "../domain/access.types";
 
 /**
  * Orchestrates the platform Super-Admin surface: listing every company and,
@@ -45,6 +45,17 @@ export class AdminService {
       }
       throw error;
     }
+  }
+
+  /**
+   * The full feature catalog, platform-wide — unlike {@link AccessService.listFeatures}
+   * this needs no active tenant (a Super-Admin managing companies may not be a
+   * member of any). `enabled` has no meaning outside one company's context, so
+   * it is always `false` here; the admin surface toggles it per company instead.
+   */
+  async listFeatureCatalog(): Promise<FeatureView[]> {
+    const catalog = await this.repo.listFeatureCatalog();
+    return catalog.map((f) => ({ key: f.key, name: f.name, category: f.category, enabled: false }));
   }
 
   /** Toggle a feature for a company (Super-Admin, no code change). */

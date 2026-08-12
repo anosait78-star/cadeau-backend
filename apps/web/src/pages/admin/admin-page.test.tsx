@@ -44,7 +44,7 @@ describe("AdminPage", () => {
     fetchMock = vi.fn((input: string | URL) => {
       const url = String(input);
       if (url.includes("/admin/companies")) return Promise.resolve(json(200, COMPANIES));
-      if (url.includes("/access/features")) return Promise.resolve(json(200, FEATURES));
+      if (url.includes("/admin/features")) return Promise.resolve(json(200, FEATURES));
       if (url.includes("/features/analytics")) {
         return Promise.resolve(json(200, { featureKey: "analytics", enabled: true }));
       }
