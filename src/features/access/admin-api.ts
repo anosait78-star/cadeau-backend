@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import type { FeatureView } from "./access-api";
 
 /** A company row on the Super-Admin surface (`GET /v1/admin/companies`). */
 export interface AdminCompany {
@@ -27,6 +28,17 @@ export const PLAN_CODES = ["free", "standard", "pro"] as const;
 export function listCompanies(cursor?: string): Promise<AdminCompaniesPage> {
   const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
   return apiFetch<AdminCompaniesPage>(`/admin/companies${query}`);
+}
+
+/**
+ * `GET /v1/admin/features` — the full feature catalog, no active tenant needed
+ * (unlike `getFeatures()` in access-api.ts, which requires `access.read` on the
+ * caller's own company — a Super-Admin managing companies may not be a member
+ * of any). `enabled` is always `false` here; it has no meaning outside one
+ * company's context.
+ */
+export function listFeatureCatalog(): Promise<{ data: FeatureView[] }> {
+  return apiFetch<{ data: FeatureView[] }>("/admin/features");
 }
 
 /** `PUT /v1/admin/companies/{id}/features/{key}` — toggle a feature for a company. */

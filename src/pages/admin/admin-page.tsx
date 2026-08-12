@@ -5,9 +5,10 @@ import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getFeatures, type FeatureView } from "@/features/access/access-api";
+import type { FeatureView } from "@/features/access/access-api";
 import {
   listCompanies,
+  listFeatureCatalog,
   PLAN_CODES,
   setCompanySubscription,
   toggleCompanyFeature,
@@ -40,7 +41,7 @@ export function AdminPage(): ReactNode {
   const loadFirst = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
     try {
-      const [companies, features] = await Promise.all([listCompanies(), getFeatures()]);
+      const [companies, features] = await Promise.all([listCompanies(), listFeatureCatalog()]);
       setState({
         kind: "ready",
         companies: companies.data,
