@@ -624,6 +624,16 @@ export const en = {
   "orders.detail.loadingPhone": "Loading phone…",
   "orders.detail.call": "Call",
   "orders.detail.whatsapp": "WhatsApp",
+  "orders.whatsapp.rowButtonLabel": "Send WhatsApp message",
+  "orders.whatsapp.promptTitle": "Send the customer a WhatsApp message about this order?",
+  "orders.whatsapp.send": "Send via WhatsApp",
+  "orders.whatsapp.invalidPhone": "This customer has no valid WhatsApp number.",
+  "orders.whatsapp.messageConfirming":
+    "Hello {{customerName}} 👋\nWe'd like to confirm we've received your order #{{orderNumber}} from {{companyName}}.\nCould you confirm it so we can start preparing it?\nThank you for trusting us 🌸",
+  "orders.whatsapp.messageReady":
+    "Hello {{customerName}} 👋\nGood news — your order #{{orderNumber}} from {{companyName}} is ready and will be shipped soon.\nThank you for choosing us 🌸",
+  "orders.whatsapp.messageShipped":
+    "Hello {{customerName}} 👋\nYour order #{{orderNumber}} from {{companyName}} has been shipped and should arrive soon, God willing.\nWe hope you enjoy it 🌸",
   "orders.savedViews.all": "All orders",
   "orders.savedViews.mine": "My orders",
   "orders.savedViews.today": "Today",
@@ -1578,6 +1588,16 @@ export const ar: Record<TranslationKey, string> = {
   "orders.detail.loadingPhone": "جاري تحميل رقم الهاتف…",
   "orders.detail.call": "اتصال",
   "orders.detail.whatsapp": "واتساب",
+  "orders.whatsapp.rowButtonLabel": "إرسال رسالة واتساب",
+  "orders.whatsapp.promptTitle": "تحب تبعت للعميل رسالة واتساب عن الطلب ده؟",
+  "orders.whatsapp.send": "إرسال عبر واتساب",
+  "orders.whatsapp.invalidPhone": "رقم العميل غير صالح لإرسال رسالة واتساب.",
+  "orders.whatsapp.messageConfirming":
+    "مرحبًا {{customerName}} 👋\nنود تأكيد استلامنا لطلبكم رقم #{{orderNumber}} من {{companyName}}.\nهل يمكنكم تأكيد الطلب لمتابعة التجهيز؟\nشكرًا لثقتكم بنا 🌸",
+  "orders.whatsapp.messageReady":
+    "مرحبًا {{customerName}} 👋\nيسعدنا إبلاغكم بأن طلبكم رقم #{{orderNumber}} من {{companyName}} أصبح جاهزًا، وسيتم شحنه قريبًا.\nشكرًا لتعاملكم معنا 🌸",
+  "orders.whatsapp.messageShipped":
+    "مرحبًا {{customerName}} 👋\nتم شحن طلبكم رقم #{{orderNumber}} من {{companyName}}، وسيصلكم قريبًا بإذن الله.\nنتمنى لكم تجربة ممتعة 🌸",
   "orders.savedViews.all": "كل الطلبات",
   "orders.savedViews.mine": "طلباتي",
   "orders.savedViews.today": "اليوم",
