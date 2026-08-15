@@ -17,7 +17,9 @@ lists with deep-linking, and a pivotal `collectedAmount`. Follows
 - `OrderActivity` — the append-only activity/audit log for an order.
 - `OrderVendorGroup` (Vendor Accounts, Phase 2/3) — a vendor's slice of one
   order: the items routed to one warehouse via `order_items.warehouse_id`,
-  plus that warehouse's own `new → processing → ready → delivered` status.
+  plus that warehouse's own `new → processing → ready → delivered` status and
+  an `updatedAt` (Phase 6 — reuses the existing column, no dedicated
+  `status_changed_at`; when `status`, or the group itself, last changed).
   Materialized idempotently (never duplicated) both when the company-side
   `GET .../vendor-groups` is read and when the Parent Order enters
   `processing`. Never affects `Order.status` itself.
@@ -99,6 +101,15 @@ future notification dispatcher can react without any change to the emitter.
   see the vendor self-service table above. Parent Order cancel/return does
   **not** cascade onto open vendor groups (deferred to a later phase), and no
   Parent Order transition is gated on vendor-group completion.
+- **Audit trail review (Vendor Accounts, Phase 6):** every vendor group
+  status change also appends a `vendor_status_changed` row to the **Parent
+  Order's own** activity log (`order_activities` — the same table/endpoint
+  `GET /v1/orders/{orderId}/activity` already serves), so the company sees
+  a vendor's full history via the existing Activities/Timeline tabs — no new
+  read surface. `fromValue`/`toValue` carry the status transition; `note`
+  carries the warehouse's name. Independent of the durable `audit_log` row
+  (`order_vendor_group.status_changed`) recorded for the standing audit
+  trail — the two serve different UIs and are both written on every advance.
 - **Stock coupling (decision D2):** entering `processing` reserves stock via the
   EPIC-9 path; `shipped` decrements on-hand; a pre-ship cancel/return releases the
   reservation. **Feature-gated** — only when the company's `inventory` feature is
