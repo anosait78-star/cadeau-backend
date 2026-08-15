@@ -34,6 +34,7 @@ const GROUP_NEW = {
   vendorMemberId: "m1",
   vendorName: "Me",
   status: "new",
+  updatedAt: "2026-01-01T00:00:00.000Z",
   items: [{ id: "i1", variantId: "v1", nameSnapshot: "T-Shirt — L", quantity: 2, price: 15000 }],
 };
 
@@ -106,6 +107,24 @@ describe("VendorDashboardPage (Vendor Accounts, Phase 4)", () => {
         body: JSON.stringify({ toStatus: "processing" }),
       }),
     );
+  });
+
+  it("groups active vs. delivered orders into separate, counted sections (Phase 6)", async () => {
+    renderPage(
+      routedFetch({
+        groups: [
+          { ...GROUP_NEW, id: "g1", orderNumber: 1, status: "delivered" },
+          { ...GROUP_NEW, id: "g2", orderNumber: 2, status: "ready" },
+          { ...GROUP_NEW, id: "g3", orderNumber: 3, status: "new" },
+        ],
+      }),
+    );
+    expect(await screen.findByText("Active (2)")).toBeInTheDocument();
+    expect(screen.getByText("Delivered (1)")).toBeInTheDocument();
+
+    // Active section lists urgency-first: "new" before "ready".
+    const orderLabels = screen.getAllByText(/^Order #/).map((el) => el.textContent);
+    expect(orderLabels).toEqual(["Order #3", "Order #2", "Order #1"]);
   });
 
   it("shows no advance button for a delivered (terminal) group", async () => {

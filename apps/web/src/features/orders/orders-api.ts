@@ -262,6 +262,8 @@ export interface OrderVendorGroup {
   /** The vendor's name/email, or null if no vendor has joined this warehouse yet. */
   readonly vendorName: string | null;
   readonly status: string;
+  /** When `status` (or the group) last changed. */
+  readonly updatedAt: string;
   readonly items: readonly OrderVendorGroupItem[];
 }
 

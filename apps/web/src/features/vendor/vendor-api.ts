@@ -32,6 +32,8 @@ export interface VendorGroup {
   readonly vendorMemberId: string | null;
   readonly vendorName: string | null;
   readonly status: VendorGroupStatus;
+  /** When `status` (or the group) last changed. */
+  readonly updatedAt: string;
   readonly items: readonly VendorGroupItem[];
 }
 

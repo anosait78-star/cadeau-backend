@@ -37,6 +37,13 @@ function formatDate(iso: string | null, locale: string): string {
   return iso === null ? DASH : new Date(iso).toLocaleDateString(locale);
 }
 
+function formatDateTime(iso: string, locale: string): string {
+  return new Date(iso).toLocaleString(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 /** Lazily fetches an order's detail + activity + vendor groups once, keyed by orderId. */
 export function useOrderDetailData(orderId: string | null): {
   readonly detail: OrderDetail | null;
@@ -294,9 +301,13 @@ function VendorTrackingSection({
               label={t(`vendor.group.status.${group.status}` as TranslationKey)}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            {group.vendorName ?? t("orders.detail.vendorTracking.noVendor")}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>{group.vendorName ?? t("orders.detail.vendorTracking.noVendor")}</span>
+            <span dir="ltr">
+              {t("orders.detail.vendorTracking.updatedAt")}{" "}
+              {formatDateTime(group.updatedAt, locale)}
+            </span>
+          </div>
           <ul className="mt-2 flex flex-col gap-1">
             {group.items.map((item) => (
               <li key={item.id} className="flex justify-between gap-2">

@@ -212,6 +212,7 @@ describe("buildOrderDetailSections", () => {
           vendorMemberId: "m1",
           vendorName: "Vendor A",
           status: "delivered",
+          updatedAt: "2026-01-02T00:00:00.000Z",
           items: [{ id: "i1", variantId: "v1", nameSnapshot: "T — L", quantity: 1, price: 15000 }],
         },
         {
@@ -224,6 +225,7 @@ describe("buildOrderDetailSections", () => {
           vendorMemberId: null,
           vendorName: null,
           status: "new",
+          updatedAt: "2026-01-01T00:00:00.000Z",
           items: [],
         },
       ],
