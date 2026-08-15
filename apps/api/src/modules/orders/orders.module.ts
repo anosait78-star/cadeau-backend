@@ -8,6 +8,7 @@ import { OrdersAuditLogAdapter } from "./infrastructure/audit-log.adapter";
 import { OrdersRepository } from "./infrastructure/orders.repository";
 import { ordersPrismaClientProvider } from "./infrastructure/prisma-client.provider";
 import { OrdersController } from "./presentation/orders.controller";
+import { VendorOrderGroupsController } from "./presentation/vendor-order-groups.controller";
 
 /**
  * Orders feature module (composition root, EPIC-11). Wires the service to the
@@ -25,7 +26,7 @@ import { OrdersController } from "./presentation/orders.controller";
  */
 @Global()
 @Module({
-  controllers: [OrdersController],
+  controllers: [OrdersController, VendorOrderGroupsController],
   providers: [
     OrdersService,
     systemClockProvider,

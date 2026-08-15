@@ -21,6 +21,8 @@ import type {
   OrderActivityView,
   OrderItemView,
   OrderListView,
+  OrderVendorGroupItemView,
+  OrderVendorGroupView,
   OrderView,
 } from "../../domain/order.entity";
 import {
@@ -31,6 +33,7 @@ import {
   type OrderStatus,
   type PaymentStatus,
 } from "../../domain/order-status";
+import { VENDOR_GROUP_STATUSES, type VendorGroupStatus } from "../../domain/vendor-group-status";
 
 /** The most orders one bulk request may touch. */
 export const BULK_MAX = 200;
@@ -213,6 +216,17 @@ export class TransitionOrderDto {
   @IsString()
   @MaxLength(2000)
   note?: string | null;
+}
+
+/**
+ * Vendor group status-transition payload (Vendor Accounts, Phase 3). One step
+ * forward only (`new → processing → ready → delivered`) — no reason, no note,
+ * unlike the Parent Order's own transition.
+ */
+export class UpdateVendorGroupStatusDto {
+  @ApiProperty({ enum: VENDOR_GROUP_STATUSES })
+  @IsIn(VENDOR_GROUP_STATUSES)
+  toStatus!: VendorGroupStatus;
 }
 
 /** Assign payload. `assigneeId: null` unassigns. */
@@ -525,6 +539,88 @@ export class OrderActivityListDto {
       nextCursor: page.page.nextCursor,
       hasMore: page.page.hasMore,
     };
+    return dto;
+  }
+}
+
+/** One item within a vendor group — no `costSnapshot` (Vendor Accounts, Phase 2). */
+export class OrderVendorGroupItemDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+  @ApiProperty({ format: "uuid" })
+  variantId!: string;
+  @ApiProperty({ example: "T-Shirt — Red / L" })
+  nameSnapshot!: string;
+  @ApiProperty({ example: 2 })
+  quantity!: number;
+  @ApiProperty({ example: 15000 })
+  price!: number;
+
+  static from(view: OrderVendorGroupItemView): OrderVendorGroupItemDto {
+    const dto = new OrderVendorGroupItemDto();
+    dto.id = view.id;
+    dto.variantId = view.variantId;
+    dto.nameSnapshot = view.nameSnapshot;
+    dto.quantity = view.quantity;
+    dto.price = view.price;
+    return dto;
+  }
+}
+
+/**
+ * A vendor's slice of one order (Vendor Accounts, Phase 2) — the items routed
+ * to one warehouse, that warehouse's display info, and the vendor member's
+ * identity if one has joined. `status` is reserved for a later phase.
+ */
+export class OrderVendorGroupDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+  @ApiProperty({ format: "uuid" })
+  orderId!: string;
+  @ApiProperty({ example: 1042 })
+  orderNumber!: number;
+  @ApiProperty({ format: "uuid" })
+  warehouseId!: string;
+  @ApiProperty({ example: "Main warehouse" })
+  warehouseName!: string;
+  @ApiProperty({ nullable: true })
+  warehouseCode!: string | null;
+  @ApiProperty({ format: "uuid", nullable: true })
+  vendorMemberId!: string | null;
+  @ApiProperty({
+    nullable: true,
+    description: "The vendor's name/email, or null if none has joined this warehouse yet.",
+  })
+  vendorName!: string | null;
+  @ApiProperty({ example: "new" })
+  status!: string;
+  @ApiProperty({ type: [OrderVendorGroupItemDto] })
+  items!: OrderVendorGroupItemDto[];
+
+  static from(view: OrderVendorGroupView): OrderVendorGroupDto {
+    const dto = new OrderVendorGroupDto();
+    dto.id = view.id;
+    dto.orderId = view.orderId;
+    dto.orderNumber = view.orderNumber;
+    dto.warehouseId = view.warehouseId;
+    dto.warehouseName = view.warehouseName;
+    dto.warehouseCode = view.warehouseCode;
+    dto.vendorMemberId = view.vendorMemberId;
+    dto.vendorName = view.vendorName;
+    dto.status = view.status;
+    dto.items = view.items.map((i) => OrderVendorGroupItemDto.from(i));
+    return dto;
+  }
+}
+
+/** Envelope for an order's vendor groups. */
+export class OrderVendorGroupListDto {
+  @ApiProperty({ type: [OrderVendorGroupDto] })
+  data!: OrderVendorGroupDto[];
+
+  static from(groups: readonly OrderVendorGroupView[]): OrderVendorGroupListDto {
+    const dto = new OrderVendorGroupListDto();
+    dto.data = groups.map((g) => OrderVendorGroupDto.from(g));
     return dto;
   }
 }

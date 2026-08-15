@@ -97,10 +97,20 @@ function makeHarness(features: string[] = ["orders", "inventory"]): Harness {
     listActivity: vi
       .fn()
       .mockResolvedValue({ data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
+    listVendorGroups: vi.fn().mockResolvedValue([]),
+    findVendorWarehouseId: vi.fn().mockResolvedValue(null),
+    listVendorGroupsForWarehouse: vi.fn().mockResolvedValue([]),
+    findVendorGroupById: vi.fn().mockResolvedValue(null),
+    updateVendorGroupStatus: vi.fn().mockResolvedValue(null),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
-  const access = { resolve: vi.fn().mockResolvedValue({ features, permissions: [] }) };
+  // Default: unrestricted (Owner/Manager-equivalent) caller — sees every order,
+  // not just ones assigned to them. Tests exercising the restricted-visibility
+  // path override this with `access.resolve.mockResolvedValueOnce(...)`.
+  const access = {
+    resolve: vi.fn().mockResolvedValue({ features, permissions: ["orders.assign"] }),
+  };
   const clock = { now: (): number => 1_700_000_000_000 };
   const service = new OrdersService(
     repo as unknown as OrdersRepositoryPort,
@@ -323,6 +333,53 @@ describe("OrdersService", () => {
       ).rejects.toMatchObject({ status: 404 });
     });
 
+    it("listVendorGroups throws 404 when the order is absent", async () => {
+      h.repo.findById.mockResolvedValueOnce(null);
+      await expect(h.service.listVendorGroups(principal(), ORDER)).rejects.toMatchObject({
+        status: 404,
+      });
+      expect(h.repo.listVendorGroups).not.toHaveBeenCalled();
+    });
+
+    it("listVendorGroups delegates to the repository and audits/emits nothing (Vendor Accounts, Phase 2)", async () => {
+      h.repo.findById.mockResolvedValueOnce(order());
+      h.repo.listVendorGroups.mockResolvedValueOnce([
+        {
+          id: "g1",
+          warehouseId: "w1",
+          warehouseName: "Main",
+          warehouseCode: null,
+          vendorMemberId: null,
+          vendorName: null,
+          status: "new",
+          items: [],
+        },
+      ]);
+      const groups = await h.service.listVendorGroups(principal(), ORDER);
+      expect(groups).toHaveLength(1);
+      expect(h.repo.listVendorGroups).toHaveBeenCalledWith(
+        { companyId: COMPANY, actorId: USER },
+        ORDER,
+      );
+      expect(h.audit.record).not.toHaveBeenCalled();
+      expect(h.events.publish).not.toHaveBeenCalled();
+    });
+
+    it("listMyVendorGroups returns an empty list for a caller with no vendor membership", async () => {
+      h.repo.findVendorWarehouseId.mockResolvedValueOnce(null);
+      const groups = await h.service.listMyVendorGroups(principal());
+      expect(groups).toEqual([]);
+      expect(h.repo.listVendorGroupsForWarehouse).not.toHaveBeenCalled();
+    });
+
+    it("listMyVendorGroups delegates to the repository for the caller's warehouse", async () => {
+      h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+      h.repo.listVendorGroupsForWarehouse.mockResolvedValueOnce([{ id: "g1" }]);
+      const groups = await h.service.listMyVendorGroups(principal());
+      expect(groups).toEqual([{ id: "g1" }]);
+      expect(h.repo.listVendorGroupsForWarehouse).toHaveBeenCalledWith(COMPANY, "w1");
+    });
+
     it("rejects an invalid list query with 400", async () => {
       await expect(h.service.list(principal(), { sort: "bogus" })).rejects.toMatchObject({
         status: 400,
@@ -335,5 +392,220 @@ describe("OrdersService", () => {
         status: 400,
       });
     });
+  });
+
+  describe("visibility scoping (EPIC-15: orders.assign)", () => {
+    const OTHER_USER = "55555555-5555-5555-5555-555555555555";
+
+    it("list forces assigneeId to the caller when they lack orders.assign", async () => {
+      h.access.resolve.mockResolvedValueOnce({ features: ["orders"], permissions: [] });
+      await h.service.list(principal(), { assigneeId: OTHER_USER });
+      expect(h.repo.list).toHaveBeenCalledWith(
+        COMPANY,
+        expect.objectContaining({
+          assigneeId: USER,
+        }),
+      );
+    });
+
+    it("list leaves the query untouched when the caller holds orders.assign", async () => {
+      await h.service.list(principal(), { assigneeId: OTHER_USER });
+      expect(h.repo.list).toHaveBeenCalledWith(
+        COMPANY,
+        expect.objectContaining({
+          assigneeId: OTHER_USER,
+        }),
+      );
+    });
+
+    it("getOne 404s when the caller lacks orders.assign and isn't the assignee", async () => {
+      h.access.resolve.mockResolvedValueOnce({ features: ["orders"], permissions: [] });
+      h.repo.findById.mockResolvedValueOnce(order({ assigneeId: OTHER_USER }));
+      await expect(h.service.getOne(principal(), ORDER)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("listVendorGroups 404s when the caller lacks orders.assign and isn't the assignee (same rule as getOne)", async () => {
+      h.access.resolve.mockResolvedValueOnce({ features: ["orders"], permissions: [] });
+      h.repo.findById.mockResolvedValueOnce(order({ assigneeId: OTHER_USER }));
+      await expect(h.service.listVendorGroups(principal(), ORDER)).rejects.toMatchObject({
+        status: 404,
+      });
+      expect(h.repo.listVendorGroups).not.toHaveBeenCalled();
+    });
+
+    it("getOne succeeds for the assignee even without orders.assign", async () => {
+      h.access.resolve.mockResolvedValueOnce({ features: ["orders"], permissions: [] });
+      h.repo.findById.mockResolvedValueOnce(order({ assigneeId: USER }));
+      await expect(h.service.getOne(principal(), ORDER)).resolves.toMatchObject({
+        assigneeId: USER,
+      });
+    });
+
+    it("transition 404s a member trying to act on an order not assigned to them", async () => {
+      h.access.resolve.mockResolvedValueOnce({ features: ["orders"], permissions: [] });
+      h.repo.findById.mockResolvedValueOnce(order({ assigneeId: OTHER_USER }));
+      await expect(
+        h.service.transition(principal(), ORDER, { toStatus: "processing" }),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(h.repo.transition).not.toHaveBeenCalled();
+    });
+
+    it("bulkTransition drops ids the caller can't see into not-found results", async () => {
+      // Two calls happen under the hood (feature-flag read + visibility check) —
+      // persist the restricted grant across both.
+      h.access.resolve.mockResolvedValue({ features: ["orders"], permissions: [] });
+      h.repo.findById.mockResolvedValueOnce(order({ id: "other", assigneeId: OTHER_USER }));
+      h.repo.bulkTransition.mockResolvedValueOnce({ results: [], changes: [] });
+      const results = await h.service.bulkTransition(principal(), ["other"], {
+        toStatus: "processing",
+      });
+      expect(results).toEqual([
+        { orderId: "other", ok: false, error: { code: "NOT_FOUND", message: "Order not found." } },
+      ]);
+      expect(h.repo.bulkTransition).toHaveBeenCalledWith(expect.anything(), [], expect.anything());
+    });
+  });
+});
+
+describe("OrdersService — updateMyVendorGroupStatus (Vendor Accounts, Phase 3)", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  it("404s when the caller has no active vendor membership at all", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce(null);
+    await expect(
+      h.service.updateMyVendorGroupStatus(principal(), "g1", "processing"),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(h.repo.findVendorGroupById).not.toHaveBeenCalled();
+  });
+
+  it("404s when the group belongs to a different warehouse (never leaks existence)", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      warehouseId: "w2",
+      status: "new",
+    });
+    await expect(
+      h.service.updateMyVendorGroupStatus(principal(), "g1", "processing"),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(h.repo.updateVendorGroupStatus).not.toHaveBeenCalled();
+  });
+
+  it("404s when the group id does not exist in this tenant", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce(null);
+    await expect(
+      h.service.updateMyVendorGroupStatus(principal(), "g9", "processing"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("422s an invalid toStatus value", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      warehouseId: "w1",
+      status: "new",
+    });
+    await expect(
+      h.service.updateMyVendorGroupStatus(principal(), "g1", "not-a-status"),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("422s a skipped/illegal jump", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      warehouseId: "w1",
+      status: "new",
+    });
+    await expect(
+      h.service.updateMyVendorGroupStatus(principal(), "g1", "delivered"),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(h.repo.updateVendorGroupStatus).not.toHaveBeenCalled();
+  });
+
+  it("422s moving backward", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      warehouseId: "w1",
+      status: "processing",
+    });
+    await expect(
+      h.service.updateMyVendorGroupStatus(principal(), "g1", "new"),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("409s when the group already moved past the expected status (concurrent change)", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      warehouseId: "w1",
+      status: "new",
+    });
+    h.repo.updateVendorGroupStatus.mockResolvedValueOnce(null);
+    await expect(
+      h.service.updateMyVendorGroupStatus(principal(), "g1", "processing"),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("advances the status, records an audit row, and publishes the event", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      warehouseId: "w1",
+      status: "new",
+    });
+    h.repo.updateVendorGroupStatus.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      orderNumber: 1042,
+      warehouseId: "w1",
+      warehouseName: "Main",
+      warehouseCode: null,
+      vendorMemberId: null,
+      vendorName: null,
+      status: "processing",
+      items: [],
+    });
+
+    const updated = await h.service.updateMyVendorGroupStatus(principal(), "g1", "processing");
+
+    expect(updated.status).toBe("processing");
+    expect(h.repo.updateVendorGroupStatus).toHaveBeenCalledWith(
+      { companyId: COMPANY, actorId: USER },
+      "g1",
+      "new",
+      "processing",
+    );
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "order_vendor_group.status_changed",
+        entityType: "order_vendor_group",
+        entityId: "g1",
+        changes: { from: "new", to: "processing" },
+      }),
+    );
+    expect(h.events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "order_vendor_group.status_changed",
+        payload: {
+          orderId: "o1",
+          orderVendorGroupId: "g1",
+          warehouseId: "w1",
+          fromStatus: "new",
+          toStatus: "processing",
+        },
+      }),
+    );
   });
 });

@@ -17,6 +17,7 @@ import type {
   OrderActivityView,
   OrderItemView,
   OrderListView,
+  OrderVendorGroupView,
   OrderView,
   OrderWriteResult,
   StatusChangeResult,
@@ -339,6 +340,19 @@ export class OrdersRepository implements OrdersRepositoryPort {
         await this.applyStockEffect(tx, actor, id, from, to, row.warehouse_id);
       }
 
+      // Vendor Accounts, Phase 3: entering `processing` guarantees this
+      // order's vendor groups exist (same idempotent materialization the read
+      // endpoint uses) — unconditional, not gated by `data.applyStock`/the
+      // `inventory` feature flag, since grouping is organizational, not
+      // inventory-dependent. Groups are created at their default status
+      // ("new"); this does NOT touch any vendor group's own status — the
+      // company's transition only makes them exist/visible, each vendor
+      // advances their own group themselves. A non-multi-vendor order (no
+      // `warehouseId`-routed items) resolves to zero groups, same as today.
+      if (to === "processing") {
+        await this.materializeVendorGroups(tx, actor, id);
+      }
+
       const patch: Record<string, unknown> = { status: to, statusChangedAt: new Date() };
       if (data.reasonId !== undefined && data.reasonId !== null) patch["reasonId"] = data.reasonId;
       await tx.order.updateMany({
@@ -470,6 +484,267 @@ export class OrdersRepository implements OrdersRepositoryPort {
       });
       const views = rows.map((r) => this.toActivityView(r));
       return buildKeysetPage(views, take, (v) => ({ p: v.createdAt, t: v.id }));
+    });
+  }
+
+  async listVendorGroups(actor: WriteActor, orderId: string): Promise<OrderVendorGroupView[]> {
+    return this.tenantTx(actor.companyId, (tx) => this.materializeVendorGroups(tx, actor, orderId));
+  }
+
+  /**
+   * Group an order's `warehouseId`-routed items by warehouse and upsert one
+   * `OrderVendorGroup` row per distinct warehouse found — idempotent (a repeat
+   * call for the same routing is a no-op insert). Called from two places
+   * (Vendor Accounts, Phase 2 + 3): the read-only `listVendorGroups` above, and
+   * `transition` below when the Parent Order enters `processing`, so group
+   * existence is guaranteed by that transition rather than depending on the
+   * read endpoint having been called first. An order with no `warehouseId`-
+   * routed items (every order before this feature, and every non-multi-vendor
+   * order since) resolves to an empty array both times — no new rows, no
+   * behavior change. Must run inside an already-tenant-bound transaction.
+   */
+  private async materializeVendorGroups(
+    tx: Tx,
+    actor: WriteActor,
+    orderId: string,
+  ): Promise<OrderVendorGroupView[]> {
+    const items = await tx.orderItem.findMany({
+      where: { orderId, companyId: actor.companyId, warehouseId: { not: null } },
+      select: {
+        id: true,
+        variantId: true,
+        nameSnapshot: true,
+        quantity: true,
+        price: true,
+        warehouseId: true,
+      },
+    });
+    if (items.length === 0) return [];
+
+    const byWarehouse = new Map<string, typeof items>();
+    for (const item of items) {
+      const warehouseId = item.warehouseId as string; // filtered not-null above
+      const bucket = byWarehouse.get(warehouseId);
+      if (bucket === undefined) byWarehouse.set(warehouseId, [item]);
+      else bucket.push(item);
+    }
+    const warehouseIds = [...byWarehouse.keys()];
+
+    // Idempotent materialization: insert a group row for any (order, warehouse)
+    // pair not already present. A repeat call for the same routing is a no-op.
+    await tx.orderVendorGroup.createMany({
+      data: warehouseIds.map((warehouseId) =>
+        stampForCreate(actor, {
+          companyId: actor.companyId,
+          orderId,
+          warehouseId,
+        }),
+      ) as Prisma.OrderVendorGroupUncheckedCreateInput[],
+      skipDuplicates: true,
+    });
+
+    const [order, groupRows, warehouseRows, vendorRows] = await Promise.all([
+      tx.order.findFirst({
+        where: { id: orderId, companyId: actor.companyId },
+        select: { orderNumber: true },
+      }),
+      tx.orderVendorGroup.findMany({
+        where: { orderId, companyId: actor.companyId, warehouseId: { in: warehouseIds } },
+        select: { id: true, warehouseId: true, status: true },
+      }),
+      tx.warehouse.findMany({
+        where: { id: { in: warehouseIds }, companyId: actor.companyId },
+        select: { id: true, name: true, code: true },
+      }),
+      tx.companyMember.findMany({
+        where: {
+          companyId: actor.companyId,
+          warehouseId: { in: warehouseIds },
+          role: "vendor",
+          status: "active",
+        },
+        select: { warehouseId: true, id: true, user: { select: { fullName: true, email: true } } },
+      }),
+    ]);
+    const orderNumber = order === null ? 0 : Number(order.orderNumber);
+    const groupByWarehouse = new Map(groupRows.map((g) => [g.warehouseId, g]));
+    const warehouseById = new Map(warehouseRows.map((w) => [w.id, w]));
+    const vendorByWarehouse = new Map(vendorRows.map((m) => [m.warehouseId as string, m] as const));
+
+    return warehouseIds.map((warehouseId): OrderVendorGroupView => {
+      const group = groupByWarehouse.get(warehouseId);
+      const warehouse = warehouseById.get(warehouseId);
+      const vendor = vendorByWarehouse.get(warehouseId);
+      const groupItems = byWarehouse.get(warehouseId) ?? [];
+      return {
+        id: group?.id ?? warehouseId,
+        orderId,
+        orderNumber,
+        warehouseId,
+        warehouseName: warehouse?.name ?? "",
+        warehouseCode: warehouse?.code ?? null,
+        vendorMemberId: vendor?.id ?? null,
+        vendorName: vendor === undefined ? null : (vendor.user.fullName ?? vendor.user.email),
+        status: group?.status ?? "new",
+        items: groupItems.map((item) => ({
+          id: item.id,
+          variantId: item.variantId,
+          nameSnapshot: item.nameSnapshot,
+          quantity: Number(item.quantity),
+          price: Number(item.price),
+        })),
+      };
+    });
+  }
+
+  // ---- Vendor Accounts, Phase 3 — vendor self-service surface --------------
+
+  async findVendorWarehouseId(companyId: string, userId: string): Promise<string | null> {
+    const member = await this.tenantTx(companyId, (tx) =>
+      tx.companyMember.findFirst({
+        where: { companyId, userId, role: "vendor", status: "active" },
+        select: { warehouseId: true },
+      }),
+    );
+    return member?.warehouseId ?? null;
+  }
+
+  async listVendorGroupsForWarehouse(
+    companyId: string,
+    warehouseId: string,
+  ): Promise<OrderVendorGroupView[]> {
+    return this.tenantTx(companyId, async (tx) => {
+      const groups = await tx.orderVendorGroup.findMany({
+        where: { companyId, warehouseId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { id: true, orderId: true, status: true },
+      });
+      if (groups.length === 0) return [];
+
+      const orderIds = groups.map((g) => g.orderId);
+      const [orders, warehouse, items] = await Promise.all([
+        tx.order.findMany({
+          where: { id: { in: orderIds }, companyId },
+          select: { id: true, orderNumber: true },
+        }),
+        tx.warehouse.findFirst({
+          where: { id: warehouseId, companyId },
+          select: { name: true, code: true },
+        }),
+        tx.orderItem.findMany({
+          where: { orderId: { in: orderIds }, companyId, warehouseId },
+          select: {
+            id: true,
+            orderId: true,
+            variantId: true,
+            nameSnapshot: true,
+            quantity: true,
+            price: true,
+          },
+        }),
+      ]);
+      const orderNumberById = new Map(orders.map((o) => [o.id, Number(o.orderNumber)]));
+      const itemsByOrder = new Map<string, typeof items>();
+      for (const item of items) {
+        const bucket = itemsByOrder.get(item.orderId);
+        if (bucket === undefined) itemsByOrder.set(item.orderId, [item]);
+        else bucket.push(item);
+      }
+
+      return groups.map(
+        (group): OrderVendorGroupView => ({
+          id: group.id,
+          orderId: group.orderId,
+          orderNumber: orderNumberById.get(group.orderId) ?? 0,
+          warehouseId,
+          warehouseName: warehouse?.name ?? "",
+          warehouseCode: warehouse?.code ?? null,
+          // The caller IS the vendor here — their own identity is already
+          // known to them; this read never needs to resolve/return it.
+          vendorMemberId: null,
+          vendorName: null,
+          status: group.status,
+          items: (itemsByOrder.get(group.orderId) ?? []).map((item) => ({
+            id: item.id,
+            variantId: item.variantId,
+            nameSnapshot: item.nameSnapshot,
+            quantity: Number(item.quantity),
+            price: Number(item.price),
+          })),
+        }),
+      );
+    });
+  }
+
+  async findVendorGroupById(
+    companyId: string,
+    groupId: string,
+  ): Promise<{
+    readonly id: string;
+    readonly orderId: string;
+    readonly warehouseId: string;
+    readonly status: string;
+  } | null> {
+    return this.tenantTx(companyId, (tx) =>
+      tx.orderVendorGroup.findFirst({
+        where: { id: groupId, companyId },
+        select: { id: true, orderId: true, warehouseId: true, status: true },
+      }),
+    );
+  }
+
+  async updateVendorGroupStatus(
+    actor: WriteActor,
+    groupId: string,
+    fromStatus: string,
+    toStatus: string,
+  ): Promise<OrderVendorGroupView | null> {
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const { count } = await tx.orderVendorGroup.updateMany({
+        where: { id: groupId, companyId: actor.companyId, status: fromStatus },
+        data: stampForUpdate(actor, {
+          status: toStatus,
+        }) as Prisma.OrderVendorGroupUncheckedUpdateManyInput,
+      });
+      if (count === 0) return null;
+
+      const group = await tx.orderVendorGroup.findFirstOrThrow({
+        where: { id: groupId },
+        select: { orderId: true, warehouseId: true, status: true },
+      });
+      const [order, warehouse, items] = await Promise.all([
+        tx.order.findFirst({ where: { id: group.orderId }, select: { orderNumber: true } }),
+        tx.warehouse.findFirst({
+          where: { id: group.warehouseId },
+          select: { name: true, code: true },
+        }),
+        tx.orderItem.findMany({
+          where: {
+            orderId: group.orderId,
+            companyId: actor.companyId,
+            warehouseId: group.warehouseId,
+          },
+          select: { id: true, variantId: true, nameSnapshot: true, quantity: true, price: true },
+        }),
+      ]);
+      return {
+        id: groupId,
+        orderId: group.orderId,
+        orderNumber: order === null ? 0 : Number(order.orderNumber),
+        warehouseId: group.warehouseId,
+        warehouseName: warehouse?.name ?? "",
+        warehouseCode: warehouse?.code ?? null,
+        vendorMemberId: null,
+        vendorName: null,
+        status: group.status,
+        items: items.map((item) => ({
+          id: item.id,
+          variantId: item.variantId,
+          nameSnapshot: item.nameSnapshot,
+          quantity: Number(item.quantity),
+          price: Number(item.price),
+        })),
+      };
     });
   }
 

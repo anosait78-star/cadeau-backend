@@ -61,6 +61,40 @@ export interface OrderView extends OrderListView {
   readonly items: readonly OrderItemView[];
 }
 
+/**
+ * One item within a vendor group (Vendor Accounts, Phase 2) — the subset of
+ * {@link OrderItemView} the Company Order Tracking view needs; no
+ * `costSnapshot` (COGS stays an internal-only figure everywhere it's shown).
+ */
+export interface OrderVendorGroupItemView {
+  readonly id: string;
+  readonly variantId: string;
+  readonly nameSnapshot: string;
+  readonly quantity: number;
+  readonly price: number;
+}
+
+/**
+ * A vendor's slice of one order (Vendor Accounts, Phase 2): the items routed
+ * to one warehouse via `order_items.warehouse_id`, plus that warehouse's
+ * display info and — if one has joined — the vendor member's identity.
+ * `status` is reserved for a later phase's per-vendor lifecycle; always
+ * `"new"` today.
+ */
+export interface OrderVendorGroupView {
+  readonly id: string;
+  /** The Parent Order this group belongs to — needed by the vendor's own list read. */
+  readonly orderId: string;
+  readonly orderNumber: number;
+  readonly warehouseId: string;
+  readonly warehouseName: string;
+  readonly warehouseCode: string | null;
+  readonly vendorMemberId: string | null;
+  readonly vendorName: string | null;
+  readonly status: string;
+  readonly items: readonly OrderVendorGroupItemView[];
+}
+
 /** One row of the per-order activity log. */
 export interface OrderActivityView {
   readonly id: string;

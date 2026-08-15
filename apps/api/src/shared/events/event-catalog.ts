@@ -22,7 +22,9 @@
  *     never personal data (docs/privacy-model.md §6).
  *   - **Live now (EPIC-11 orders):** `customer.merged` (decision D3),
  *     `order.created`/`order.status_changed`/`order.assigned`,
- *     `payment.collected` (read by finance, EPIC-13).
+ *     `payment.collected` (read by finance, EPIC-13),
+ *     `order_vendor_group.status_changed` (Vendor Accounts, Phase 3 — emitted,
+ *     no subscriber yet).
  *   - **Live now (EPIC-12 shipping):** `shipment.created`/
  *     `shipment.status_changed`/`shipment.delivered`.
  *   - **Live now (EPIC-13 finance):** `purchase_order.received`,
@@ -175,6 +177,20 @@ export interface EventPayloads {
     readonly orderId: string;
     /** The member's user id, or `null` when the order was unassigned. */
     readonly assigneeId: string | null;
+  };
+  /**
+   * A vendor advanced their own order-vendor-group status
+   * (Vendor Accounts, Phase 3): `new → processing → ready → delivered`. Ids
+   * only, no PII. Not yet subscribed to by anything — a future notification
+   * dispatcher (Vendor Order Notifications) can react without any change to
+   * this event's emitter.
+   */
+  "order_vendor_group.status_changed": {
+    readonly orderId: string;
+    readonly orderVendorGroupId: string;
+    readonly warehouseId: string;
+    readonly fromStatus: string;
+    readonly toStatus: string;
   };
   /**
    * Money was collected against an order (EPIC-11 emits it on a COD collection;

@@ -81,6 +81,13 @@ function makeRepo() {
       create: vi.fn().mockResolvedValue({}),
       findMany: vi.fn().mockResolvedValue([]),
     },
+    orderVendorGroup: {
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn().mockResolvedValue(null),
+      findFirstOrThrow: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     customer: {
       findFirst: vi.fn().mockResolvedValue({ id: CUSTOMER }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -96,7 +103,10 @@ function makeRepo() {
     orderLabel: { findFirst: vi.fn().mockResolvedValue({ id: "l1" }) },
     orderReason: { findFirst: vi.fn().mockResolvedValue({ id: "r1" }) },
     governorate: { findFirst: vi.fn().mockResolvedValue({ id: "g1" }) },
-    companyMember: { findFirst: vi.fn().mockResolvedValue({ id: "m1" }) },
+    companyMember: {
+      findFirst: vi.fn().mockResolvedValue({ id: "m1" }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     warehouse: {
       findFirst: vi.fn().mockResolvedValue({ id: "w1" }),
       findMany: vi.fn().mockResolvedValue([{ id: "w1" }]),
@@ -331,6 +341,78 @@ describe("OrdersRepository — transition", () => {
       applyStock: false,
     });
     expect(change).toBeNull();
+  });
+
+  describe("vendor group activation (Vendor Accounts, Phase 3)", () => {
+    it("materializes vendor groups when entering processing, even with stock coupling off", async () => {
+      const { repo, models } = makeRepo();
+      // First call: applyStockEffect is skipped (applyStock: false), so the
+      // ONLY orderItem.findMany call belongs to the materialization step.
+      models.orderItem.findMany.mockResolvedValueOnce([
+        {
+          id: "i1",
+          variantId: "v1",
+          nameSnapshot: "A",
+          quantity: 1n,
+          price: 1000n,
+          warehouseId: "w1",
+        },
+        {
+          id: "i2",
+          variantId: "v2",
+          nameSnapshot: "B",
+          quantity: 1n,
+          price: 1000n,
+          warehouseId: "w2",
+        },
+      ]);
+      await repo.transition(actor, "o1", { toStatus: "processing", applyStock: false });
+      expect(models.orderVendorGroup.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.arrayContaining([
+            expect.objectContaining({ orderId: "o1", warehouseId: "w1" }),
+            expect.objectContaining({ orderId: "o1", warehouseId: "w2" }),
+          ]),
+          skipDuplicates: true,
+        }),
+      );
+    });
+
+    it("materializes vendor groups alongside stock coupling when both are on", async () => {
+      const { repo, models } = makeRepo();
+      models.orderItem.findMany
+        .mockResolvedValueOnce([{ variantId: "v1", quantity: 2n, warehouseId: null }]) // applyStockEffect
+        .mockResolvedValueOnce([
+          {
+            id: "i1",
+            variantId: "v1",
+            nameSnapshot: "A",
+            quantity: 2n,
+            price: 1000n,
+            warehouseId: "w1",
+          },
+        ]); // materializeVendorGroups
+      await repo.transition(actor, "o1", { toStatus: "processing", applyStock: true });
+      expect(models.stockReservation.create).toHaveBeenCalled(); // stock coupling still ran
+      expect(models.orderVendorGroup.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: [expect.objectContaining({ orderId: "o1", warehouseId: "w1" })],
+        }),
+      );
+    });
+
+    it("is a no-op for a non-multi-vendor order (no items carry a warehouseId)", async () => {
+      const { repo, models } = makeRepo();
+      models.orderItem.findMany.mockResolvedValueOnce([]); // materialize's own query finds nothing
+      await repo.transition(actor, "o1", { toStatus: "processing", applyStock: false });
+      expect(models.orderVendorGroup.createMany).not.toHaveBeenCalled();
+    });
+
+    it("does not run for a transition that does not enter processing", async () => {
+      const { repo, models } = makeRepo();
+      await repo.transition(actor, "o1", { toStatus: "confirming", applyStock: false });
+      expect(models.orderVendorGroup.createMany).not.toHaveBeenCalled();
+    });
   });
 
   it("reserves stock against the order's stored warehouseId instead of the default", async () => {
@@ -633,6 +715,229 @@ describe("OrdersRepository — reference + edge branches", () => {
       applyStock: false,
     });
     expect(results[0]).toMatchObject({ ok: false, error: { code: "UNPROCESSABLE_ENTITY" } });
+  });
+});
+
+describe("OrdersRepository — listVendorGroups (Vendor Accounts, Phase 2)", () => {
+  it("returns an empty array when no items are warehouse-routed (every order today)", async () => {
+    const { repo, models } = makeRepo();
+    models.orderItem.findMany.mockResolvedValueOnce([]);
+    const groups = await repo.listVendorGroups(actor, "o1");
+    expect(groups).toEqual([]);
+    expect(models.orderVendorGroup.createMany).not.toHaveBeenCalled();
+  });
+
+  it("groups items by warehouse and upserts one group row per warehouse", async () => {
+    const { repo, models } = makeRepo();
+    models.orderItem.findMany.mockResolvedValueOnce([
+      {
+        id: "i1",
+        variantId: "v1",
+        nameSnapshot: "A",
+        quantity: 1n,
+        price: 1000n,
+        warehouseId: "w1",
+      },
+      {
+        id: "i2",
+        variantId: "v2",
+        nameSnapshot: "B",
+        quantity: 2n,
+        price: 2000n,
+        warehouseId: "w2",
+      },
+      {
+        id: "i3",
+        variantId: "v3",
+        nameSnapshot: "C",
+        quantity: 3n,
+        price: 3000n,
+        warehouseId: "w1",
+      },
+    ]);
+    models.orderVendorGroup.findMany.mockResolvedValueOnce([
+      { id: "g1", warehouseId: "w1", status: "new" },
+      { id: "g2", warehouseId: "w2", status: "new" },
+    ]);
+    models.warehouse.findMany.mockResolvedValueOnce([
+      { id: "w1", name: "Store A", code: "A" },
+      { id: "w2", name: "Store B", code: null },
+    ]);
+
+    const groups = await repo.listVendorGroups(actor, "o1");
+
+    expect(models.orderVendorGroup.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ orderId: "o1", warehouseId: "w1" }),
+          expect.objectContaining({ orderId: "o1", warehouseId: "w2" }),
+        ]),
+        skipDuplicates: true,
+      }),
+    );
+    expect(groups).toHaveLength(2);
+    const groupA = groups.find((g) => g.warehouseId === "w1");
+    expect(groupA).toMatchObject({ id: "g1", warehouseName: "Store A", warehouseCode: "A" });
+    expect(groupA?.items.map((i) => i.id).sort()).toEqual(["i1", "i3"]);
+    const groupB = groups.find((g) => g.warehouseId === "w2");
+    expect(groupB).toMatchObject({ id: "g2", warehouseName: "Store B", warehouseCode: null });
+    expect(groupB?.items.map((i) => i.id)).toEqual(["i2"]);
+  });
+
+  it("is idempotent: a second read does not duplicate group rows", async () => {
+    const { repo, models } = makeRepo();
+    models.orderItem.findMany.mockResolvedValue([
+      {
+        id: "i1",
+        variantId: "v1",
+        nameSnapshot: "A",
+        quantity: 1n,
+        price: 1000n,
+        warehouseId: "w1",
+      },
+    ]);
+    await repo.listVendorGroups(actor, "o1");
+    await repo.listVendorGroups(actor, "o1");
+    // createMany is called with skipDuplicates both times — the DB-level
+    // uniqueness (order_id, warehouse_id) is what actually prevents a
+    // duplicate; this asserts the repository always asks for that guarantee.
+    for (const call of models.orderVendorGroup.createMany.mock.calls) {
+      expect((call[0] as { skipDuplicates: boolean }).skipDuplicates).toBe(true);
+    }
+  });
+
+  it("resolves the vendor's name when a member has joined that warehouse", async () => {
+    const { repo, models } = makeRepo();
+    models.orderItem.findMany.mockResolvedValueOnce([
+      {
+        id: "i1",
+        variantId: "v1",
+        nameSnapshot: "A",
+        quantity: 1n,
+        price: 1000n,
+        warehouseId: "w1",
+      },
+    ]);
+    models.orderVendorGroup.findMany.mockResolvedValueOnce([
+      { id: "g1", warehouseId: "w1", status: "new" },
+    ]);
+    models.warehouse.findMany.mockResolvedValueOnce([{ id: "w1", name: "Store A", code: null }]);
+    models.companyMember.findMany.mockResolvedValueOnce([
+      { warehouseId: "w1", id: "member1", user: { fullName: "Vendor One", email: "v1@test.dev" } },
+    ]);
+
+    const groups = await repo.listVendorGroups(actor, "o1");
+    expect(groups[0]).toMatchObject({ vendorMemberId: "member1", vendorName: "Vendor One" });
+  });
+
+  it("leaves the vendor identity null when no vendor has joined the warehouse yet", async () => {
+    const { repo, models } = makeRepo();
+    models.orderItem.findMany.mockResolvedValueOnce([
+      {
+        id: "i1",
+        variantId: "v1",
+        nameSnapshot: "A",
+        quantity: 1n,
+        price: 1000n,
+        warehouseId: "w1",
+      },
+    ]);
+    models.orderVendorGroup.findMany.mockResolvedValueOnce([
+      { id: "g1", warehouseId: "w1", status: "new" },
+    ]);
+    models.warehouse.findMany.mockResolvedValueOnce([{ id: "w1", name: "Store A", code: null }]);
+    models.companyMember.findMany.mockResolvedValueOnce([]);
+
+    const groups = await repo.listVendorGroups(actor, "o1");
+    expect(groups[0]).toMatchObject({ vendorMemberId: null, vendorName: null });
+  });
+});
+
+describe("OrdersRepository — vendor self-service (Vendor Accounts, Phase 3)", () => {
+  it("findVendorWarehouseId resolves an active vendor's warehouse", async () => {
+    const { repo, models } = makeRepo();
+    models.companyMember.findFirst.mockResolvedValueOnce({ warehouseId: "w1" });
+    expect(await repo.findVendorWarehouseId(COMPANY, ACTOR)).toBe("w1");
+  });
+
+  it("findVendorWarehouseId returns null for a non-vendor caller", async () => {
+    const { repo, models } = makeRepo();
+    models.companyMember.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.findVendorWarehouseId(COMPANY, ACTOR)).toBeNull();
+  });
+
+  it("listVendorGroupsForWarehouse returns an empty array when nothing has been activated yet", async () => {
+    const { repo, models } = makeRepo();
+    models.orderVendorGroup.findMany.mockResolvedValueOnce([]);
+    expect(await repo.listVendorGroupsForWarehouse(COMPANY, "w1")).toEqual([]);
+  });
+
+  it("listVendorGroupsForWarehouse lists groups across orders, newest first, with items", async () => {
+    const { repo, models } = makeRepo();
+    models.orderVendorGroup.findMany.mockResolvedValueOnce([
+      { id: "g1", orderId: "o1", status: "new" },
+      { id: "g2", orderId: "o2", status: "processing" },
+    ]);
+    models.order.findMany.mockResolvedValueOnce([
+      { id: "o1", orderNumber: 1001n },
+      { id: "o2", orderNumber: 1002n },
+    ]);
+    models.warehouse.findFirst.mockResolvedValueOnce({ name: "Store A", code: "A" });
+    models.orderItem.findMany.mockResolvedValueOnce([
+      { id: "i1", orderId: "o1", variantId: "v1", nameSnapshot: "A", quantity: 1n, price: 1000n },
+      { id: "i2", orderId: "o2", variantId: "v2", nameSnapshot: "B", quantity: 2n, price: 2000n },
+    ]);
+
+    const groups = await repo.listVendorGroupsForWarehouse(COMPANY, "w1");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({
+      id: "g1",
+      orderId: "o1",
+      orderNumber: 1001,
+      warehouseName: "Store A",
+      status: "new",
+    });
+    expect(groups[0]?.items.map((i) => i.id)).toEqual(["i1"]);
+    expect(groups[1]).toMatchObject({
+      id: "g2",
+      orderId: "o2",
+      orderNumber: 1002,
+      status: "processing",
+    });
+  });
+
+  it("findVendorGroupById returns null when unknown in this tenant", async () => {
+    const { repo, models } = makeRepo();
+    models.orderVendorGroup.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.findVendorGroupById(COMPANY, "g9")).toBeNull();
+  });
+
+  it("updateVendorGroupStatus advances the status when the guard matches", async () => {
+    const { repo, models } = makeRepo();
+    models.orderVendorGroup.updateMany.mockResolvedValueOnce({ count: 1 });
+    models.orderVendorGroup.findFirstOrThrow.mockResolvedValueOnce({
+      orderId: "o1",
+      warehouseId: "w1",
+      status: "processing",
+    });
+    models.order.findFirst.mockResolvedValueOnce({ orderNumber: 1042n });
+    models.warehouse.findFirst.mockResolvedValueOnce({ name: "Store A", code: null });
+    models.orderItem.findMany.mockResolvedValueOnce([]);
+
+    const updated = await repo.updateVendorGroupStatus(actor, "g1", "new", "processing");
+    expect(updated).toMatchObject({ id: "g1", status: "processing", orderNumber: 1042 });
+    expect(models.orderVendorGroup.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "g1", companyId: COMPANY, status: "new" }),
+      }),
+    );
+  });
+
+  it("updateVendorGroupStatus returns null when the guarded status no longer matches (concurrent change)", async () => {
+    const { repo, models } = makeRepo();
+    models.orderVendorGroup.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect(await repo.updateVendorGroupStatus(actor, "g1", "new", "processing")).toBeNull();
+    expect(models.orderVendorGroup.findFirstOrThrow).not.toHaveBeenCalled();
   });
 });
 

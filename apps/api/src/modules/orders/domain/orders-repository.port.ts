@@ -3,6 +3,7 @@ import type {
   BulkItemResult,
   OrderActivityView,
   OrderListView,
+  OrderVendorGroupView,
   OrderView,
   OrderWriteResult,
   StatusChangeResult,
@@ -128,6 +129,67 @@ export interface OrdersRepositoryPort {
     limit: number | undefined,
     cursor: string | undefined,
   ): Promise<KeysetPage<OrderActivityView> | null>;
+
+  /**
+   * The order's vendor groups (Vendor Accounts, Phase 2): one per distinct
+   * `warehouseId` among the order's items. Computed from the order's current
+   * items and upserted idempotently — a repeat call for the same routing is a
+   * no-op write. An order with no `warehouseId`-routed items (every order
+   * today) returns an empty array. Assumes the order's existence/visibility
+   * was already checked by the caller (same shape as `findById` + the
+   * service's `assertVisible`); this method itself does not 404.
+   */
+  listVendorGroups(actor: WriteActor, orderId: string): Promise<OrderVendorGroupView[]>;
+
+  // ---- Vendor Accounts, Phase 3 — vendor self-service surface --------------
+
+  /**
+   * The single warehouse an active `role = "vendor"` member is scoped to, or
+   * `null` if the caller has no such membership in this tenant (not a vendor
+   * at all, or not yet joined any warehouse).
+   */
+  findVendorWarehouseId(companyId: string, userId: string): Promise<string | null>;
+
+  /**
+   * Every vendor group at one warehouse, across every order, newest first —
+   * the vendor's own "my orders" read. Does NOT materialize/create groups
+   * (only the Parent Order's `processing` transition and the company-side
+   * `listVendorGroups` do that) — a warehouse with no activated groups yet
+   * simply returns an empty array.
+   */
+  listVendorGroupsForWarehouse(
+    companyId: string,
+    warehouseId: string,
+  ): Promise<OrderVendorGroupView[]>;
+
+  /**
+   * One vendor group's ownership-relevant fields, or `null` if unknown in
+   * this tenant. Used to check `warehouseId` ownership and the current
+   * `status` before attempting a transition.
+   */
+  findVendorGroupById(
+    companyId: string,
+    groupId: string,
+  ): Promise<{
+    readonly id: string;
+    readonly orderId: string;
+    readonly warehouseId: string;
+    readonly status: string;
+  } | null>;
+
+  /**
+   * Advance one vendor group's status, guarded by its expected current status
+   * (`fromStatus`) so a concurrent double-submit can't apply twice. Returns
+   * the updated view, or `null` if the group is gone or was no longer at
+   * `fromStatus` (someone else changed it first) — the caller decides how to
+   * surface that.
+   */
+  updateVendorGroupStatus(
+    actor: WriteActor,
+    groupId: string,
+    fromStatus: string,
+    toStatus: string,
+  ): Promise<OrderVendorGroupView | null>;
 }
 
 /** DI token for {@link OrdersRepositoryPort}. */

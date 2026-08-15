@@ -12,8 +12,10 @@ export interface OrdersAuditRecord {
     | "order.updated"
     | "order.status_changed"
     | "order.assigned"
-    | "order.payment_collected";
-  readonly entityType: "order";
+    | "order.payment_collected"
+    /** Vendor Accounts, Phase 3 — a vendor advanced their own group's status. */
+    | "order_vendor_group.status_changed";
+  readonly entityType: "order" | "order_vendor_group";
   /** The affected order's id. */
   readonly entityId: string;
   /** A PII-free description of the change (e.g. `{ from: "new", to: "processing" }`). */

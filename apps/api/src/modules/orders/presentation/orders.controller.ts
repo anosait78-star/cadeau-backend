@@ -41,6 +41,7 @@ import {
   OrderDto,
   OrderListDto,
   OrderStatusCountsDto,
+  OrderVendorGroupListDto,
   ParseOrderDto,
   ParsedDraftDto,
   TransitionOrderDto,
@@ -56,9 +57,14 @@ const IDEMPOTENCY_HEADER = "Idempotency-Key";
 /**
  * Order endpoints under `/v1/orders` (contract: docs/api/orders.md). Every route
  * requires a valid access token and the three-layer {@link AccessGuard}: reads
- * need `orders.read`, every write needs `orders.manage` (decision D1 — the
- * catalog defines only `read`/`manage`, so status/assign/import fold into
- * `manage`). The tenant comes from the token, never the payload (ADR-003).
+ * need `orders.read`, most writes need `orders.manage` (decision D1 — the
+ * catalog defines only `read`/`manage`, so status/import fold into `manage`).
+ * `assign`/`bulk/assign` are the one exception, gated by `orders.assign`
+ * instead (EPIC-15): assigning is what makes an order visible to a member in
+ * the first place, so it's reserved for Owner/Manager, never folded into the
+ * broader `orders.manage`. `orders.assign` also controls list/detail
+ * visibility — see `OrdersService.canSeeAllOrders`. The tenant comes from the
+ * token, never the payload (ADR-003).
  *
  * `POST /v1/orders` honours `Idempotency-Key` (the EPIC-9/10 pattern): a retry
  * replays the original order (`200`, not `201`) and writes no audit row / event.
@@ -139,7 +145,7 @@ export class OrdersController {
 
   @Post("bulk/assign")
   @HttpCode(HttpStatus.OK)
-  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.manage" })
+  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.assign" })
   @ApiOperation({ summary: "Bulk assignment (per-item results)", operationId: "bulkOrderAssign" })
   @ApiHeader({ name: IDEMPOTENCY_HEADER, required: false })
   @ApiOkResponse({ type: BulkResultDto })
@@ -228,7 +234,7 @@ export class OrdersController {
 
   @Post(":orderId/assign")
   @HttpCode(HttpStatus.OK)
-  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.manage" })
+  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.assign" })
   @ApiOperation({ summary: "Assign an order to a member", operationId: "assignOrder" })
   @ApiOkResponse({ type: OrderDto })
   async assign(
@@ -237,6 +243,20 @@ export class OrdersController {
     @Body() body: AssignOrderDto,
   ): Promise<OrderDto> {
     return OrderDto.fromDetail(await this.service.assign(principal, orderId, body.assigneeId));
+  }
+
+  @Get(":orderId/vendor-groups")
+  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.read" })
+  @ApiOperation({
+    summary: "Order vendor groups — items grouped by warehouse (Vendor Accounts, Phase 2)",
+    operationId: "listOrderVendorGroups",
+  })
+  @ApiOkResponse({ type: OrderVendorGroupListDto })
+  async vendorGroups(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("orderId", ParseUUIDPipe) orderId: string,
+  ): Promise<OrderVendorGroupListDto> {
+    return OrderVendorGroupListDto.from(await this.service.listVendorGroups(principal, orderId));
   }
 
   @Get(":orderId/activity")

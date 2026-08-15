@@ -72,6 +72,9 @@ function makeHarness(): Harness {
     bulkTransition: vi.fn().mockResolvedValue([{ orderId: ORDER, ok: true }]),
     bulkAssign: vi.fn().mockResolvedValue([{ orderId: ORDER, ok: true }]),
     listActivity: vi.fn().mockResolvedValue(activityPage()),
+    listVendorGroups: vi.fn().mockResolvedValue([]),
+    listMyVendorGroups: vi.fn().mockResolvedValue([]),
+    updateMyVendorGroupStatus: vi.fn(),
     parse: vi.fn().mockReturnValue({
       name: "Sara",
       phone: "+201001234567",
@@ -178,6 +181,25 @@ describe("OrdersController", () => {
   it("lists activity", async () => {
     const res = await h.controller.activity(principal, ORDER, undefined, undefined);
     expect(res.data).toHaveLength(0);
+  });
+
+  it("lists vendor groups (Vendor Accounts, Phase 2)", async () => {
+    h.service.listVendorGroups.mockResolvedValue([
+      {
+        id: "g1",
+        warehouseId: "w1",
+        warehouseName: "Main",
+        warehouseCode: null,
+        vendorMemberId: null,
+        vendorName: null,
+        status: "new",
+        items: [],
+      },
+    ]);
+    const res = await h.controller.vendorGroups(principal, ORDER);
+    expect(h.service.listVendorGroups).toHaveBeenCalledWith(principal, ORDER);
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0]).toMatchObject({ warehouseId: "w1", warehouseName: "Main" });
   });
 
   it("parses pasted text", () => {

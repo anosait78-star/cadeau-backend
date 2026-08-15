@@ -1,6 +1,7 @@
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import { AccessResolverService } from "../../../shared/access/access-resolver.service";
+import { can } from "../../../shared/access/capabilities";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
@@ -9,10 +10,16 @@ import type {
   BulkItemResult,
   OrderActivityView,
   OrderListView,
+  OrderVendorGroupView,
   OrderView,
   StatusChangeResult,
 } from "../domain/order.entity";
 import type { OrderStatus } from "../domain/order-status";
+import {
+  canTransitionVendorGroup,
+  isValidVendorGroupStatus,
+  type VendorGroupStatus,
+} from "../domain/vendor-group-status";
 import { IMPORT_MAX_ROWS, mapImport, parseCsv, type ImportMapping } from "../domain/csv-import";
 import { parsePaste, type ParsedDraft } from "../domain/smart-paste";
 import {
@@ -83,7 +90,7 @@ export class OrdersService {
     rawQuery: RawOrderListQuery,
   ): Promise<KeysetPage<OrderListView>> {
     const companyId = this.requireTenant(principal);
-    const query = this.parseQuery(rawQuery);
+    const query = await this.scopeToOwnOrders(principal, this.parseQuery(rawQuery));
     try {
       return await this.repo.list(companyId, query);
     } catch (error) {
@@ -96,7 +103,7 @@ export class OrdersService {
     rawQuery: RawOrderListQuery,
   ): Promise<Record<OrderStatus, number>> {
     const companyId = this.requireTenant(principal);
-    const query = this.parseQuery(rawQuery);
+    const query = await this.scopeToOwnOrders(principal, this.parseQuery(rawQuery));
     return this.repo.statusCounts(companyId, query);
   }
 
@@ -104,6 +111,7 @@ export class OrdersService {
     const companyId = this.requireTenant(principal);
     const order = await this.repo.findById(companyId, id);
     if (order === null) throw AppErrors.notFound("Order not found.");
+    await this.assertVisible(principal, order);
     return order;
   }
 
@@ -150,6 +158,7 @@ export class OrdersService {
     // Read the prior collected amount so we know whether money was collected.
     const before = await this.repo.findById(companyId, id);
     if (before === null) throw AppErrors.notFound("Order not found.");
+    await this.assertVisible(principal, before);
 
     let order: OrderView | null;
     try {
@@ -195,6 +204,9 @@ export class OrdersService {
     command: TransitionCommand,
   ): Promise<OrderView> {
     const companyId = this.requireTenant(principal);
+    const before = await this.repo.findById(companyId, id);
+    if (before === null) throw AppErrors.notFound("Order not found.");
+    await this.assertVisible(principal, before);
     const input = await this.toTransitionInput(principal, command);
 
     let change: StatusChangeResult | null;
@@ -247,13 +259,18 @@ export class OrdersService {
   ): Promise<readonly BulkItemResult[]> {
     const companyId = this.requireTenant(principal);
     const input = await this.toTransitionInput(principal, command);
+    const { allowedIds, deniedResults } = await this.partitionByVisibility(
+      principal,
+      companyId,
+      ids,
+    );
     const { results, changes } = await this.repo.bulkTransition(
       { companyId, actorId: principal.userId },
-      ids,
+      allowedIds,
       input,
     );
     for (const change of changes) await this.recordTransition(principal, change);
-    return results;
+    return [...results, ...deniedResults];
   }
 
   async bulkAssign(
@@ -353,6 +370,114 @@ export class OrdersService {
     return page;
   }
 
+  /**
+   * The order's vendor groups (Vendor Accounts, Phase 2) — a read-through
+   * materialization of its items' existing `warehouseId` routing, grouped by
+   * warehouse. Same visibility rule as {@link getOne} (404, never leak
+   * existence, to a caller who can't see all orders and isn't the assignee).
+   * Purely additive: no audit record, no event — this is not a business
+   * action, just a computed view over data that already exists. Does not
+   * touch order status/transition in any way.
+   */
+  async listVendorGroups(
+    principal: RequestPrincipal,
+    orderId: string,
+  ): Promise<OrderVendorGroupView[]> {
+    const companyId = this.requireTenant(principal);
+    const order = await this.repo.findById(companyId, orderId);
+    if (order === null) throw AppErrors.notFound("Order not found.");
+    await this.assertVisible(principal, order);
+    return this.repo.listVendorGroups({ companyId, actorId: principal.userId }, orderId);
+  }
+
+  // ---- Vendor Accounts, Phase 3 — vendor self-service surface --------------
+  // Reached only from `VendorOrderGroupsController`, which carries no
+  // `AccessGuard`/`@RequireCapability` (a vendor holds none of
+  // `orders.read`/`orders.manage`/`orders.assign` — Phase 1's `vendor`
+  // template is `inventory.read` only). Authorization here is entirely
+  // ownership-based: the caller's own active `role = "vendor"` membership and
+  // its `warehouseId`, resolved fresh on every call, exactly like
+  // `InventoryService`'s warehouse scoping (Phase 1).
+
+  /**
+   * The caller's own vendor groups, across every order, newest first. A
+   * caller with no active `role = "vendor"` membership gets an empty list,
+   * not an error — mirrors the "quietly nothing" shape used elsewhere for an
+   * unscoped-but-empty read rather than surfacing an internal distinction.
+   */
+  async listMyVendorGroups(principal: RequestPrincipal): Promise<OrderVendorGroupView[]> {
+    const companyId = this.requireTenant(principal);
+    const warehouseId = await this.repo.findVendorWarehouseId(companyId, principal.userId);
+    if (warehouseId === null) return [];
+    return this.repo.listVendorGroupsForWarehouse(companyId, warehouseId);
+  }
+
+  /**
+   * Advance one of the caller's own vendor groups by exactly one step
+   * (`new → processing → ready → delivered`). 404s (never leaks existence)
+   * when the caller isn't an active vendor, or the group belongs to a
+   * different warehouse than theirs — same convention as `getOne`. An
+   * illegal jump/skip maps to `422` via the existing `IllegalTransitionError`
+   * → `mapError` path, reused as-is. A concurrent double-submit that already
+   * moved the group past `fromStatus` is a `409` (nothing to apply twice).
+   */
+  async updateMyVendorGroupStatus(
+    principal: RequestPrincipal,
+    groupId: string,
+    toStatus: string,
+  ): Promise<OrderVendorGroupView> {
+    const companyId = this.requireTenant(principal);
+    const warehouseId = await this.repo.findVendorWarehouseId(companyId, principal.userId);
+    if (warehouseId === null) throw AppErrors.notFound("Vendor group not found.");
+
+    const group = await this.repo.findVendorGroupById(companyId, groupId);
+    if (group === null || group.warehouseId !== warehouseId) {
+      throw AppErrors.notFound("Vendor group not found.");
+    }
+    if (!isValidVendorGroupStatus(toStatus)) {
+      throw AppErrors.validation("Request validation failed", [
+        { field: "toStatus", messages: ["toStatus is not a recognized vendor group status."] },
+      ]);
+    }
+    const from = group.status as VendorGroupStatus;
+    if (!isValidVendorGroupStatus(from) || !canTransitionVendorGroup(from, toStatus)) {
+      throw this.mapError(new IllegalTransitionError(group.status, toStatus));
+    }
+
+    const updated = await this.repo.updateVendorGroupStatus(
+      { companyId, actorId: principal.userId },
+      groupId,
+      group.status,
+      toStatus,
+    );
+    if (updated === null) {
+      throw AppErrors.conflict("This vendor group's status already changed — reload and retry.");
+    }
+
+    await this.audit.record({
+      companyId,
+      actorId: principal.userId,
+      action: "order_vendor_group.status_changed",
+      entityType: "order_vendor_group",
+      entityId: groupId,
+      changes: { from: group.status, to: toStatus },
+    });
+    await this.events.publish({
+      type: "order_vendor_group.status_changed",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: {
+        orderId: updated.orderId,
+        orderVendorGroupId: groupId,
+        warehouseId,
+        fromStatus: group.status,
+        toStatus,
+      },
+    });
+    return updated;
+  }
+
   // ---- internals -----------------------------------------------------------
 
   /** Record the durable audit row + emit `order.status_changed` for a transition. */
@@ -419,6 +544,60 @@ export class OrdersService {
       throw AppErrors.forbidden("Select an active company first.");
     }
     return principal.companyId;
+  }
+
+  /**
+   * Whether the caller sees every order in the company (Owner/Manager, or
+   * anyone else explicitly granted `orders.assign`) rather than only orders
+   * assigned to them.
+   */
+  private async canSeeAllOrders(principal: RequestPrincipal): Promise<boolean> {
+    const caps = await this.access.resolve(principal);
+    return can(caps, { permission: "orders.assign" });
+  }
+
+  /** Force a list/count query to the caller's own assigned orders unless they see all. */
+  private async scopeToOwnOrders(
+    principal: RequestPrincipal,
+    query: ParsedOrderListQuery,
+  ): Promise<ParsedOrderListQuery> {
+    if (await this.canSeeAllOrders(principal)) return query;
+    return { ...query, assigneeId: principal.userId };
+  }
+
+  /** 404 (never leak existence) when the caller can't see all orders and isn't the assignee. */
+  private async assertVisible(
+    principal: RequestPrincipal,
+    order: { readonly assigneeId: string | null },
+  ): Promise<void> {
+    if (order.assigneeId === principal.userId) return;
+    if (await this.canSeeAllOrders(principal)) return;
+    throw AppErrors.notFound("Order not found.");
+  }
+
+  /** Split a bulk id list into ones the caller may act on and not-found results for the rest. */
+  private async partitionByVisibility(
+    principal: RequestPrincipal,
+    companyId: string,
+    ids: readonly string[],
+  ): Promise<{ allowedIds: string[]; deniedResults: BulkItemResult[] }> {
+    if (await this.canSeeAllOrders(principal)) return { allowedIds: [...ids], deniedResults: [] };
+
+    const allowedIds: string[] = [];
+    const deniedResults: BulkItemResult[] = [];
+    for (const id of ids) {
+      const order = await this.repo.findById(companyId, id);
+      if (order !== null && order.assigneeId === principal.userId) {
+        allowedIds.push(id);
+      } else {
+        deniedResults.push({
+          orderId: id,
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Order not found." },
+        });
+      }
+    }
+    return { allowedIds, deniedResults };
   }
 
   private mapError(error: unknown): unknown {
