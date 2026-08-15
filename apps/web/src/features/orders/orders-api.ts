@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import type { VendorGroupStatus } from "@/features/vendor/vendor-api";
 
 /**
  * Client for `/v1/orders` (contract: docs/api/orders.md). Money is always integer
@@ -272,9 +273,16 @@ export interface OrderVendorGroup {
  * warehouse (Vendor Accounts, Phase 2/3). Empty for every order that isn't
  * multi-vendor-routed (every order before this feature, and every manual/
  * CSV/bulk order since).
+ *
+ * `aggregateStatus` (Phase 8) is the LEAST advanced status among all groups
+ * — the order isn't really done until every vendor is — computed fresh on
+ * every read, never persisted, never affecting `Order.status` itself. `null`
+ * when `data` is empty.
  */
-export function listOrderVendorGroups(id: string): Promise<{ data: OrderVendorGroup[] }> {
-  return apiFetch<{ data: OrderVendorGroup[] }>(`/orders/${id}/vendor-groups`);
+export function listOrderVendorGroups(
+  id: string,
+): Promise<{ data: OrderVendorGroup[]; aggregateStatus: VendorGroupStatus | null }> {
+  return apiFetch(`/orders/${id}/vendor-groups`);
 }
 
 /** A parsed order line from smart-paste. */

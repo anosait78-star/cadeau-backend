@@ -49,6 +49,7 @@ export function useOrderDetailData(orderId: string | null): {
   readonly detail: OrderDetail | null;
   readonly activity: OrderActivity[];
   readonly vendorGroups: OrderVendorGroup[];
+  readonly vendorAggregateStatus: VendorGroupStatus | null;
   readonly loading: boolean;
   readonly error: boolean;
   readonly reload: () => void;
@@ -57,6 +58,9 @@ export function useOrderDetailData(orderId: string | null): {
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [activity, setActivity] = useState<OrderActivity[]>([]);
   const [vendorGroups, setVendorGroups] = useState<OrderVendorGroup[]>([]);
+  const [vendorAggregateStatus, setVendorAggregateStatus] = useState<VendorGroupStatus | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
@@ -71,11 +75,12 @@ export function useOrderDetailData(orderId: string | null): {
         // Vendor tracking is additive and never blocks the rest of the panel
         // — a caller without visibility into vendor identities (unlikely for
         // anyone who can already open this order) just sees no tab.
-        listOrderVendorGroups(orderId).catch(() => ({ data: [] })),
+        listOrderVendorGroups(orderId).catch(() => ({ data: [], aggregateStatus: null })),
       ]);
       setDetail(d);
       setActivity(a.data);
       setVendorGroups(v.data);
+      setVendorAggregateStatus(v.aggregateStatus);
     } catch {
       setError(true);
     } finally {
@@ -87,10 +92,20 @@ export function useOrderDetailData(orderId: string | null): {
     setDetail(null);
     setActivity([]);
     setVendorGroups([]);
+    setVendorAggregateStatus(null);
     void load();
   }, [load]);
 
-  return { detail, activity, vendorGroups, loading, error, reload: () => void load(), setDetail };
+  return {
+    detail,
+    activity,
+    vendorGroups,
+    vendorAggregateStatus,
+    loading,
+    error,
+    reload: () => void load(),
+    setDetail,
+  };
 }
 
 function SummarySection({
@@ -283,15 +298,26 @@ function ItemsSection({ detail, locale }: { detail: OrderDetail; locale: string 
  */
 function VendorTrackingSection({
   groups,
+  aggregateStatus,
   locale,
   t,
 }: {
   groups: OrderVendorGroup[];
+  aggregateStatus: VendorGroupStatus | null;
   locale: string;
   t: (k: TranslationKey) => string;
 }): ReactNode {
   return (
     <div className="flex flex-col gap-3">
+      {aggregateStatus !== null ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
+          <span className="font-medium">{t("orders.detail.vendorTracking.overallStatus")}</span>
+          <StatusBadge
+            tone={VENDOR_GROUP_STATUS_TONE[aggregateStatus]}
+            label={t(`vendor.group.status.${aggregateStatus}` as TranslationKey)}
+          />
+        </div>
+      ) : null}
       {groups.map((group) => (
         <div key={group.id} className="rounded-md border border-border p-3 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -420,6 +446,7 @@ export function buildOrderDetailSections({
   detail,
   activity,
   vendorGroups,
+  vendorAggregateStatus = null,
   t,
   locale,
   companyId,
@@ -429,6 +456,7 @@ export function buildOrderDetailSections({
   detail: OrderDetail;
   activity: OrderActivity[];
   vendorGroups: OrderVendorGroup[];
+  vendorAggregateStatus?: VendorGroupStatus | null;
   t: (k: TranslationKey) => string;
   locale: string;
   companyId: string | null;
@@ -471,7 +499,14 @@ export function buildOrderDetailSections({
           {
             key: "vendorTracking",
             label: t("orders.detail.tabs.vendorTracking"),
-            content: <VendorTrackingSection groups={vendorGroups} locale={locale} t={t} />,
+            content: (
+              <VendorTrackingSection
+                groups={vendorGroups}
+                aggregateStatus={vendorAggregateStatus}
+                locale={locale}
+                t={t}
+              />
+            ),
           },
         ]
       : []),

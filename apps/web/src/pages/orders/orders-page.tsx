@@ -323,6 +323,7 @@ function OrdersScreen(): ReactNode {
           detail: detailData.detail,
           activity: detailData.activity,
           vendorGroups: detailData.vendorGroups,
+          vendorAggregateStatus: detailData.vendorAggregateStatus,
           t,
           locale,
           companyId,

@@ -72,7 +72,8 @@ describe("useOrderDetailData", () => {
       const url = String(input);
       if (url.match(/\/orders\/o1\/activity/))
         return Promise.resolve(json(200, { data: [], page: {} }));
-      if (url.match(/\/orders\/o1\/vendor-groups/)) return Promise.resolve(json(200, { data: [] }));
+      if (url.match(/\/orders\/o1\/vendor-groups/))
+        return Promise.resolve(json(200, { data: [], aggregateStatus: null }));
       if (url.match(/\/orders\/o1$/)) return Promise.resolve(json(200, ORDER_DETAIL));
       return Promise.resolve(json(404, {}));
     });
@@ -86,8 +87,24 @@ describe("useOrderDetailData", () => {
     await waitFor(() => expect(result.current.detail).not.toBeNull());
     expect(result.current.detail?.orderNumber).toBe(1042);
     expect(result.current.vendorGroups).toEqual([]);
+    expect(result.current.vendorAggregateStatus).toBeNull();
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBe(false);
+  });
+
+  it("surfaces the aggregate vendor status alongside the groups (Phase 8)", async () => {
+    fetchMock.mockImplementation((input: string | URL) => {
+      const url = String(input);
+      if (url.match(/\/orders\/o1\/activity/))
+        return Promise.resolve(json(200, { data: [], page: {} }));
+      if (url.match(/\/orders\/o1\/vendor-groups/))
+        return Promise.resolve(json(200, { data: [], aggregateStatus: "processing" }));
+      if (url.match(/\/orders\/o1$/)) return Promise.resolve(json(200, ORDER_DETAIL));
+      return Promise.resolve(json(404, {}));
+    });
+    const { result } = renderHook(() => useOrderDetailData("o1"));
+    await waitFor(() => expect(result.current.detail).not.toBeNull());
+    expect(result.current.vendorAggregateStatus).toBe("processing");
   });
 
   it("does not fail the whole panel when the vendor-groups fetch errors", async () => {
@@ -229,6 +246,7 @@ describe("buildOrderDetailSections", () => {
           items: [],
         },
       ],
+      vendorAggregateStatus: "new", // the slowest group (Store B) is the bottleneck
       t,
       locale: "en",
       companyId: "co1",
@@ -238,11 +256,46 @@ describe("buildOrderDetailSections", () => {
     const tracking = sections.find((s) => s.key === "vendorTracking");
     expect(tracking).toBeDefined();
     render(<div>{tracking?.content}</div>);
+    expect(screen.getByText("orders.detail.vendorTracking.overallStatus")).toBeInTheDocument();
     expect(screen.getByText("Store A")).toBeInTheDocument();
     expect(screen.getByText("Vendor A")).toBeInTheDocument();
-    expect(screen.getByText("vendor.group.status.delivered")).toBeInTheDocument();
     expect(screen.getByText("Store B")).toBeInTheDocument();
     expect(screen.getByText("orders.detail.vendorTracking.noVendor")).toBeInTheDocument();
-    expect(screen.getByText("vendor.group.status.new")).toBeInTheDocument();
+    // Two "new" badges now: the per-group one for Store B and the overall one.
+    expect(screen.getAllByText("vendor.group.status.new")).toHaveLength(2);
+    expect(screen.getByText("vendor.group.status.delivered")).toBeInTheDocument();
+  });
+
+  it("omits the overall-status summary when there is no aggregate (defensive)", () => {
+    const sections = buildOrderDetailSections({
+      detail: ORDER_DETAIL,
+      activity: [],
+      vendorGroups: [
+        {
+          id: "g1",
+          orderId: "o1",
+          orderNumber: 1042,
+          warehouseId: "w1",
+          warehouseName: "Store A",
+          warehouseCode: null,
+          vendorMemberId: null,
+          vendorName: null,
+          status: "new",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          items: [],
+        },
+      ],
+      vendorAggregateStatus: null,
+      t,
+      locale: "en",
+      companyId: "co1",
+      onNotify: () => {},
+      onPatch: () => {},
+    });
+    const tracking = sections.find((s) => s.key === "vendorTracking");
+    render(<div>{tracking?.content}</div>);
+    expect(
+      screen.queryByText("orders.detail.vendorTracking.overallStatus"),
+    ).not.toBeInTheDocument();
   });
 });
