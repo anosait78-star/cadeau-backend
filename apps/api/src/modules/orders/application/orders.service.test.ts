@@ -592,7 +592,7 @@ describe("OrdersService — updateMyVendorGroupStatus (Vendor Accounts, Phase 3)
         action: "order_vendor_group.status_changed",
         entityType: "order_vendor_group",
         entityId: "g1",
-        changes: { from: "new", to: "processing" },
+        changes: { orderId: "o1", warehouseId: "w1", from: "new", to: "processing" },
       }),
     );
     expect(h.events.publish).toHaveBeenCalledWith(

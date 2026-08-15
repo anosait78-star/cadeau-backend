@@ -594,6 +594,8 @@ export class OrderVendorGroupDto {
   vendorName!: string | null;
   @ApiProperty({ example: "new" })
   status!: string;
+  @ApiProperty({ format: "date-time", description: "When status (or the group) last changed." })
+  updatedAt!: string;
   @ApiProperty({ type: [OrderVendorGroupItemDto] })
   items!: OrderVendorGroupItemDto[];
 
@@ -608,6 +610,7 @@ export class OrderVendorGroupDto {
     dto.vendorMemberId = view.vendorMemberId;
     dto.vendorName = view.vendorName;
     dto.status = view.status;
+    dto.updatedAt = view.updatedAt;
     dto.items = view.items.map((i) => OrderVendorGroupItemDto.from(i));
     return dto;
   }

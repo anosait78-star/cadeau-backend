@@ -454,13 +454,22 @@ export class OrdersService {
       throw AppErrors.conflict("This vendor group's status already changed — reload and retry.");
     }
 
+    // Audit Trail review (Phase 6): the master spec asks every vendor-group
+    // status change to record orderId/vendor(actor)/warehouseId/previousStatus/
+    // newStatus/timestamp. actorId + entityId + created_at (implicit) plus
+    // this changes block together carry the full set.
     await this.audit.record({
       companyId,
       actorId: principal.userId,
       action: "order_vendor_group.status_changed",
       entityType: "order_vendor_group",
       entityId: groupId,
-      changes: { from: group.status, to: toStatus },
+      changes: {
+        orderId: group.orderId,
+        warehouseId,
+        from: group.status,
+        to: toStatus,
+      },
     });
     await this.events.publish({
       type: "order_vendor_group.status_changed",

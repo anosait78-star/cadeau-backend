@@ -92,6 +92,8 @@ export interface OrderVendorGroupView {
   readonly vendorMemberId: string | null;
   readonly vendorName: string | null;
   readonly status: string;
+  /** When `status` (or the group itself) last changed — reuses `updatedAt`, no dedicated column (Phase 3 decision). */
+  readonly updatedAt: string;
   readonly items: readonly OrderVendorGroupItemView[];
 }
 

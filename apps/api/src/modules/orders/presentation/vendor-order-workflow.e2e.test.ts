@@ -35,7 +35,7 @@ import { AppLogger } from "../../../shared/logging/app-logger";
  * warehouseId (that field is populated by storefront ingestion only, by
  * design — this test does not add it, and touches no WooCommerce/WCFM code).
  */
-describe("Vendor Order workflow (e2e) — Phases 1–5", () => {
+describe("Vendor Order workflow (e2e) — Phases 1–6", () => {
   let app: INestApplication;
   const server = () => app.getHttpServer();
 
@@ -310,6 +310,27 @@ describe("Vendor Order workflow (e2e) — Phases 1–5", () => {
     expect(finalByWarehouse.get(w1)).toBe("delivered"); // Vendor A finished
     expect(finalByWarehouse.get(w2)).toBe("new"); // Vendor B never touched it
     expect(finalByWarehouse.get(w3)).toBe("new"); // no vendor at all yet
+    // "Last updated" is exposed per group (Phase 6) — reuses updatedAt, no new column.
+    const finalGroupW1 = (
+      finalGroups.body.data as { warehouseId: string; updatedAt: string }[]
+    ).find((g) => g.warehouseId === w1);
+    expect(Number.isNaN(new Date(finalGroupW1?.updatedAt ?? "").getTime())).toBe(false);
+
+    // ---- 9b. Audit trail review (Phase 6): the company can see the vendor's
+    // full history via the SAME activity log/endpoint it already had ------
+    const activity = await request(server())
+      .get(`/v1/orders/${orderId}/activity`)
+      .set("Authorization", auth(ownerToken));
+    expect(activity.status).toBe(200);
+    const vendorActivity = (
+      activity.body.data as { kind: string; fromValue: string; toValue: string; note: string }[]
+    ).filter((a) => a.kind === "vendor_status_changed");
+    expect(vendorActivity.map((a) => `${a.fromValue}->${a.toValue}`)).toEqual([
+      "ready->delivered",
+      "processing->ready",
+      "new->processing",
+    ]); // newest first, one row per Vendor A transition
+    expect(vendorActivity.every((a) => a.note === "Store A")).toBe(true);
 
     // ---- 10. Tampering with another vendor's groupId is rejected ---------
     const crossVendor = await advance(vendorBToken, vendorAGroup.id, "processing");

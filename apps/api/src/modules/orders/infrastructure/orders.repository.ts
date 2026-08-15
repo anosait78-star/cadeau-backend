@@ -550,7 +550,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       }),
       tx.orderVendorGroup.findMany({
         where: { orderId, companyId: actor.companyId, warehouseId: { in: warehouseIds } },
-        select: { id: true, warehouseId: true, status: true },
+        select: { id: true, warehouseId: true, status: true, updatedAt: true },
       }),
       tx.warehouse.findMany({
         where: { id: { in: warehouseIds }, companyId: actor.companyId },
@@ -586,6 +586,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
         vendorMemberId: vendor?.id ?? null,
         vendorName: vendor === undefined ? null : (vendor.user.fullName ?? vendor.user.email),
         status: group?.status ?? "new",
+        updatedAt: (group?.updatedAt ?? new Date()).toISOString(),
         items: groupItems.map((item) => ({
           id: item.id,
           variantId: item.variantId,
@@ -617,7 +618,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       const groups = await tx.orderVendorGroup.findMany({
         where: { companyId, warehouseId },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        select: { id: true, orderId: true, status: true },
+        select: { id: true, orderId: true, status: true, updatedAt: true },
       });
       if (groups.length === 0) return [];
 
@@ -664,6 +665,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
           vendorMemberId: null,
           vendorName: null,
           status: group.status,
+          updatedAt: group.updatedAt.toISOString(),
           items: (itemsByOrder.get(group.orderId) ?? []).map((item) => ({
             id: item.id,
             variantId: item.variantId,
@@ -710,7 +712,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
 
       const group = await tx.orderVendorGroup.findFirstOrThrow({
         where: { id: groupId },
-        select: { orderId: true, warehouseId: true, status: true },
+        select: { orderId: true, warehouseId: true, status: true, updatedAt: true },
       });
       const [order, warehouse, items] = await Promise.all([
         tx.order.findFirst({ where: { id: group.orderId }, select: { orderNumber: true } }),
@@ -727,6 +729,19 @@ export class OrdersRepository implements OrdersRepositoryPort {
           select: { id: true, variantId: true, nameSnapshot: true, quantity: true, price: true },
         }),
       ]);
+
+      // Vendor Accounts, Phase 6: append to the Parent Order's own activity
+      // log too — reuses the existing GET /orders/{id}/activity endpoint and
+      // Activities/Timeline tabs the company already has, so "the company can
+      // see the history" (the master spec's audit-trail requirement) needs no
+      // new read surface. Never touches Order.status itself.
+      await this.addActivity(tx, actor, group.orderId, {
+        kind: "vendor_status_changed",
+        fromValue: fromStatus,
+        toValue: toStatus,
+        note: warehouse?.name ?? null,
+      });
+
       return {
         id: groupId,
         orderId: group.orderId,
@@ -737,6 +752,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
         vendorMemberId: null,
         vendorName: null,
         status: group.status,
+        updatedAt: group.updatedAt.toISOString(),
         items: items.map((item) => ({
           id: item.id,
           variantId: item.variantId,

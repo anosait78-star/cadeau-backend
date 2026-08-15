@@ -756,8 +756,8 @@ describe("OrdersRepository — listVendorGroups (Vendor Accounts, Phase 2)", () 
       },
     ]);
     models.orderVendorGroup.findMany.mockResolvedValueOnce([
-      { id: "g1", warehouseId: "w1", status: "new" },
-      { id: "g2", warehouseId: "w2", status: "new" },
+      { id: "g1", warehouseId: "w1", status: "new", updatedAt: DATE },
+      { id: "g2", warehouseId: "w2", status: "new", updatedAt: DATE },
     ]);
     models.warehouse.findMany.mockResolvedValueOnce([
       { id: "w1", name: "Store A", code: "A" },
@@ -819,7 +819,7 @@ describe("OrdersRepository — listVendorGroups (Vendor Accounts, Phase 2)", () 
       },
     ]);
     models.orderVendorGroup.findMany.mockResolvedValueOnce([
-      { id: "g1", warehouseId: "w1", status: "new" },
+      { id: "g1", warehouseId: "w1", status: "new", updatedAt: DATE },
     ]);
     models.warehouse.findMany.mockResolvedValueOnce([{ id: "w1", name: "Store A", code: null }]);
     models.companyMember.findMany.mockResolvedValueOnce([
@@ -843,7 +843,7 @@ describe("OrdersRepository — listVendorGroups (Vendor Accounts, Phase 2)", () 
       },
     ]);
     models.orderVendorGroup.findMany.mockResolvedValueOnce([
-      { id: "g1", warehouseId: "w1", status: "new" },
+      { id: "g1", warehouseId: "w1", status: "new", updatedAt: DATE },
     ]);
     models.warehouse.findMany.mockResolvedValueOnce([{ id: "w1", name: "Store A", code: null }]);
     models.companyMember.findMany.mockResolvedValueOnce([]);
@@ -875,8 +875,8 @@ describe("OrdersRepository — vendor self-service (Vendor Accounts, Phase 3)", 
   it("listVendorGroupsForWarehouse lists groups across orders, newest first, with items", async () => {
     const { repo, models } = makeRepo();
     models.orderVendorGroup.findMany.mockResolvedValueOnce([
-      { id: "g1", orderId: "o1", status: "new" },
-      { id: "g2", orderId: "o2", status: "processing" },
+      { id: "g1", orderId: "o1", status: "new", updatedAt: DATE },
+      { id: "g2", orderId: "o2", status: "processing", updatedAt: DATE },
     ]);
     models.order.findMany.mockResolvedValueOnce([
       { id: "o1", orderNumber: 1001n },
@@ -919,6 +919,7 @@ describe("OrdersRepository — vendor self-service (Vendor Accounts, Phase 3)", 
       orderId: "o1",
       warehouseId: "w1",
       status: "processing",
+      updatedAt: DATE,
     });
     models.order.findFirst.mockResolvedValueOnce({ orderNumber: 1042n });
     models.warehouse.findFirst.mockResolvedValueOnce({ name: "Store A", code: null });
@@ -929,6 +930,19 @@ describe("OrdersRepository — vendor self-service (Vendor Accounts, Phase 3)", 
     expect(models.orderVendorGroup.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ id: "g1", companyId: COMPANY, status: "new" }),
+      }),
+    );
+    // Audit Trail review (Phase 6): appended to the Parent Order's own
+    // activity log, reusing the existing GET /orders/{id}/activity endpoint.
+    expect(models.orderActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          orderId: "o1",
+          kind: "vendor_status_changed",
+          fromValue: "new",
+          toValue: "processing",
+          note: "Store A",
+        }),
       }),
     );
   });
