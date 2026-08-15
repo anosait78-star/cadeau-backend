@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn";
 import { teamErrorText } from "./team-error-text";
 import {
   CUSTOM_ROLE,
+  MANAGER_ROLE,
   TEMPLATE_ROLES,
   createInvitation,
   listAvailablePermissions,
@@ -38,6 +39,7 @@ export function InviteMemberDialog({
   onOpenChange,
   companyId,
   isOwner,
+  isManager,
   onCreated,
 }: {
   readonly open: boolean;
@@ -45,6 +47,8 @@ export function InviteMemberDialog({
   readonly companyId: string;
   /** Whether the caller may pick "Owner" as the invited role (UX only — the server enforces this). */
   readonly isOwner: boolean;
+  /** Whether the caller may pick "Manager" as the invited role (UX only — the server enforces this). */
+  readonly isManager: boolean;
   readonly onCreated: (invitation: CreatedInvitation) => void;
 }): ReactNode {
   const { t } = useI18n();
@@ -52,6 +56,7 @@ export function InviteMemberDialog({
   const [email, setEmail] = useState("");
   const [roleType, setRoleType] = useState<RoleType>("predefined");
   const [predefinedRole, setPredefinedRole] = useState<TemplateRole>("store_manager");
+  const [grantAccessManage, setGrantAccessManage] = useState(false);
   const [availablePermissions, setAvailablePermissions] = useState<AvailablePermission[]>([]);
   const [permissionsState, setPermissionsState] = useState<"idle" | "loading" | "ready" | "error">(
     "idle",
@@ -66,6 +71,7 @@ export function InviteMemberDialog({
     setEmail("");
     setRoleType("predefined");
     setPredefinedRole("store_manager");
+    setGrantAccessManage(false);
     setSelected(new Set());
     setError(null);
     setPermissionsState("idle");
@@ -94,7 +100,11 @@ export function InviteMemberDialog({
   }, [availablePermissions]);
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const predefinedRoleOptions = TEMPLATE_ROLES.filter((role) => role !== "owner" || isOwner);
+  const predefinedRoleOptions = TEMPLATE_ROLES.filter((role) => {
+    if (role === "owner") return isOwner;
+    if (role === MANAGER_ROLE) return isOwner || isManager;
+    return true;
+  });
 
   const toggle = (key: string): void => {
     setSelected((prev) => {
@@ -113,6 +123,9 @@ export function InviteMemberDialog({
         email: email.trim(),
         role: roleType === "custom" ? CUSTOM_ROLE : predefinedRole,
         ...(roleType === "custom" ? { permissionKeys: [...selected] } : {}),
+        ...(roleType === "predefined" && predefinedRole === MANAGER_ROLE && grantAccessManage
+          ? { permissionKeys: ["access.manage"] }
+          : {}),
       });
       onCreated(created);
       onOpenChange(false);
@@ -179,18 +192,34 @@ export function InviteMemberDialog({
             </div>
 
             {roleType === "predefined" ? (
-              <FormField label={t("team.invite.field.predefinedRole")} htmlFor="invite-role">
-                <Combobox
-                  id="invite-role"
-                  ariaLabel={t("team.invite.field.predefinedRole")}
-                  value={predefinedRole}
-                  onChange={(value) => setPredefinedRole(value as TemplateRole)}
-                  options={predefinedRoleOptions.map((role) => ({
-                    value: role,
-                    label: t(`team.invite.role.${role}`),
-                  }))}
-                />
-              </FormField>
+              <>
+                <FormField label={t("team.invite.field.predefinedRole")} htmlFor="invite-role">
+                  <Combobox
+                    id="invite-role"
+                    ariaLabel={t("team.invite.field.predefinedRole")}
+                    value={predefinedRole}
+                    onChange={(value) => setPredefinedRole(value as TemplateRole)}
+                    options={predefinedRoleOptions.map((role) => ({
+                      value: role,
+                      label: t(`team.invite.role.${role}`),
+                    }))}
+                  />
+                </FormField>
+                {predefinedRole === MANAGER_ROLE ? (
+                  <label
+                    className="flex items-start gap-2 text-sm"
+                    htmlFor="invite-grant-access-manage"
+                  >
+                    <Checkbox
+                      id="invite-grant-access-manage"
+                      checked={grantAccessManage}
+                      onChange={() => setGrantAccessManage((prev) => !prev)}
+                      className="mt-0.5"
+                    />
+                    <span>{t("team.invite.manager.grantAccessManage")}</span>
+                  </label>
+                ) : null}
+              </>
             ) : (
               <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                 {t("team.invite.custom.description")}

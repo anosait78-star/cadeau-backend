@@ -83,6 +83,7 @@ export function TeamPage(): ReactNode {
   const companyId = user?.activeCompanyId ?? null;
   const activeMembership = user?.companies.find((c) => c.id === companyId);
   const isOwner = activeMembership?.role === "owner";
+  const isManager = activeMembership?.role === "manager";
   const canManage = has({ permission: "access.manage" });
 
   const [members, setMembers] = useState<ListState<TeamMember>>({ kind: "loading" });
@@ -285,6 +286,7 @@ export function TeamPage(): ReactNode {
         onOpenChange={setInviteOpen}
         companyId={companyId}
         isOwner={isOwner}
+        isManager={isManager}
         onCreated={(invitation) => {
           setCreatedInvitation(invitation);
           loadInvitations(companyId);
