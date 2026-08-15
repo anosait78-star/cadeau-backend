@@ -39,3 +39,31 @@ export function canTransitionVendorGroup(from: VendorGroupStatus, to: VendorGrou
 export function nextVendorGroupStates(from: VendorGroupStatus): readonly VendorGroupStatus[] {
   return TRANSITIONS[from];
 }
+
+/**
+ * A read-only, computed-on-the-fly aggregate across an order's vendor groups
+ * (Vendor Accounts, Phase 8). Per the master spec: the Parent Order's own
+ * `status`/transition machine is never touched by this — it is purely a
+ * derived summary for tracking UIs, recomputed fresh on every read from
+ * whatever `OrderVendorGroup.status` rows exist at that moment (never
+ * persisted, no new column, no new event).
+ *
+ * The **least advanced** status among all groups wins — the slowest vendor is
+ * the bottleneck. Matches the spec's worked example: 4 of 5 vendors
+ * `delivered` and 1 still `new` aggregates to `"new"`, not `"delivered"`,
+ * because the order as a whole isn't done until every vendor is.
+ *
+ * `null` when the order has no vendor groups at all (a non-multi-vendor
+ * order) — there is nothing to aggregate, and callers should fall back to
+ * showing nothing rather than a misleading status.
+ */
+export function aggregateVendorOrderStatus(
+  groups: readonly { readonly status: string }[],
+): VendorGroupStatus | null {
+  if (groups.length === 0) return null;
+  const ranks = groups
+    .map((g) => VENDOR_GROUP_STATUSES.indexOf(g.status as VendorGroupStatus))
+    .filter((rank) => rank !== -1); // ignore any row in an unrecognized status, defensively
+  if (ranks.length === 0) return null;
+  return VENDOR_GROUP_STATUSES[Math.min(...ranks)]!;
+}

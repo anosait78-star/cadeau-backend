@@ -33,7 +33,11 @@ import {
   type OrderStatus,
   type PaymentStatus,
 } from "../../domain/order-status";
-import { VENDOR_GROUP_STATUSES, type VendorGroupStatus } from "../../domain/vendor-group-status";
+import {
+  aggregateVendorOrderStatus,
+  VENDOR_GROUP_STATUSES,
+  type VendorGroupStatus,
+} from "../../domain/vendor-group-status";
 
 /** The most orders one bulk request may touch. */
 export const BULK_MAX = 200;
@@ -621,9 +625,21 @@ export class OrderVendorGroupListDto {
   @ApiProperty({ type: [OrderVendorGroupDto] })
   data!: OrderVendorGroupDto[];
 
+  @ApiProperty({
+    enum: VENDOR_GROUP_STATUSES,
+    nullable: true,
+    description:
+      "Computed, read-only summary across every group (Vendor Accounts, Phase 8) — the " +
+      "LEAST advanced status among them, since the order isn't really done until every " +
+      "vendor is. Never persisted, never affects the Parent Order's own status. Null when " +
+      "the order has no vendor groups (not multi-vendor).",
+  })
+  aggregateStatus!: VendorGroupStatus | null;
+
   static from(groups: readonly OrderVendorGroupView[]): OrderVendorGroupListDto {
     const dto = new OrderVendorGroupListDto();
     dto.data = groups.map((g) => OrderVendorGroupDto.from(g));
+    dto.aggregateStatus = aggregateVendorOrderStatus(groups);
     return dto;
   }
 }

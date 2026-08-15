@@ -35,7 +35,7 @@ import { AppLogger } from "../../../shared/logging/app-logger";
  * warehouseId (that field is populated by storefront ingestion only, by
  * design — this test does not add it, and touches no WooCommerce/WCFM code).
  */
-describe("Vendor Order workflow (e2e) — Phases 1–6", () => {
+describe("Vendor Order workflow (e2e) — Phases 1–6, 8", () => {
   let app: INestApplication;
   const server = () => app.getHttpServer();
 
@@ -213,6 +213,8 @@ describe("Vendor Order workflow (e2e) — Phases 1–6", () => {
     }[];
     expect(groups).toHaveLength(3);
     expect(groups.every((g) => g.status === "new")).toBe(true); // company's button did NOT touch vendor status
+    // Aggregate status (Phase 8): every group is "new" → the aggregate is "new" too.
+    expect(groupsAfterProcessing.body.aggregateStatus).toBe("new");
     const groupW1 = groups.find((g) => g.warehouseId === w1)!;
     const groupW2 = groups.find((g) => g.warehouseId === w2)!;
     const groupW3 = groups.find((g) => g.warehouseId === w3)!;
@@ -310,6 +312,11 @@ describe("Vendor Order workflow (e2e) — Phases 1–6", () => {
     expect(finalByWarehouse.get(w1)).toBe("delivered"); // Vendor A finished
     expect(finalByWarehouse.get(w2)).toBe("new"); // Vendor B never touched it
     expect(finalByWarehouse.get(w3)).toBe("new"); // no vendor at all yet
+    // Aggregate status (Phase 8): Vendor A delivered, but W2/W3 are still
+    // "new" — the whole order reads as "new", the least-advanced group,
+    // never "delivered" just because one vendor finished. Parent Order's own
+    // status is completely untouched by this (still "processing" above).
+    expect(finalGroups.body.aggregateStatus).toBe("new");
     // "Last updated" is exposed per group (Phase 6) — reuses updatedAt, no new column.
     const finalGroupW1 = (
       finalGroups.body.data as { warehouseId: string; updatedAt: string }[]

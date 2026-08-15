@@ -202,6 +202,39 @@ describe("OrdersController", () => {
     expect(res.data[0]).toMatchObject({ warehouseId: "w1", warehouseName: "Main" });
   });
 
+  it("aggregates the vendor groups' statuses (Vendor Accounts, Phase 8)", async () => {
+    h.service.listVendorGroups.mockResolvedValue([
+      {
+        id: "g1",
+        warehouseId: "w1",
+        warehouseName: "A",
+        warehouseCode: null,
+        vendorMemberId: null,
+        vendorName: null,
+        status: "delivered",
+        items: [],
+      },
+      {
+        id: "g2",
+        warehouseId: "w2",
+        warehouseName: "B",
+        warehouseCode: null,
+        vendorMemberId: null,
+        vendorName: null,
+        status: "new",
+        items: [],
+      },
+    ]);
+    const res = await h.controller.vendorGroups(principal, ORDER);
+    expect(res.aggregateStatus).toBe("new"); // the least-advanced group wins
+  });
+
+  it("has no aggregate status when the order has no vendor groups", async () => {
+    h.service.listVendorGroups.mockResolvedValue([]);
+    const res = await h.controller.vendorGroups(principal, ORDER);
+    expect(res.aggregateStatus).toBeNull();
+  });
+
   it("parses pasted text", () => {
     const res = h.controller.parse(principal, { text: "Name: Sara\n01001234567" });
     expect(res.name).toBe("Sara");
