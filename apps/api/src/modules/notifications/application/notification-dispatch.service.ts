@@ -65,25 +65,60 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
 
   private async onOrderStatusChanged(event: DomainEvent<"order.status_changed">): Promise<void> {
     const order = await this.orderFacts.findById(event.companyId, event.payload.orderId);
-    if (order === null || order.assigneeId === null) return;
+    if (order !== null && order.assigneeId !== null) {
+      await this.dispatch(event.companyId, order.assigneeId, {
+        type: "order.status_changed",
+        title: "Order status changed",
+        body: `Order ${order.orderNumber} moved from ${event.payload.fromStatus} to ${event.payload.toStatus}.`,
+        payload: {
+          orderId: event.payload.orderId,
+          fromStatus: event.payload.fromStatus,
+          toStatus: event.payload.toStatus,
+        },
+      });
 
-    await this.dispatch(event.companyId, order.assigneeId, {
-      type: "order.status_changed",
-      title: "Order status changed",
-      body: `Order ${order.orderNumber} moved from ${event.payload.fromStatus} to ${event.payload.toStatus}.`,
-      payload: {
+      await this.customerMessaging.send({
+        companyId: event.companyId,
         orderId: event.payload.orderId,
-        fromStatus: event.payload.fromStatus,
-        toStatus: event.payload.toStatus,
-      },
-    });
+        template: "order_status_changed",
+        params: { toStatus: event.payload.toStatus },
+      });
+    }
 
-    await this.customerMessaging.send({
-      companyId: event.companyId,
-      orderId: event.payload.orderId,
-      template: "order_status_changed",
-      params: { toStatus: event.payload.toStatus },
-    });
+    // Vendor Accounts, Phase 5: entering "processing" is the point Phase 3's
+    // `materializeVendorGroups` guarantees this order's vendor groups exist —
+    // notify each vendor who already has an active membership on their
+    // group's warehouse. One notification per vendor, carrying only that
+    // vendor's own ids — never the full order or other vendors' data. A
+    // group with no vendor joined yet is silently skipped (valid state).
+    if (event.payload.toStatus === "processing") {
+      await this.onOrderEnteredProcessing(event, order?.orderNumber ?? null);
+    }
+  }
+
+  private async onOrderEnteredProcessing(
+    event: DomainEvent<"order.status_changed">,
+    orderNumber: bigint | null,
+  ): Promise<void> {
+    const recipients = await this.orderFacts.listVendorGroupRecipients(
+      event.companyId,
+      event.payload.orderId,
+    );
+    for (const recipient of recipients) {
+      await this.dispatch(event.companyId, recipient.vendorUserId, {
+        type: "order_vendor_group.assigned",
+        title: "New order assigned",
+        body:
+          orderNumber === null
+            ? "You have a new order to prepare."
+            : `You have a new order: #${orderNumber}.`,
+        payload: {
+          orderId: event.payload.orderId,
+          orderVendorGroupId: recipient.orderVendorGroupId,
+          warehouseId: recipient.warehouseId,
+        },
+      });
+    }
   }
 
   private async onPaymentCollected(event: DomainEvent<"payment.collected">): Promise<void> {
@@ -103,7 +138,7 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
     companyId: string,
     profileId: string,
     input: {
-      type: "order.status_changed" | "payment.collected";
+      type: "order.status_changed" | "payment.collected" | "order_vendor_group.assigned";
       title: string;
       body: string;
       payload: unknown;

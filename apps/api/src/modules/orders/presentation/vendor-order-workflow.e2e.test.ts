@@ -11,7 +11,7 @@ import { AppLogger } from "../../../shared/logging/app-logger";
 
 /**
  * Full local end-to-end verification of the Vendor Order workflow (Phases
- * 1–3), against the REAL app + REAL Postgres (no fakes/mocks anywhere) — run
+ * 1–5), against the REAL app + REAL Postgres (no fakes/mocks anywhere) — run
  * with `docker compose up -d db` and the test DB migrated/seeded first (see
  * README / CLAUDE.md). Walks the exact scenario requested for review:
  *
@@ -20,10 +20,13 @@ import { AppLogger } from "../../../shared/logging/app-logger";
  *  3. A multi-vendor order (3 items, one per warehouse — the 3rd warehouse
  *     deliberately has no vendor yet, to prove that's a valid state).
  *  4. The company transitions it to "processing" → vendor groups activate.
- *  5. Vendor A sees only their own item, not Vendor B's or the 3rd group's.
- *  6. Vendor A advances new → processing → ready → delivered.
- *  7. The company's tracking view reflects each vendor's real status.
- *  8. Vendor B (or an unrelated caller) cannot touch Vendor A's group id.
+ *  5. Each vendor with a group gets exactly one `order_vendor_group.assigned`
+ *     notification, carrying only their own ids (Phase 5) — the 3rd
+ *     warehouse's absent vendor and the owner get none.
+ *  6. Vendor A sees only their own item, not Vendor B's or the 3rd group's.
+ *  7. Vendor A advances new → processing → ready → delivered.
+ *  8. The company's tracking view reflects each vendor's real status.
+ *  9. Vendor B (or an unrelated caller) cannot touch Vendor A's group id.
  *
  * `order_items.warehouse_id` is set directly via a tenant-bound Prisma write
  * (mirroring what the storefront-integration ingestion path already does in
@@ -32,7 +35,7 @@ import { AppLogger } from "../../../shared/logging/app-logger";
  * warehouseId (that field is populated by storefront ingestion only, by
  * design — this test does not add it, and touches no WooCommerce/WCFM code).
  */
-describe("Vendor Order workflow (e2e) — Phases 1–3", () => {
+describe("Vendor Order workflow (e2e) — Phases 1–5", () => {
   let app: INestApplication;
   const server = () => app.getHttpServer();
 
@@ -217,6 +220,32 @@ describe("Vendor Order workflow (e2e) — Phases 1–3", () => {
     expect(groupW2.vendorName).toContain(`vendor-b-${run}`);
     expect(groupW3.vendorName).toBeNull(); // no vendor has joined W3 — valid state, not an error
     expect(groupW1.items.map((i) => i.variantId)).toEqual([variantA]);
+
+    // ---- 6b. Each vendor got exactly one notification, own ids only (Phase 5) ----
+    async function myAssignedNotifications(
+      token: string,
+    ): Promise<{ type: string; body: string; payload: { orderVendorGroupId: string } }[]> {
+      const res = await request(server())
+        .get("/v1/notifications")
+        .set("Authorization", auth(token));
+      expect(res.status).toBe(200);
+      return (res.body.data as { type: string; body: string; payload: unknown }[])
+        .filter((n) => n.type === "order_vendor_group.assigned")
+        .map((n) => n as { type: string; body: string; payload: { orderVendorGroupId: string } });
+    }
+    const vendorANotifications = await myAssignedNotifications(vendorAToken);
+    expect(vendorANotifications).toHaveLength(1);
+    expect(vendorANotifications[0]?.payload.orderVendorGroupId).toBe(groupW1.id);
+    expect(vendorANotifications[0]?.body).not.toContain(variantB);
+    expect(vendorANotifications[0]?.body).not.toContain(variantC);
+
+    const vendorBNotifications = await myAssignedNotifications(vendorBToken);
+    expect(vendorBNotifications).toHaveLength(1);
+    expect(vendorBNotifications[0]?.payload.orderVendorGroupId).toBe(groupW2.id);
+
+    // The owner (not a vendor) never receives this notification type.
+    const ownerNotifications = await myAssignedNotifications(ownerToken);
+    expect(ownerNotifications).toHaveLength(0);
 
     // ---- 7. Vendor A sees only their own item, not Vendor B's or W3's ----
     const vendorAList = await request(server())

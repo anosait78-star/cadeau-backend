@@ -1,7 +1,11 @@
 import { apiFetch } from "@/lib/api-client";
 
 /** The closed set of notification types EPIC-15 produces (matches the backend whitelist). */
-export type NotificationType = "order.status_changed" | "payment.collected";
+export type NotificationType =
+  | "order.status_changed"
+  | "payment.collected"
+  /** Vendor Accounts, Phase 5 — sent to a vendor when their group is assigned. */
+  | "order_vendor_group.assigned";
 
 export interface NotificationItem {
   readonly id: string;

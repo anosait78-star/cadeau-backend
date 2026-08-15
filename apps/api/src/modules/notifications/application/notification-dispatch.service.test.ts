@@ -33,6 +33,16 @@ function paymentCollectedEvent(): DomainEvent<"payment.collected"> {
   };
 }
 
+function enteredProcessingEvent(): DomainEvent<"order.status_changed"> {
+  return {
+    type: "order.status_changed",
+    companyId: COMPANY,
+    actorId: "actor1",
+    occurredAt: 1_700_000_000_000,
+    payload: { orderId: ORDER, fromStatus: "new", toStatus: "processing" },
+  };
+}
+
 interface Harness {
   service: NotificationDispatchService;
   handlers: Map<DomainEventType, EventHandler<DomainEventType>>;
@@ -41,7 +51,10 @@ interface Harness {
   deliveryQueue: { [K in keyof DeliveryQueuePort]: ReturnType<typeof vi.fn> };
   customerMessaging: { send: ReturnType<typeof vi.fn> };
   events: { publish: ReturnType<typeof vi.fn> };
-  orderFacts: { findById: ReturnType<typeof vi.fn> };
+  orderFacts: {
+    findById: ReturnType<typeof vi.fn>;
+    listVendorGroupRecipients: ReturnType<typeof vi.fn>;
+  };
 }
 
 function makeHarness(assigneeId: string | null = ASSIGNEE): Harness {
@@ -82,7 +95,10 @@ function makeHarness(assigneeId: string | null = ASSIGNEE): Harness {
     markFailed: vi.fn(),
   };
   const customerMessaging = { send: vi.fn().mockResolvedValue({ sent: false }) };
-  const orderFacts = { findById: vi.fn().mockResolvedValue({ assigneeId, orderNumber: 42n }) };
+  const orderFacts = {
+    findById: vi.fn().mockResolvedValue({ assigneeId, orderNumber: 42n }),
+    listVendorGroupRecipients: vi.fn().mockResolvedValue([]),
+  };
   const clock: Clock = { now: () => 1_700_000_000_000 };
 
   const service = new NotificationDispatchService(
@@ -172,6 +188,67 @@ describe("NotificationDispatchService", () => {
       await expect(
         h.handlers.get("order.status_changed")?.(statusChangedEvent()),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("order.status_changed → processing (Vendor Accounts, Phase 5)", () => {
+    it("notifies each vendor who has a group on this order, with only their own ids", async () => {
+      h.orderFacts.listVendorGroupRecipients.mockResolvedValueOnce([
+        { orderVendorGroupId: "g1", warehouseId: "w1", vendorUserId: "vendorA" },
+        { orderVendorGroupId: "g2", warehouseId: "w2", vendorUserId: "vendorB" },
+      ]);
+      await h.handlers.get("order.status_changed")?.(enteredProcessingEvent());
+
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        "vendorA",
+        expect.objectContaining({
+          type: "order_vendor_group.assigned",
+          payload: { orderId: ORDER, orderVendorGroupId: "g1", warehouseId: "w1" },
+        }),
+      );
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        "vendorB",
+        expect.objectContaining({
+          type: "order_vendor_group.assigned",
+          payload: { orderId: ORDER, orderVendorGroupId: "g2", warehouseId: "w2" },
+        }),
+      );
+      // Never both vendors' ids in the same call — one notification per vendor.
+      const calls = h.repo.create.mock.calls.filter(
+        (c) => (c[2] as { type: string }).type === "order_vendor_group.assigned",
+      );
+      expect(calls).toHaveLength(2);
+    });
+
+    it("skips a group with no vendor joined yet (valid state, not an error)", async () => {
+      h.orderFacts.listVendorGroupRecipients.mockResolvedValueOnce([]);
+      await h.handlers.get("order.status_changed")?.(enteredProcessingEvent());
+      expect(h.repo.create).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ type: "order_vendor_group.assigned" }),
+      );
+    });
+
+    it("still notifies vendors even when the order has no assignee", async () => {
+      h = makeHarness(null);
+      h.service.onModuleInit();
+      h.orderFacts.listVendorGroupRecipients.mockResolvedValueOnce([
+        { orderVendorGroupId: "g1", warehouseId: "w1", vendorUserId: "vendorA" },
+      ]);
+      await h.handlers.get("order.status_changed")?.(enteredProcessingEvent());
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        "vendorA",
+        expect.objectContaining({ type: "order_vendor_group.assigned" }),
+      );
+    });
+
+    it("does not run the vendor fan-out for a transition that isn't into processing", async () => {
+      await h.handlers.get("order.status_changed")?.(statusChangedEvent()); // -> "shipped"
+      expect(h.orderFacts.listVendorGroupRecipients).not.toHaveBeenCalled();
     });
   });
 

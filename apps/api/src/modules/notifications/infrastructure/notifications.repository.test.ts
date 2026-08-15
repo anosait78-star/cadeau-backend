@@ -135,6 +135,7 @@ describe("NotificationsRepository — preferences", () => {
     expect(prefs).toEqual([
       { type: "order.status_changed", inAppEnabled: true, webPushEnabled: true },
       { type: "payment.collected", inAppEnabled: true, webPushEnabled: true },
+      { type: "order_vendor_group.assigned", inAppEnabled: true, webPushEnabled: true },
     ]);
   });
 

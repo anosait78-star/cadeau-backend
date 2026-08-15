@@ -5,11 +5,20 @@ import { OrderFactsAdapter } from "./order-facts.adapter";
 const COMPANY = "11111111-1111-1111-1111-111111111111";
 const ORDER = "22222222-2222-2222-2222-222222222222";
 
-function makeAdapter(order: unknown) {
+function makeAdapter(order: unknown, vendorGroups: unknown[] = []) {
   const findUnique = vi.fn().mockResolvedValue(order);
-  const txHost = { $queryRaw: vi.fn(), order: { findUnique } };
+  const findMany = vi.fn().mockResolvedValue(vendorGroups);
+  const txHost = {
+    $queryRaw: vi.fn(),
+    order: { findUnique },
+    orderVendorGroup: { findMany },
+  };
   const prisma = { $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(txHost)) };
-  return { adapter: new OrderFactsAdapter(prisma as unknown as PrismaClient), findUnique };
+  return {
+    adapter: new OrderFactsAdapter(prisma as unknown as PrismaClient),
+    findUnique,
+    findMany,
+  };
 }
 
 describe("OrderFactsAdapter", () => {
@@ -26,5 +35,26 @@ describe("OrderFactsAdapter", () => {
   it("returns null when the order does not exist", async () => {
     const { adapter } = makeAdapter(null);
     expect(await adapter.findById(COMPANY, ORDER)).toBeNull();
+  });
+});
+
+describe("OrderFactsAdapter — listVendorGroupRecipients (Vendor Accounts, Phase 5)", () => {
+  it("returns one recipient per group that has an active vendor joined", async () => {
+    const { adapter, findMany } = makeAdapter(null, [
+      { id: "g1", warehouseId: "w1", warehouse: { vendorMembers: [{ userId: "u1" }] } },
+      { id: "g2", warehouseId: "w2", warehouse: { vendorMembers: [] } }, // no vendor yet
+    ]);
+    const recipients = await adapter.listVendorGroupRecipients(COMPANY, ORDER);
+    expect(recipients).toEqual([
+      { orderVendorGroupId: "g1", warehouseId: "w1", vendorUserId: "u1" },
+    ]);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orderId: ORDER, companyId: COMPANY } }),
+    );
+  });
+
+  it("returns an empty array when the order has no vendor groups", async () => {
+    const { adapter } = makeAdapter(null, []);
+    expect(await adapter.listVendorGroupRecipients(COMPANY, ORDER)).toEqual([]);
   });
 });
