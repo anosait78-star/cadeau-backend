@@ -17,6 +17,7 @@ import { NotFoundPage } from "@/pages/not-found-page";
 import { CreateCompanyPage } from "@/pages/onboarding/create-company-page";
 import { JoinCompanyPage } from "@/pages/onboarding/join-company-page";
 import { OnboardingStartPage } from "@/pages/onboarding/onboarding-start-page";
+import { VendorDashboardPage } from "@/pages/vendor/vendor-dashboard-page";
 import { NotificationsPage } from "@/pages/settings/notifications-page";
 import { RolesPage } from "@/pages/settings/roles-page";
 import { SettingsPage } from "@/pages/settings/settings-page";
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
       { path: "onboarding", element: <OnboardingStartPage /> },
       { path: "onboarding/create", element: <CreateCompanyPage /> },
       { path: "onboarding/join", element: <JoinCompanyPage /> },
+      { path: "vendor", element: <VendorDashboardPage /> },
       {
         element: <AppShell />,
         children: [

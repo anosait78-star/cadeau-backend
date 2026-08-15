@@ -72,6 +72,7 @@ describe("useOrderDetailData", () => {
       const url = String(input);
       if (url.match(/\/orders\/o1\/activity/))
         return Promise.resolve(json(200, { data: [], page: {} }));
+      if (url.match(/\/orders\/o1\/vendor-groups/)) return Promise.resolve(json(200, { data: [] }));
       if (url.match(/\/orders\/o1$/)) return Promise.resolve(json(200, ORDER_DETAIL));
       return Promise.resolve(json(404, {}));
     });
@@ -80,11 +81,27 @@ describe("useOrderDetailData", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("fetches detail + activity in parallel when given an orderId", async () => {
+  it("fetches detail + activity + vendor groups in parallel when given an orderId", async () => {
     const { result } = renderHook(() => useOrderDetailData("o1"));
     await waitFor(() => expect(result.current.detail).not.toBeNull());
     expect(result.current.detail?.orderNumber).toBe(1042);
+    expect(result.current.vendorGroups).toEqual([]);
     expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBe(false);
+  });
+
+  it("does not fail the whole panel when the vendor-groups fetch errors", async () => {
+    fetchMock.mockImplementation((input: string | URL) => {
+      const url = String(input);
+      if (url.match(/\/orders\/o1\/activity/))
+        return Promise.resolve(json(200, { data: [], page: {} }));
+      if (url.match(/\/orders\/o1\/vendor-groups/)) return Promise.resolve(json(500, {}));
+      if (url.match(/\/orders\/o1$/)) return Promise.resolve(json(200, ORDER_DETAIL));
+      return Promise.resolve(json(404, {}));
+    });
+    const { result } = renderHook(() => useOrderDetailData("o1"));
+    await waitFor(() => expect(result.current.detail).not.toBeNull());
+    expect(result.current.vendorGroups).toEqual([]);
     expect(result.current.error).toBe(false);
   });
 
@@ -109,17 +126,20 @@ describe("buildOrderDetailSections", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("builds all 8 sections", () => {
+  it("builds all 9 sections", () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,
       activity: [],
+      vendorGroups: [],
       t,
       locale: "en",
+      companyId: "co1",
       onNotify: () => {},
       onPatch: () => {},
     });
     expect(sections.map((s) => s.key)).toEqual([
       "summary",
+      "assignee",
       "customer",
       "items",
       "shipping",
@@ -134,8 +154,10 @@ describe("buildOrderDetailSections", () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,
       activity: [],
+      vendorGroups: [],
       t,
       locale: "en",
+      companyId: "co1",
       onNotify: () => {},
       onPatch: () => {},
     });
@@ -148,8 +170,10 @@ describe("buildOrderDetailSections", () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,
       activity: [],
+      vendorGroups: [],
       t,
       locale: "en",
+      companyId: "co1",
       onNotify: () => {},
       onPatch: () => {},
     });
@@ -157,5 +181,66 @@ describe("buildOrderDetailSections", () => {
     render(<div>{customer?.content}</div>);
     expect(screen.getByText("orders.detail.loadingPhone")).toBeInTheDocument();
     expect(await screen.findByText("+201001234567")).toBeInTheDocument();
+  });
+
+  it("omits the vendor tracking tab for a non-multi-vendor order (backward compatible)", () => {
+    const sections = buildOrderDetailSections({
+      detail: ORDER_DETAIL,
+      activity: [],
+      vendorGroups: [],
+      t,
+      locale: "en",
+      companyId: "co1",
+      onNotify: () => {},
+      onPatch: () => {},
+    });
+    expect(sections.some((s) => s.key === "vendorTracking")).toBe(false);
+  });
+
+  it("shows the vendor tracking tab, reflecting each vendor's real status, when groups exist", () => {
+    const sections = buildOrderDetailSections({
+      detail: ORDER_DETAIL,
+      activity: [],
+      vendorGroups: [
+        {
+          id: "g1",
+          orderId: "o1",
+          orderNumber: 1042,
+          warehouseId: "w1",
+          warehouseName: "Store A",
+          warehouseCode: null,
+          vendorMemberId: "m1",
+          vendorName: "Vendor A",
+          status: "delivered",
+          items: [{ id: "i1", variantId: "v1", nameSnapshot: "T — L", quantity: 1, price: 15000 }],
+        },
+        {
+          id: "g2",
+          orderId: "o1",
+          orderNumber: 1042,
+          warehouseId: "w2",
+          warehouseName: "Store B",
+          warehouseCode: null,
+          vendorMemberId: null,
+          vendorName: null,
+          status: "new",
+          items: [],
+        },
+      ],
+      t,
+      locale: "en",
+      companyId: "co1",
+      onNotify: () => {},
+      onPatch: () => {},
+    });
+    const tracking = sections.find((s) => s.key === "vendorTracking");
+    expect(tracking).toBeDefined();
+    render(<div>{tracking?.content}</div>);
+    expect(screen.getByText("Store A")).toBeInTheDocument();
+    expect(screen.getByText("Vendor A")).toBeInTheDocument();
+    expect(screen.getByText("vendor.group.status.delivered")).toBeInTheDocument();
+    expect(screen.getByText("Store B")).toBeInTheDocument();
+    expect(screen.getByText("orders.detail.vendorTracking.noVendor")).toBeInTheDocument();
+    expect(screen.getByText("vendor.group.status.new")).toBeInTheDocument();
   });
 });

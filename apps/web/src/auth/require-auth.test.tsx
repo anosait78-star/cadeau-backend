@@ -28,6 +28,11 @@ const ME_NO_COMPANY = {
   companies: [],
 };
 
+const ME_VENDOR = {
+  ...ME,
+  companies: [{ id: "c1", name: "Acme", slug: "acme", role: "vendor", status: "active" }],
+};
+
 const CAPS = {
   features: [],
   permissions: [],
@@ -58,6 +63,7 @@ function renderGuarded(initialEntry = "/"): void {
             <Route index element={<p>protected content</p>} />
             <Route path="onboarding" element={<p>onboarding screen</p>} />
             <Route path="admin" element={<p>admin screen</p>} />
+            <Route path="vendor" element={<p>vendor dashboard</p>} />
           </Route>
           <Route path="/login" element={<p>login screen</p>} />
         </Routes>
@@ -113,5 +119,27 @@ describe("RequireAuth", () => {
     stubFetch(ME_NO_COMPANY, { isSuperAdmin: true });
     renderGuarded("/admin");
     expect(await screen.findByText("admin screen")).toBeInTheDocument();
+  });
+
+  it("redirects a vendor to /vendor instead of the regular shell (Vendor Accounts, Phase 4)", async () => {
+    writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+    stubFetch(ME_VENDOR);
+    renderGuarded();
+    await waitFor(() => expect(screen.getByText("vendor dashboard")).toBeInTheDocument());
+    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+  });
+
+  it("does not redirect away from /vendor for a vendor caller", async () => {
+    writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+    stubFetch(ME_VENDOR);
+    renderGuarded("/vendor");
+    expect(await screen.findByText("vendor dashboard")).toBeInTheDocument();
+  });
+
+  it("does not redirect a non-vendor (owner) away from the regular shell", async () => {
+    writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+    stubFetch(ME);
+    renderGuarded();
+    expect(await screen.findByText("protected content")).toBeInTheDocument();
   });
 });

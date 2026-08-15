@@ -2,17 +2,25 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { DetailPanelSection } from "@/components/detail-panel/detail-panel";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PermissionGate } from "@/components/access/permission-gate";
+import { StatusBadge } from "@/components/status-badge/status-badge";
 import { getCustomer } from "@/features/customers/customers-api";
+import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
+import type { VendorGroupStatus } from "@/features/vendor/vendor-api";
 import {
+  assignOrder,
   getOrder,
   listOrderActivity,
+  listOrderVendorGroups,
   updateOrder,
   type OrderActivity,
   type OrderDetail,
+  type OrderVendorGroup,
 } from "@/features/orders/orders-api";
+import { listMembers, type TeamMember } from "@/features/team/team-api";
 import { ShipmentSection } from "@/features/shipping/shipment-section";
 import type { TranslationKey } from "@/i18n/dictionaries";
 
@@ -29,10 +37,11 @@ function formatDate(iso: string | null, locale: string): string {
   return iso === null ? DASH : new Date(iso).toLocaleDateString(locale);
 }
 
-/** Lazily fetches an order's detail + activity once, keyed by orderId. */
+/** Lazily fetches an order's detail + activity + vendor groups once, keyed by orderId. */
 export function useOrderDetailData(orderId: string | null): {
   readonly detail: OrderDetail | null;
   readonly activity: OrderActivity[];
+  readonly vendorGroups: OrderVendorGroup[];
   readonly loading: boolean;
   readonly error: boolean;
   readonly reload: () => void;
@@ -40,6 +49,7 @@ export function useOrderDetailData(orderId: string | null): {
 } {
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [activity, setActivity] = useState<OrderActivity[]>([]);
+  const [vendorGroups, setVendorGroups] = useState<OrderVendorGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
@@ -48,9 +58,17 @@ export function useOrderDetailData(orderId: string | null): {
     setLoading(true);
     setError(false);
     try {
-      const [d, a] = await Promise.all([getOrder(orderId), listOrderActivity(orderId)]);
+      const [d, a, v] = await Promise.all([
+        getOrder(orderId),
+        listOrderActivity(orderId),
+        // Vendor tracking is additive and never blocks the rest of the panel
+        // — a caller without visibility into vendor identities (unlikely for
+        // anyone who can already open this order) just sees no tab.
+        listOrderVendorGroups(orderId).catch(() => ({ data: [] })),
+      ]);
       setDetail(d);
       setActivity(a.data);
+      setVendorGroups(v.data);
     } catch {
       setError(true);
     } finally {
@@ -61,10 +79,11 @@ export function useOrderDetailData(orderId: string | null): {
   useEffect(() => {
     setDetail(null);
     setActivity([]);
+    setVendorGroups([]);
     void load();
   }, [load]);
 
-  return { detail, activity, loading, error, reload: () => void load(), setDetail };
+  return { detail, activity, vendorGroups, loading, error, reload: () => void load(), setDetail };
 }
 
 function SummarySection({
@@ -162,6 +181,77 @@ function CustomerSection({
   );
 }
 
+const UNASSIGNED = "__unassigned__";
+
+/** Who the order is assigned to, with a member picker for `orders.assign` holders. */
+function AssigneeSection({
+  detail,
+  companyId,
+  t,
+  onNotify,
+  onPatch,
+}: {
+  detail: OrderDetail;
+  companyId: string | null;
+  t: (k: TranslationKey) => string;
+  onNotify: (text: string) => void;
+  onPatch: (order: OrderDetail) => void;
+}): ReactNode {
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (companyId === null) return;
+    listMembers(companyId)
+      .then(({ data }) => setMembers(data))
+      .catch(() => setMembers([]));
+  }, [companyId]);
+
+  const assignee = members.find((m) => m.id === detail.assigneeId) ?? null;
+
+  const onAssign = async (value: string): Promise<void> => {
+    setPending(true);
+    try {
+      const updated = await assignOrder(detail.id, value === UNASSIGNED ? null : value);
+      onPatch(updated);
+      onNotify(t("orders.saved"));
+    } catch {
+      onNotify(t("orders.saveFailed"));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <div>
+        <p className="text-xs text-muted-foreground">{t("orders.field.assigned")}</p>
+        <p>
+          {assignee !== null
+            ? (assignee.name ?? assignee.email)
+            : t("orders.detail.assignee.unassigned")}
+        </p>
+      </div>
+      <PermissionGate permission="orders.assign">
+        <div className="flex flex-col gap-1">
+          <Label htmlFor={`assignee-${detail.id}`}>{t("orders.detail.assignee.change")}</Label>
+          <Combobox
+            id={`assignee-${detail.id}`}
+            ariaLabel={t("orders.detail.assignee.change")}
+            value={detail.assigneeId ?? UNASSIGNED}
+            onChange={(value) => void onAssign(value)}
+            disabled={pending}
+            options={[
+              { value: UNASSIGNED, label: t("orders.detail.assignee.unassigned") },
+              ...members.map((m) => ({ value: m.id, label: m.name ?? m.email })),
+            ]}
+          />
+        </div>
+      </PermissionGate>
+    </div>
+  );
+}
+
 function ItemsSection({ detail, locale }: { detail: OrderDetail; locale: string }): ReactNode {
   return (
     <ul className="flex flex-col gap-1 text-sm">
@@ -174,6 +264,52 @@ function ItemsSection({ detail, locale }: { detail: OrderDetail; locale: string 
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * "تتبع الطلب" (Vendor Accounts, Phase 4): per-vendor breakdown of a
+ * multi-vendor order, read from the same endpoint the vendor's own status
+ * changes land in — nothing here is computed client-side. Only ever rendered
+ * when the order actually has vendor groups (see {@link buildOrderDetailSections}),
+ * so a normal single-warehouse order shows no trace of this tab.
+ */
+function VendorTrackingSection({
+  groups,
+  locale,
+  t,
+}: {
+  groups: OrderVendorGroup[];
+  locale: string;
+  t: (k: TranslationKey) => string;
+}): ReactNode {
+  return (
+    <div className="flex flex-col gap-3">
+      {groups.map((group) => (
+        <div key={group.id} className="rounded-md border border-border p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium">{group.warehouseName}</span>
+            <StatusBadge
+              tone={VENDOR_GROUP_STATUS_TONE[group.status as VendorGroupStatus] ?? "neutral"}
+              label={t(`vendor.group.status.${group.status}` as TranslationKey)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {group.vendorName ?? t("orders.detail.vendorTracking.noVendor")}
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {group.items.map((item) => (
+              <li key={item.id} className="flex justify-between gap-2">
+                <span>
+                  {item.nameSnapshot} × {item.quantity}
+                </span>
+                <span dir="ltr">{formatMoney(item.price * item.quantity, locale)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -272,15 +408,19 @@ function NotesSection({ detail }: { detail: OrderDetail }): ReactNode {
 export function buildOrderDetailSections({
   detail,
   activity,
+  vendorGroups,
   t,
   locale,
+  companyId,
   onNotify,
   onPatch,
 }: {
   detail: OrderDetail;
   activity: OrderActivity[];
+  vendorGroups: OrderVendorGroup[];
   t: (k: TranslationKey) => string;
   locale: string;
+  companyId: string | null;
   onNotify: (text: string) => void;
   onPatch: (order: OrderDetail) => void;
 }): DetailPanelSection[] {
@@ -289,6 +429,19 @@ export function buildOrderDetailSections({
       key: "summary",
       label: t("orders.detail.tabs.summary"),
       content: <SummarySection detail={detail} locale={locale} t={t} />,
+    },
+    {
+      key: "assignee",
+      label: t("orders.detail.tabs.assignee"),
+      content: (
+        <AssigneeSection
+          detail={detail}
+          companyId={companyId}
+          t={t}
+          onNotify={onNotify}
+          onPatch={onPatch}
+        />
+      ),
     },
     {
       key: "customer",
@@ -300,6 +453,17 @@ export function buildOrderDetailSections({
       label: t("orders.detail.tabs.items"),
       content: <ItemsSection detail={detail} locale={locale} />,
     },
+    // Vendor Accounts, Phase 4: only present when this order actually has
+    // vendor groups — invisible for every single-warehouse/manual order.
+    ...(vendorGroups.length > 0
+      ? [
+          {
+            key: "vendorTracking",
+            label: t("orders.detail.tabs.vendorTracking"),
+            content: <VendorTrackingSection groups={vendorGroups} locale={locale} t={t} />,
+          },
+        ]
+      : []),
     {
       key: "shipping",
       label: t("orders.detail.tabs.shipping"),
