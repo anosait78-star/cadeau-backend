@@ -101,6 +101,15 @@ future notification dispatcher can react without any change to the emitter.
   see the vendor self-service table above. Parent Order cancel/return does
   **not** cascade onto open vendor groups (deferred to a later phase), and no
   Parent Order transition is gated on vendor-group completion.
+- **Aggregate vendor order status (Vendor Accounts, Phase 8):**
+  `GET .../vendor-groups` also returns `aggregateStatus` — a computed,
+  read-only summary across every group in the response: the **least
+  advanced** status among them (the slowest vendor is the bottleneck), or
+  `null` when the order has no vendor groups. Recomputed fresh on every
+  read, never persisted, never affects `Order.status` or any Parent Order
+  rule. Example: 4 of 5 vendor groups `delivered` and 1 still `new`
+  aggregates to `"new"`, not `"delivered"` — the order isn't done until
+  every vendor is.
 - **Audit trail review (Vendor Accounts, Phase 6):** every vendor group
   status change also appends a `vendor_status_changed` row to the **Parent
   Order's own** activity log (`order_activities` — the same table/endpoint
