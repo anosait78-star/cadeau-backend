@@ -6,6 +6,7 @@ import type {
   StockLevelView,
   StockWriteResult,
   TransferView,
+  WarehouseJoinCodeStatusView,
   WarehouseView,
 } from "./inventory.entity";
 import type { ParsedStockListQuery, ParsedWarehouseListQuery } from "./list-query";
@@ -109,6 +110,37 @@ export interface InventoryRepositoryPort {
 
   /** Archive a warehouse (`is_active = false`). Returns the row, or `null` if absent. */
   archiveWarehouse(actor: WriteActor, id: string): Promise<WarehouseView | null>;
+
+  /**
+   * The warehouse a member is scoped to (Vendor Accounts, Phase 1), or `null`
+   * for an unscoped member (sees the whole company) or an unknown member.
+   */
+  findMemberWarehouseScope(userId: string, companyId: string): Promise<string | null>;
+
+  // ---- Warehouse join codes (Vendor Accounts, Phase 1) ----------------------
+
+  /** Status only — never the plaintext. `null` if the warehouse itself is unknown. */
+  getWarehouseJoinCodeStatus(
+    companyId: string,
+    warehouseId: string,
+  ): Promise<WarehouseJoinCodeStatusView | null>;
+
+  /**
+   * Create-or-replace the warehouse's join code (upsert on the unique
+   * `warehouseId`) given its ALREADY-HASHED value: invalidates any previous
+   * code and reactivates it if it had been revoked. Returns `null` if the
+   * warehouse itself is unknown in this tenant. The repository never sees or
+   * returns the plaintext — the service holds it (it generated it) and
+   * composes the returned {@link WarehouseJoinCodeCreatedView} itself.
+   */
+  rotateWarehouseJoinCode(
+    actor: WriteActor,
+    warehouseId: string,
+    codeHash: string,
+  ): Promise<{ readonly createdAt: string } | null>;
+
+  /** Revoke the warehouse's join code (`is_active = false`). `false` if none exists. */
+  revokeWarehouseJoinCode(actor: WriteActor, warehouseId: string): Promise<boolean>;
 
   // ---- Stock levels --------------------------------------------------------
 

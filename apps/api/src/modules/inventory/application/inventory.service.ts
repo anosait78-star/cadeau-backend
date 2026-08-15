@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
@@ -24,6 +25,8 @@ import type {
   StockLevelView,
   StockWriteResult,
   TransferView,
+  WarehouseJoinCodeCreatedView,
+  WarehouseJoinCodeStatusView,
   WarehouseView,
 } from "../domain/inventory.entity";
 import {
@@ -67,6 +70,16 @@ export class InventoryService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parseWarehouseListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
+
+    const scope = await this.resolveWarehouseScope(principal, companyId);
+    if (scope !== null) {
+      // Vendor Accounts, Phase 1: a warehouse-scoped member sees only their own
+      // warehouse, never the company's full set — server-side, regardless of
+      // any filter in `rawQuery`.
+      const row = await this.repo.findWarehouse(companyId, scope);
+      const data = row === null ? [] : [row];
+      return { data, page: { limit: 1, nextCursor: null, hasMore: false } };
+    }
     try {
       return await this.repo.listWarehouses(companyId, query);
     } catch (error) {
@@ -76,6 +89,10 @@ export class InventoryService {
 
   async getWarehouse(principal: RequestPrincipal, id: string): Promise<WarehouseView> {
     const companyId = this.requireTenant(principal);
+    const scope = await this.resolveWarehouseScope(principal, companyId);
+    // 404 (never leak existence) rather than 403: a warehouse-scoped member
+    // must not learn that another warehouse id exists at all.
+    if (scope !== null && scope !== id) throw AppErrors.notFound("Warehouse not found.");
     const row = await this.repo.findWarehouse(companyId, id);
     if (row === null) throw AppErrors.notFound("Warehouse not found.");
     return row;
@@ -132,6 +149,61 @@ export class InventoryService {
       entityType: "warehouse",
       entityId: row.id,
       changes: row,
+    });
+  }
+
+  // ---- Warehouse join codes (Vendor Accounts, Phase 1) ----------------------
+
+  /** Status only (exists/isActive/createdAt) — never the plaintext. */
+  async getWarehouseJoinCode(
+    principal: RequestPrincipal,
+    warehouseId: string,
+  ): Promise<WarehouseJoinCodeStatusView> {
+    const companyId = this.requireTenant(principal);
+    const status = await this.repo.getWarehouseJoinCodeStatus(companyId, warehouseId);
+    if (status === null) throw AppErrors.notFound("Warehouse not found.");
+    return status;
+  }
+
+  /**
+   * Issue a fresh code for the warehouse, invalidating any previous one
+   * (create-or-replace). Returns the plaintext once — the server stores only
+   * its hash and can never redisplay it; a later "view" only shows status.
+   */
+  async rotateWarehouseJoinCode(
+    principal: RequestPrincipal,
+    warehouseId: string,
+  ): Promise<WarehouseJoinCodeCreatedView> {
+    const companyId = this.requireTenant(principal);
+    const code = randomBytes(32).toString("base64url");
+    const row = await this.repo.rotateWarehouseJoinCode(
+      { companyId, actorId: principal.userId },
+      warehouseId,
+      hashJoinCode(code),
+    );
+    if (row === null) throw AppErrors.notFound("Warehouse not found.");
+    await this.record(companyId, principal.userId, {
+      action: "inventory.warehouse_join_code_rotated",
+      entityType: "warehouse_join_code",
+      entityId: warehouseId,
+      // Never the code itself — only that a rotation happened and when.
+      changes: { warehouseId, createdAt: row.createdAt },
+    });
+    return { code, createdAt: row.createdAt };
+  }
+
+  async revokeWarehouseJoinCode(principal: RequestPrincipal, warehouseId: string): Promise<void> {
+    const companyId = this.requireTenant(principal);
+    const revoked = await this.repo.revokeWarehouseJoinCode(
+      { companyId, actorId: principal.userId },
+      warehouseId,
+    );
+    if (!revoked) throw AppErrors.notFound("No join code exists for this warehouse.");
+    await this.record(companyId, principal.userId, {
+      action: "inventory.warehouse_join_code_revoked",
+      entityType: "warehouse_join_code",
+      entityId: warehouseId,
+      changes: { warehouseId },
     });
   }
 
@@ -345,6 +417,20 @@ export class InventoryService {
     return principal.companyId;
   }
 
+  /**
+   * The warehouse the caller is scoped to (Vendor Accounts, Phase 1), or
+   * `null` for an unscoped member who sees the whole company. Keys off
+   * `CompanyMember.warehouseId` being set, not off `role === "vendor"`
+   * literally — the same shape as `orders.service.ts`'s
+   * `canSeeAllOrders`/`scopeToOwnOrders` for `orders.assign`.
+   */
+  private resolveWarehouseScope(
+    principal: RequestPrincipal,
+    companyId: string,
+  ): Promise<string | null> {
+    return this.repo.findMemberWarehouseScope(principal.userId, companyId);
+  }
+
   private mapError(error: unknown): unknown {
     if (error instanceof DuplicateWarehouseError) {
       return AppErrors.conflict(error.message, [{ field: error.field, messages: [error.message] }]);
@@ -365,4 +451,9 @@ export class InventoryService {
     }
     return error;
   }
+}
+
+/** SHA-256 hex hash of a warehouse join code — what we persist and look up by. */
+function hashJoinCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
 }

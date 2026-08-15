@@ -39,16 +39,23 @@ export function changePasswordErrorKey(error: unknown): TranslationKey {
 
 /**
  * Map a thrown error from company creation/joining to a client-safe, localized
- * message key. NOT_FOUND covers both "no invitation with this code" and
+ * message key. NOT_FOUND covers both "no invitation/code with this value" and
  * "expired/revoked" (the API deliberately does not distinguish these).
+ * `kind` picks the wording — a plain company invitation vs. a vendor/warehouse
+ * join code (Vendor Accounts, Phase 1).
  */
-export function onboardingErrorKey(error: unknown): TranslationKey {
+export function onboardingErrorKey(
+  error: unknown,
+  kind: "invitation" | "warehouseCode" = "invitation",
+): TranslationKey {
   if (!(error instanceof ApiError)) {
     return "onboarding.error.generic";
   }
   switch (error.code) {
     case "NOT_FOUND":
-      return "onboarding.error.invalidInvitation";
+      return kind === "warehouseCode"
+        ? "onboarding.error.invalidWarehouseCode"
+        : "onboarding.error.invalidInvitation";
     default:
       return "onboarding.error.generic";
   }

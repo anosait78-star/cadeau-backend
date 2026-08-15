@@ -19,6 +19,8 @@ import {
   type ReservationView,
   type StockLevelView,
   type TransferView,
+  type WarehouseJoinCodeCreatedView,
+  type WarehouseJoinCodeStatusView,
   type WarehouseView,
 } from "../../domain/inventory.entity";
 
@@ -231,6 +233,48 @@ export class WarehouseDto {
     dto.active = view.active;
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;
+    return dto;
+  }
+}
+
+/** A warehouse's join-code status (Vendor Accounts, Phase 1) — never the plaintext. */
+export class WarehouseJoinCodeDto {
+  @ApiProperty()
+  exists!: boolean;
+
+  @ApiPropertyOptional()
+  isActive?: boolean;
+
+  @ApiPropertyOptional({ format: "date-time" })
+  createdAt?: string;
+
+  static from(view: WarehouseJoinCodeStatusView): WarehouseJoinCodeDto {
+    const dto = new WarehouseJoinCodeDto();
+    dto.exists = view.exists;
+    if (view.exists) {
+      dto.isActive = view.isActive;
+      dto.createdAt = view.createdAt;
+    }
+    return dto;
+  }
+}
+
+/**
+ * A freshly rotated warehouse join code, including its one-time plaintext.
+ * Returned only here — the server stores only its hash and can never
+ * redisplay it afterwards.
+ */
+export class WarehouseJoinCodeCreatedDto {
+  @ApiProperty({ description: "One-time shareable code. Returned only here." })
+  code!: string;
+
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  static from(view: WarehouseJoinCodeCreatedView): WarehouseJoinCodeCreatedDto {
+    const dto = new WarehouseJoinCodeCreatedDto();
+    dto.code = view.code;
+    dto.createdAt = view.createdAt;
     return dto;
   }
 }

@@ -84,6 +84,8 @@ function makeRepo() {
     stockTransfer: delegate(),
     stockAdjustment: delegate(),
     productVariant: delegate(),
+    companyMember: delegate(),
+    warehouseJoinCode: delegate(),
   };
   // The last raw result wins; `setTenantContext` also goes through $queryRaw, so
   // tests queue lock rows explicitly with `mockResolvedValueOnce`.
@@ -216,6 +218,90 @@ describe("InventoryRepository — warehouses", () => {
       data: Record<string, unknown>;
     };
     expect(args.data).toMatchObject({ isActive: false, isDefault: false });
+  });
+});
+
+describe("InventoryRepository — findMemberWarehouseScope (Vendor Accounts, Phase 1)", () => {
+  it("returns the member's warehouseId when set", async () => {
+    const { repo, models } = makeRepo();
+    models.companyMember.findFirst.mockResolvedValueOnce({ warehouseId: WAREHOUSE });
+    expect(await repo.findMemberWarehouseScope(ACTOR, COMPANY)).toBe(WAREHOUSE);
+  });
+
+  it("returns null for an unscoped or unknown member", async () => {
+    const { repo, models } = makeRepo();
+    models.companyMember.findFirst.mockResolvedValueOnce({ warehouseId: null });
+    expect(await repo.findMemberWarehouseScope(ACTOR, COMPANY)).toBeNull();
+    models.companyMember.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.findMemberWarehouseScope(ACTOR, COMPANY)).toBeNull();
+  });
+});
+
+describe("InventoryRepository — warehouse join codes (Vendor Accounts, Phase 1)", () => {
+  it("status: no row yet", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouse.findFirst.mockResolvedValueOnce({ id: "w1" });
+    models.warehouseJoinCode.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.getWarehouseJoinCodeStatus(COMPANY, "w1")).toEqual({ exists: false });
+  });
+
+  it("status: existing row, never the plaintext/hash", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouse.findFirst.mockResolvedValueOnce({ id: "w1" });
+    models.warehouseJoinCode.findFirst.mockResolvedValueOnce({
+      isActive: true,
+      createdAt: CREATED,
+    });
+    const status = await repo.getWarehouseJoinCodeStatus(COMPANY, "w1");
+    expect(status).toEqual({ exists: true, isActive: true, createdAt: CREATED.toISOString() });
+    expect(JSON.stringify(status)).not.toMatch(/hash|code/i);
+  });
+
+  it("status: null when the warehouse itself is unknown in this tenant", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouse.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.getWarehouseJoinCodeStatus(COMPANY, "w9")).toBeNull();
+  });
+
+  it("rotate: upserts on the warehouse's unique slot, given an already-hashed code", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouse.findFirst.mockResolvedValueOnce({ id: "w1" });
+    models.warehouseJoinCode.upsert.mockResolvedValueOnce({ createdAt: CREATED });
+    const result = await repo.rotateWarehouseJoinCode(ACTOR_CTX, "w1", "already-hashed");
+    expect(result).toEqual({ createdAt: CREATED.toISOString() });
+    const args = models.warehouseJoinCode.upsert.mock.calls[0]?.[0] as {
+      where: Record<string, unknown>;
+      create: Record<string, unknown>;
+      update: Record<string, unknown>;
+    };
+    expect(args.where).toEqual({ warehouseId: "w1" });
+    expect(args.create).toMatchObject({ codeHash: "already-hashed", isActive: true });
+    expect(args.update).toMatchObject({ codeHash: "already-hashed", isActive: true });
+  });
+
+  it("rotate: null when the warehouse itself is unknown in this tenant", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouse.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.rotateWarehouseJoinCode(ACTOR_CTX, "w9", "hash")).toBeNull();
+    expect(models.warehouseJoinCode.upsert).not.toHaveBeenCalled();
+  });
+
+  it("revoke: sets is_active = false, scoped to the tenant", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouseJoinCode.updateMany.mockResolvedValueOnce({ count: 1 });
+    expect(await repo.revokeWarehouseJoinCode(ACTOR_CTX, "w1")).toBe(true);
+    const args = models.warehouseJoinCode.updateMany.mock.calls[0]?.[0] as {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    };
+    expect(args.where).toMatchObject({ warehouseId: "w1", companyId: COMPANY });
+    expect(args.data).toMatchObject({ isActive: false });
+  });
+
+  it("revoke: false when no code exists for this warehouse in this tenant", async () => {
+    const { repo, models } = makeRepo();
+    models.warehouseJoinCode.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect(await repo.revokeWarehouseJoinCode(ACTOR_CTX, "w9")).toBe(false);
   });
 });
 

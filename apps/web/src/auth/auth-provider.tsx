@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   acceptInvitation as acceptInvitationRequest,
+  acceptWarehouseJoinCode as acceptWarehouseJoinCodeRequest,
   createCompany as createCompanyRequest,
   getMe,
   login as loginRequest,
@@ -119,6 +120,14 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
     [switchCompany],
   );
 
+  const joinWarehouse = useCallback(
+    async (code: string): Promise<void> => {
+      const outcome = await acceptWarehouseJoinCodeRequest(code);
+      await switchCompany(outcome.companyId);
+    },
+    [switchCompany],
+  );
+
   const reload = useCallback(async (): Promise<void> => {
     await loadMe();
   }, [loadMe]);
@@ -133,9 +142,21 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
       switchCompany,
       createCompany,
       joinCompany,
+      joinWarehouse,
       reload,
     }),
-    [status, user, login, register, logout, switchCompany, createCompany, joinCompany, reload],
+    [
+      status,
+      user,
+      login,
+      register,
+      logout,
+      switchCompany,
+      createCompany,
+      joinCompany,
+      joinWarehouse,
+      reload,
+    ],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

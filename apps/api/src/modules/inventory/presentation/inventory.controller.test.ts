@@ -111,6 +111,11 @@ function makeService(): ServiceMock {
     createWarehouse: vi.fn().mockResolvedValue(warehouse()),
     updateWarehouse: vi.fn().mockResolvedValue(warehouse()),
     archiveWarehouse: vi.fn().mockResolvedValue(undefined),
+    getWarehouseJoinCode: vi.fn().mockResolvedValue({ exists: false }),
+    rotateWarehouseJoinCode: vi
+      .fn()
+      .mockResolvedValue({ code: "plain-code", createdAt: "2026-01-01T00:00:00.000Z" }),
+    revokeWarehouseJoinCode: vi.fn().mockResolvedValue(undefined),
     listStock: vi.fn().mockResolvedValue(page([level()])),
     setReorderPoint: vi.fn().mockResolvedValue(level()),
     reserve: vi.fn().mockResolvedValue(reservation()),
@@ -151,6 +156,19 @@ describe("WarehousesController", () => {
     expect(service.getWarehouse).toHaveBeenCalledWith(principal, "w1");
     expect(service.updateWarehouse).toHaveBeenCalledWith(principal, "w1", { name: "Depot" });
     expect(service.archiveWarehouse).toHaveBeenCalledWith(principal, "w1");
+  });
+
+  it("delegates the join-code lifecycle (Vendor Accounts, Phase 1)", async () => {
+    const status = await controller.getJoinCode(principal, "w1");
+    expect(service.getWarehouseJoinCode).toHaveBeenCalledWith(principal, "w1");
+    expect(status).toMatchObject({ exists: false });
+
+    const created = await controller.rotateJoinCode(principal, "w1");
+    expect(service.rotateWarehouseJoinCode).toHaveBeenCalledWith(principal, "w1");
+    expect(created).toMatchObject({ code: "plain-code" });
+
+    await controller.revokeJoinCode(principal, "w1");
+    expect(service.revokeWarehouseJoinCode).toHaveBeenCalledWith(principal, "w1");
   });
 });
 

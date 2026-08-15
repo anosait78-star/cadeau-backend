@@ -9,6 +9,7 @@ import type { TenancyRepositoryPort } from "../domain/tenancy-repository.port";
 import { SlugAlreadyTakenError } from "../domain/tenancy.errors";
 import type {
   AcceptOutcome,
+  AcceptWarehouseJoinCodeOutcome,
   CompanyRecord,
   InvitationRecord,
   MembershipCompany,
@@ -16,6 +17,7 @@ import type {
   MeProfileRow,
   RemoveMemberOutcome,
 } from "../domain/tenancy.types";
+import { VENDOR_ROLE } from "../domain/tenancy-roles";
 import { TenancyService } from "./tenancy.service";
 
 const config = getConfig();
@@ -28,6 +30,14 @@ interface Member {
   role: string;
   status: string;
   createdAt: Date;
+  warehouseId: string | null;
+}
+
+interface JoinCode {
+  companyId: string;
+  warehouseId: string;
+  codeHash: string;
+  isActive: boolean;
 }
 interface Invite {
   id: string;
@@ -48,6 +58,8 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
   readonly companies = new Map<string, CompanyRecord>();
   readonly members: Member[] = [];
   readonly invites = new Map<string, Invite>();
+  /** Warehouse join codes (Vendor Accounts, Phase 1), keyed by warehouseId. */
+  readonly joinCodes = new Map<string, JoinCode>();
   /** Permission keys the fake company's plan/features make available (test-configurable). */
   availablePermissionKeys: string[] = [
     "access.read",
@@ -122,6 +134,7 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
       role: "owner",
       status: "active",
       createdAt: new Date(),
+      warehouseId: null,
     });
     return Promise.resolve(company);
   }
@@ -275,9 +288,48 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
       role: invite.role,
       status: "active",
       createdAt: new Date(),
+      warehouseId: null,
     });
     invite.status = "accepted";
     return Promise.resolve({ kind: "accepted", companyId: invite.companyId, role: invite.role });
+  }
+
+  acceptWarehouseJoinCodeByCode(input: {
+    codeHash: string;
+    userId: string;
+  }): Promise<AcceptWarehouseJoinCodeOutcome> {
+    const code = [...this.joinCodes.values()].find(
+      (c) => c.codeHash === input.codeHash && c.isActive,
+    );
+    if (code === undefined) {
+      return Promise.resolve({ kind: "invalid" });
+    }
+    const existing = this.members.find(
+      (m) => m.companyId === code.companyId && m.userId === input.userId,
+    );
+    if (existing !== undefined) {
+      return Promise.resolve({
+        kind: "already_member",
+        companyId: code.companyId,
+        role: existing.role,
+        warehouseId: existing.warehouseId,
+      });
+    }
+    this.members.push({
+      id: randomUUID(),
+      companyId: code.companyId,
+      userId: input.userId,
+      role: VENDOR_ROLE,
+      status: "active",
+      createdAt: new Date(),
+      warehouseId: code.warehouseId,
+    });
+    return Promise.resolve({
+      kind: "accepted",
+      companyId: code.companyId,
+      role: VENDOR_ROLE,
+      warehouseId: code.warehouseId,
+    });
   }
 }
 
@@ -357,8 +409,21 @@ function seedOwner(repo: FakeTenancyRepo, email: string): { userId: string; comp
     role: "owner",
     status: "active",
     createdAt: new Date(),
+    warehouseId: null,
   });
   return { userId, companyId };
+}
+
+/** Seed an active warehouse join code in the fake repo (Vendor Accounts, Phase 1). */
+function seedJoinCode(repo: FakeTenancyRepo, companyId: string, warehouseId: string): string {
+  const code = randomUUID();
+  repo.joinCodes.set(warehouseId, {
+    companyId,
+    warehouseId,
+    codeHash: hash(code),
+    isActive: true,
+  });
+  return code;
 }
 
 describe("getMe", () => {
@@ -696,6 +761,7 @@ describe("createInvitation — inviting an Owner", () => {
       role: "store_manager",
       status: "active",
       createdAt: new Date(),
+      warehouseId: null,
     });
     const manager: RequestPrincipal = { userId: managerId, sessionId: randomUUID(), companyId };
     await expect(
@@ -851,6 +917,7 @@ describe("listMembers / removeMember", () => {
       role: "member",
       status: "active",
       createdAt: new Date(),
+      warehouseId: null,
     });
 
     await service.removeMember(owner, companyId, otherMemberId);
@@ -900,9 +967,146 @@ describe("listMembers / removeMember", () => {
       role: "owner",
       status: "active",
       createdAt: new Date(),
+      warehouseId: null,
     });
 
     await service.removeMember(owner1, companyId, owner2MemberId);
     expect(repo.members.some((m) => m.id === owner2MemberId)).toBe(false);
+  });
+});
+
+describe("joinWarehouseByCode (Vendor Accounts, Phase 1)", () => {
+  it("joins as a vendor scoped to the code's warehouse", async () => {
+    const { service, repo, audit } = build();
+    const { companyId } = seedOwner(repo, "owner@test.dev");
+    const warehouseId = randomUUID();
+    const code = seedJoinCode(repo, companyId, warehouseId);
+
+    const vendorId = randomUUID();
+    repo.profiles.set(vendorId, {
+      id: vendorId,
+      email: "vendor@test.dev",
+      fullName: null,
+      phoneEncrypted: null,
+      totpEnabledAt: null,
+    });
+    const principal: RequestPrincipal = {
+      userId: vendorId,
+      sessionId: randomUUID(),
+      companyId: null,
+    };
+
+    const result = await service.joinWarehouseByCode(principal, code);
+
+    expect(result).toEqual({
+      companyId,
+      role: "vendor",
+      warehouseId,
+      alreadyMember: false,
+    });
+    const member = repo.members.find((m) => m.userId === vendorId);
+    expect(member?.role).toBe("vendor");
+    expect(member?.warehouseId).toBe(warehouseId);
+    expect(audit.events).toContain("member.joined_via_warehouse_code");
+  });
+
+  it("404s an unknown code (no enumeration)", async () => {
+    const { service, repo } = build();
+    const vendorId = randomUUID();
+    repo.profiles.set(vendorId, {
+      id: vendorId,
+      email: "vendor2@test.dev",
+      fullName: null,
+      phoneEncrypted: null,
+      totpEnabledAt: null,
+    });
+    const principal: RequestPrincipal = {
+      userId: vendorId,
+      sessionId: randomUUID(),
+      companyId: null,
+    };
+    await expect(service.joinWarehouseByCode(principal, "nonexistent-code")).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("404s a revoked code", async () => {
+    const { service, repo } = build();
+    const { companyId } = seedOwner(repo, "owner3@test.dev");
+    const warehouseId = randomUUID();
+    const code = seedJoinCode(repo, companyId, warehouseId);
+    const joinCode = repo.joinCodes.get(warehouseId);
+    if (joinCode !== undefined) joinCode.isActive = false;
+
+    const vendorId = randomUUID();
+    repo.profiles.set(vendorId, {
+      id: vendorId,
+      email: "vendor3@test.dev",
+      fullName: null,
+      phoneEncrypted: null,
+      totpEnabledAt: null,
+    });
+    const principal: RequestPrincipal = {
+      userId: vendorId,
+      sessionId: randomUUID(),
+      companyId: null,
+    };
+    await expect(service.joinWarehouseByCode(principal, code)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("is idempotent for an already-joined vendor", async () => {
+    const { service, repo } = build();
+    const { companyId } = seedOwner(repo, "owner4@test.dev");
+    const warehouseId = randomUUID();
+    const code = seedJoinCode(repo, companyId, warehouseId);
+
+    const vendorId = randomUUID();
+    repo.profiles.set(vendorId, {
+      id: vendorId,
+      email: "vendor4@test.dev",
+      fullName: null,
+      phoneEncrypted: null,
+      totpEnabledAt: null,
+    });
+    const principal: RequestPrincipal = {
+      userId: vendorId,
+      sessionId: randomUUID(),
+      companyId: null,
+    };
+
+    const first = await service.joinWarehouseByCode(principal, code);
+    expect(first.alreadyMember).toBe(false);
+    const second = await service.joinWarehouseByCode(principal, code);
+    expect(second).toEqual({ companyId, role: "vendor", warehouseId, alreadyMember: true });
+    // Only one membership row was created — the second call did not duplicate it.
+    expect(repo.members.filter((m) => m.userId === vendorId)).toHaveLength(1);
+  });
+
+  it("a code from company A never resolves into company B", async () => {
+    const { service, repo } = build();
+    const { companyId: companyA } = seedOwner(repo, "ownerA@test.dev");
+    const { companyId: companyB } = seedOwner(repo, "ownerB@test.dev");
+    const warehouseId = randomUUID();
+    const code = seedJoinCode(repo, companyA, warehouseId);
+
+    const vendorId = randomUUID();
+    repo.profiles.set(vendorId, {
+      id: vendorId,
+      email: "vendor5@test.dev",
+      fullName: null,
+      phoneEncrypted: null,
+      totpEnabledAt: null,
+    });
+    const principal: RequestPrincipal = {
+      userId: vendorId,
+      sessionId: randomUUID(),
+      companyId: null,
+    };
+
+    const result = await service.joinWarehouseByCode(principal, code);
+    expect(result.companyId).toBe(companyA);
+    expect(result.companyId).not.toBe(companyB);
   });
 });

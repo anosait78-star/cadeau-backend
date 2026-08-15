@@ -1,5 +1,6 @@
 import type {
   AcceptOutcome,
+  AcceptWarehouseJoinCodeOutcome,
   CompanyRecord,
   InvitationRecord,
   MembershipCompany,
@@ -110,6 +111,17 @@ export interface TenancyRepositoryPort {
     readonly userId: string;
     readonly email: string;
   }): Promise<AcceptOutcome>;
+
+  /**
+   * Accept a warehouse join code by its hash (Vendor Accounts, Phase 1): same
+   * pre-tenant lookup + atomic join shape as {@link acceptInvitationByCode},
+   * but no email check (the code is not email-scoped) and the resulting
+   * membership is always `role = "vendor"` scoped to the code's warehouse.
+   */
+  acceptWarehouseJoinCodeByCode(input: {
+    readonly codeHash: string;
+    readonly userId: string;
+  }): Promise<AcceptWarehouseJoinCodeOutcome>;
 }
 
 /** DI token for {@link TenancyRepositoryPort}. */

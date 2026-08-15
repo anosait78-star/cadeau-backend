@@ -44,9 +44,18 @@ describe("access catalog integrity", () => {
     expect(new Set(owner?.permissions)).toEqual(new Set(ALL_PERMISSION_KEYS));
   });
 
-  it("defines the six required system templates", () => {
+  it("defines the required system templates", () => {
     expect(TEMPLATES.map((t) => t.key).sort()).toEqual(
-      ["call_center", "finance", "marketing", "owner", "store_manager", "warehouse"].sort(),
+      [
+        "call_center",
+        "finance",
+        "manager",
+        "marketing",
+        "owner",
+        "store_manager",
+        "vendor",
+        "warehouse",
+      ].sort(),
     );
   });
 

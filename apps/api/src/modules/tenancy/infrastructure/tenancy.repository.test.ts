@@ -33,6 +33,7 @@ class FakePrisma {
   readonly companies: Row[] = [];
   readonly members: Row[] = [];
   readonly invitations: Row[] = [];
+  readonly warehouseJoinCodes: Row[] = [];
   readonly plans: Row[] = [{ id: "plan-pro", code: "pro" }];
   readonly subscriptions: Row[] = [];
   readonly queryRaw = vi.fn(() => Promise.resolve([]));
@@ -172,6 +173,11 @@ class FakePrisma {
     },
   };
 
+  warehouseJoinCode = {
+    findFirst: ({ where }: { where: Row }) =>
+      Promise.resolve(this.warehouseJoinCodes.find((c) => matches(c, where)) ?? null),
+  };
+
   plan = {
     findUnique: ({ where }: { where: Row }) =>
       Promise.resolve(this.plans.find((p) => matches(p, where)) ?? null),
@@ -225,6 +231,7 @@ class FakePrisma {
       company: this.company,
       companyMember: this.companyMember,
       invitation: this.invitation,
+      warehouseJoinCode: this.warehouseJoinCode,
       plan: this.plan,
       subscription: this.subscription,
       feature: this.feature,
@@ -520,6 +527,97 @@ describe("TenancyRepository — invitations", () => {
       "orders.read",
     ]);
     expect(db.memberPermissions.every((p) => p["granted"] === true)).toBe(true);
+  });
+});
+
+describe("TenancyRepository — acceptWarehouseJoinCodeByCode (Vendor Accounts, Phase 1)", () => {
+  const WAREHOUSE = "9f1c8f00-0000-4000-8000-0000000000aa";
+
+  it("joins as a vendor scoped to the code's warehouse — no email check", async () => {
+    const { repo, db } = make();
+    db.warehouseJoinCodes.push({
+      companyId: COMPANY,
+      warehouseId: WAREHOUSE,
+      codeHash: "wh-code",
+      isActive: true,
+    });
+    const outcome = await repo.acceptWarehouseJoinCodeByCode({
+      codeHash: "wh-code",
+      userId: USER2,
+    });
+    expect(outcome).toEqual({
+      kind: "accepted",
+      companyId: COMPANY,
+      role: "vendor",
+      warehouseId: WAREHOUSE,
+    });
+    const member = db.members.find((m) => m["userId"] === USER2);
+    expect(member?.["role"]).toBe("vendor");
+    expect(member?.["warehouseId"]).toBe(WAREHOUSE);
+  });
+
+  it("rejects an unknown or inactive (revoked) code", async () => {
+    const { repo } = make();
+    expect(await repo.acceptWarehouseJoinCodeByCode({ codeHash: "nope", userId: USER2 })).toEqual({
+      kind: "invalid",
+    });
+    const { db } = make();
+    db.warehouseJoinCodes.push({
+      companyId: COMPANY,
+      warehouseId: WAREHOUSE,
+      codeHash: "revoked",
+      isActive: false,
+    });
+    const repo2 = new TenancyRepository(db as unknown as PrismaClient);
+    expect(
+      await repo2.acceptWarehouseJoinCodeByCode({ codeHash: "revoked", userId: USER2 }),
+    ).toEqual({ kind: "invalid" });
+  });
+
+  it("is idempotent when the caller is already a member", async () => {
+    const { repo, db } = make();
+    db.members.push({
+      companyId: COMPANY,
+      userId: USER2,
+      role: "vendor",
+      status: "active",
+      warehouseId: WAREHOUSE,
+    });
+    db.warehouseJoinCodes.push({
+      companyId: COMPANY,
+      warehouseId: WAREHOUSE,
+      codeHash: "wh-code-2",
+      isActive: true,
+    });
+    const outcome = await repo.acceptWarehouseJoinCodeByCode({
+      codeHash: "wh-code-2",
+      userId: USER2,
+    });
+    expect(outcome).toEqual({
+      kind: "already_member",
+      companyId: COMPANY,
+      role: "vendor",
+      warehouseId: WAREHOUSE,
+    });
+    // No second membership row was created.
+    expect(db.members.filter((m) => m["userId"] === USER2)).toHaveLength(1);
+  });
+
+  it("a code only ever resolves into its own company", async () => {
+    const { repo, db } = make();
+    const OTHER_COMPANY = "9f1c8f00-0000-4000-8000-000000000002";
+    db.warehouseJoinCodes.push({
+      companyId: OTHER_COMPANY,
+      warehouseId: WAREHOUSE,
+      codeHash: "cross-company",
+      isActive: true,
+    });
+    const outcome = await repo.acceptWarehouseJoinCodeByCode({
+      codeHash: "cross-company",
+      userId: USER2,
+    });
+    expect(outcome).toMatchObject({ kind: "accepted", companyId: OTHER_COMPANY });
+    expect(outcome).not.toMatchObject({ companyId: COMPANY });
   });
 });
 

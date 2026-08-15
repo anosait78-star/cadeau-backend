@@ -18,20 +18,21 @@ multiple companies; the active tenant comes from the token, never the payload
 
 ## Planned endpoints
 
-| Method | Path                                                   | Purpose                                           | Permission / status                          |
-| ------ | ------------------------------------------------------ | ------------------------------------------------- | -------------------------------------------- |
-| GET    | `/v1/me`                                               | The caller's profile + companies.                 | authenticated ✅                             |
-| GET    | `/v1/companies`                                        | Companies the caller belongs to.                  | authenticated ✅                             |
-| POST   | `/v1/companies`                                        | Create a company (become owner) + switch into it. | authenticated ✅                             |
-| POST   | `/v1/companies/{companyId}/switch`                     | Switch the active tenant; re-issues tokens.       | authenticated (member) ✅                    |
-| POST   | `/v1/companies/{companyId}/invitations`                | Invite a member (returns a one-time code).        | active-member ✅ (→ `members.manage` EPIC-5) |
-| DELETE | `/v1/companies/{companyId}/invitations/{invitationId}` | Revoke a pending invite.                          | active-member ✅ (→ `members.manage` EPIC-5) |
-| POST   | `/v1/invitations/accept`                               | Accept an invite by code (join a company).        | authenticated ✅                             |
-| PATCH  | `/v1/me`                                               | Update own profile.                               | authenticated ⬜ EPIC-5                      |
-| GET    | `/v1/companies/{companyId}`                            | Company detail.                                   | `company.read` ⬜ EPIC-5                     |
-| PATCH  | `/v1/companies/{companyId}`                            | Update company.                                   | `company.manage` ⬜ EPIC-5                   |
-| GET    | `/v1/companies/{companyId}/members`                    | List members.                                     | `members.read` ⬜ EPIC-5                     |
-| DELETE | `/v1/companies/{companyId}/members/{memberId}`         | Remove a member.                                  | `members.manage` ⬜ EPIC-5                   |
+| Method | Path                                                   | Purpose                                                                                                   | Permission / status                          |
+| ------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| GET    | `/v1/me`                                               | The caller's profile + companies.                                                                         | authenticated ✅                             |
+| GET    | `/v1/companies`                                        | Companies the caller belongs to.                                                                          | authenticated ✅                             |
+| POST   | `/v1/companies`                                        | Create a company (become owner) + switch into it.                                                         | authenticated ✅                             |
+| POST   | `/v1/companies/{companyId}/switch`                     | Switch the active tenant; re-issues tokens.                                                               | authenticated (member) ✅                    |
+| POST   | `/v1/companies/{companyId}/invitations`                | Invite a member (returns a one-time code).                                                                | active-member ✅ (→ `members.manage` EPIC-5) |
+| DELETE | `/v1/companies/{companyId}/invitations/{invitationId}` | Revoke a pending invite.                                                                                  | active-member ✅ (→ `members.manage` EPIC-5) |
+| POST   | `/v1/invitations/accept`                               | Accept an invite by code (join a company).                                                                | authenticated ✅                             |
+| POST   | `/v1/warehouse-join-codes/accept`                      | Join a company as a `vendor`, scoped to one warehouse, by warehouse join code (Vendor Accounts, Phase 1). | authenticated ✅                             |
+| PATCH  | `/v1/me`                                               | Update own profile.                                                                                       | authenticated ⬜ EPIC-5                      |
+| GET    | `/v1/companies/{companyId}`                            | Company detail.                                                                                           | `company.read` ⬜ EPIC-5                     |
+| PATCH  | `/v1/companies/{companyId}`                            | Update company.                                                                                           | `company.manage` ⬜ EPIC-5                   |
+| GET    | `/v1/companies/{companyId}/members`                    | List members.                                                                                             | `members.read` ⬜ EPIC-5                     |
+| DELETE | `/v1/companies/{companyId}/members/{memberId}`         | Remove a member.                                                                                          | `members.manage` ⬜ EPIC-5                   |
 
 ## Notes on the M4.4 endpoints
 
@@ -45,6 +46,14 @@ multiple companies; the active tenant comes from the token, never the payload
   acceptance is email-matched, single-use, and idempotent (re-accept ⇒
   `alreadyMember: true`). Invalid/expired/revoked codes all return an
   indistinguishable `404` (no enumeration).
+- **Warehouse join codes** (Vendor Accounts, Phase 1) are a separate concept
+  from `Invitation` — not email-scoped, reusable while active, no expiry
+  (created/rotated/revoked from `/v1/warehouses/{id}/join-code`, see
+  [inventory.md](./inventory.md)). Accepting one always creates a
+  `role = "vendor"` member with `CompanyMember.warehouseId` set to that
+  warehouse — never a bare warehouse id; isolation is always
+  `Company -> Member -> Warehouse`. Same idempotent-accept / generic-404 shape
+  as invitations.
 
 ## List parameters
 

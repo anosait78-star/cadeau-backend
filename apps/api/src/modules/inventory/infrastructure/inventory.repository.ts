@@ -32,6 +32,7 @@ import type {
   StockLevelView,
   StockWriteResult,
   TransferView,
+  WarehouseJoinCodeStatusView,
   WarehouseView,
 } from "../domain/inventory.entity";
 import {
@@ -240,6 +241,81 @@ export class InventoryRepository implements InventoryRepositoryPort {
       const row = await tx.warehouse.findFirst({ where, select: WAREHOUSE_SELECT });
       return row === null ? null : this.toWarehouseView(row);
     });
+  }
+
+  async findMemberWarehouseScope(userId: string, companyId: string): Promise<string | null> {
+    // Self-scoped read (no tenant bound): mirrors `company_members_access`'s
+    // `user_id = current_user_id()` branch, so this works for the caller's own
+    // membership regardless of which tenant is currently bound.
+    const member = await this.tenantTx(companyId, (tx) =>
+      tx.companyMember.findFirst({
+        where: { userId, companyId, status: "active" },
+        select: { warehouseId: true },
+      }),
+    );
+    return member?.warehouseId ?? null;
+  }
+
+  // ---- Warehouse join codes (Vendor Accounts, Phase 1) ----------------------
+
+  async getWarehouseJoinCodeStatus(
+    companyId: string,
+    warehouseId: string,
+  ): Promise<WarehouseJoinCodeStatusView | null> {
+    return this.tenantTx(companyId, async (tx) => {
+      const warehouse = await tx.warehouse.findFirst({
+        where: { id: warehouseId, companyId },
+        select: { id: true },
+      });
+      if (warehouse === null) return null;
+      const row = await tx.warehouseJoinCode.findFirst({
+        where: { warehouseId, companyId },
+        select: { isActive: true, createdAt: true },
+      });
+      if (row === null) return { exists: false };
+      return { exists: true, isActive: row.isActive, createdAt: row.createdAt.toISOString() };
+    });
+  }
+
+  async rotateWarehouseJoinCode(
+    actor: WriteActor,
+    warehouseId: string,
+    codeHash: string,
+  ): Promise<{ readonly createdAt: string } | null> {
+    return this.tenantTx(actor.companyId, async (tx) => {
+      const warehouse = await tx.warehouse.findFirst({
+        where: { id: warehouseId, companyId: actor.companyId },
+        select: { id: true },
+      });
+      if (warehouse === null) return null;
+      const row = await tx.warehouseJoinCode.upsert({
+        where: { warehouseId },
+        create: stampForCreate(actor, {
+          companyId: actor.companyId,
+          warehouseId,
+          codeHash,
+          isActive: true,
+        }) as Prisma.WarehouseJoinCodeUncheckedCreateInput,
+        update: stampForUpdate(actor, {
+          codeHash,
+          isActive: true,
+        }) as Prisma.WarehouseJoinCodeUncheckedUpdateInput,
+        select: { createdAt: true },
+      });
+      return { createdAt: row.createdAt.toISOString() };
+    });
+  }
+
+  async revokeWarehouseJoinCode(actor: WriteActor, warehouseId: string): Promise<boolean> {
+    const { count } = await this.tenantTx(actor.companyId, (tx) =>
+      tx.warehouseJoinCode.updateMany({
+        where: { warehouseId, companyId: actor.companyId },
+        data: stampForUpdate(actor, {
+          isActive: false,
+        }) as Prisma.WarehouseJoinCodeUncheckedUpdateManyInput,
+      }),
+    );
+    return count > 0;
   }
 
   // ---- Stock levels --------------------------------------------------------

@@ -43,6 +43,10 @@ import {
   InvitationListDto,
 } from "./dto/invitation.dto";
 import { MemberListDto } from "./dto/member.dto";
+import {
+  AcceptWarehouseJoinCodeDto,
+  AcceptWarehouseJoinCodeResponseDto,
+} from "./dto/warehouse-join-code.dto";
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 
@@ -205,6 +209,23 @@ export class TenancyController {
   ): Promise<AcceptInvitationResponseDto> {
     return AcceptInvitationResponseDto.from(
       await this.tenancy.acceptInvitation(principal, dto.code),
+    );
+  }
+
+  @Post("warehouse-join-codes/accept")
+  @HttpCode(HttpStatus.OK)
+  @RateLimit({ limit: 20, windowMs: FIFTEEN_MINUTES_MS })
+  @ApiOperation({
+    summary: "Join a company as a vendor by warehouse code",
+    operationId: "acceptWarehouseJoinCode",
+  })
+  @ApiOkResponse({ type: AcceptWarehouseJoinCodeResponseDto })
+  async acceptWarehouseJoinCode(
+    @CurrentUser() principal: RequestPrincipal,
+    @Body() dto: AcceptWarehouseJoinCodeDto,
+  ): Promise<AcceptWarehouseJoinCodeResponseDto> {
+    return AcceptWarehouseJoinCodeResponseDto.from(
+      await this.tenancy.joinWarehouseByCode(principal, dto.code),
     );
   }
 }

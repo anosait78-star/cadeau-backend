@@ -77,6 +77,25 @@ export type AcceptOutcome =
   | { readonly kind: "invalid" }
   | { readonly kind: "email_mismatch" };
 
+/**
+ * Result of accepting a warehouse join code (Vendor Accounts, Phase 1). No
+ * email check — the code is not email-scoped, unlike {@link AcceptOutcome}.
+ */
+export type AcceptWarehouseJoinCodeOutcome =
+  | {
+      readonly kind: "accepted";
+      readonly companyId: string;
+      readonly role: string;
+      readonly warehouseId: string;
+    }
+  | {
+      readonly kind: "already_member";
+      readonly companyId: string;
+      readonly role: string;
+      readonly warehouseId: string | null;
+    }
+  | { readonly kind: "invalid" };
+
 /** A company member as returned by the Team members list. */
 export interface MemberView {
   readonly id: string;

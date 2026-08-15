@@ -103,6 +103,14 @@ export const PERMISSIONS: readonly PermissionDef[] = [
     description: "Create, rotate, and revoke storefront connections",
     feature: "storefront_integration",
   },
+  // Assigning orders is split out from `orders.manage` (EPIC-15): it also
+  // controls visibility — a caller without it only ever sees orders assigned
+  // to them, regardless of `orders.read`/`orders.manage`.
+  {
+    key: "orders.assign",
+    description: "Assign orders to team members; see every order in the company",
+    feature: "orders",
+  },
 ];
 
 /** Every permission key — the Owner template grants all of them. */
@@ -161,6 +169,13 @@ export const TEMPLATES: readonly TemplateDef[] = [
     permissions: ALL_PERMISSION_KEYS,
   },
   {
+    key: "manager",
+    name: "Manager",
+    description:
+      "Full operational access across the company, like Owner, but cannot manage team roles and permissions unless granted separately.",
+    permissions: ALL_PERMISSION_KEYS.filter((key) => key !== "access.manage"),
+  },
+  {
     key: "store_manager",
     name: "Store Manager",
     description: "Runs day-to-day operations across the store.",
@@ -204,5 +219,20 @@ export const TEMPLATES: readonly TemplateDef[] = [
       ...perms(["analytics", "customers"], ["read"]),
       ...perms(["notifications"], ["read", "manage"]),
     ],
+  },
+  // Vendor Accounts, Phase 1: a member scoped to exactly one warehouse
+  // (company_members.warehouse_id), created only by accepting a
+  // WarehouseJoinCode — never reachable from the general invitation endpoint
+  // (not in TEMPLATE_ROLES). Deliberately minimal: `inventory.read` is the
+  // only surface that is warehouse-scoped so far (InventoryService restricts
+  // it to the member's own warehouse); no products/orders permissions yet —
+  // those modules aren't warehouse-aware until a later phase, and granting
+  // them now would leak every other vendor's data.
+  {
+    key: "vendor",
+    name: "Vendor",
+    description:
+      "Manages their own warehouse only — scoped automatically to the warehouse they joined.",
+    permissions: ["inventory.read"],
   },
 ];

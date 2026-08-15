@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import type {
   AcceptInvitationResult,
+  AcceptWarehouseJoinCodeResult,
   CreateCompanyResult,
   CreatedInvitation,
   TenancyService,
@@ -290,5 +291,23 @@ describe("TenancyController", () => {
     const dto = await controller.acceptInvitation(PRINCIPAL, { code: "secret-code" });
     expect(acceptInvitation).toHaveBeenCalledWith(PRINCIPAL, "secret-code");
     expect(dto).toMatchObject({ role: "member", alreadyMember: false });
+  });
+
+  it("POST warehouse-join-codes/accept returns the vendor join outcome (Vendor Accounts, Phase 1)", async () => {
+    const result: AcceptWarehouseJoinCodeResult = {
+      companyId: randomUUID(),
+      role: "vendor",
+      warehouseId: randomUUID(),
+      alreadyMember: false,
+    };
+    const joinWarehouseByCode = vi.fn().mockResolvedValue(result);
+    const controller = make({ joinWarehouseByCode });
+    const dto = await controller.acceptWarehouseJoinCode(PRINCIPAL, { code: "wh-code" });
+    expect(joinWarehouseByCode).toHaveBeenCalledWith(PRINCIPAL, "wh-code");
+    expect(dto).toMatchObject({
+      role: "vendor",
+      warehouseId: result.warehouseId,
+      alreadyMember: false,
+    });
   });
 });

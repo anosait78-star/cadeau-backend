@@ -21,25 +21,43 @@ reorderPoint, updatedAt }`. One row per (warehouse, variant); created on
 - `StockReservation` — an outstanding commitment (`active` → `released`).
 - `StockTransfer` — an atomic move between warehouses (a durable log).
 - `StockAdjustment` — a counted correction (reason-coded, a durable log).
+- `WarehouseJoinCode` — a rotatable, revocable self-service join code, one per
+  warehouse (Vendor Accounts, Phase 1). Not email-scoped and not single-use,
+  unlike `Invitation`; stored only as a SHA-256 hash and returned plaintext
+  once, at creation/rotation (see [tenancy.md](./tenancy.md) for the accept
+  flow). `GET .../join-code` never exposes the plaintext.
 
 Quantities are whole units (`bigint` in the database, JSON numbers on the wire) —
 never money.
 
+## Warehouse-scoped members (Vendor Accounts, Phase 1)
+
+A `CompanyMember` may carry a `warehouseId` (set only by accepting a
+`WarehouseJoinCode`, `role = "vendor"`). `GET /v1/warehouses` and
+`GET /v1/warehouses/{warehouseId}` are scoped server-side to that single
+warehouse for such a member — the list never includes another warehouse, and
+the detail route `404`s (never `403`, to avoid confirming another warehouse's
+id exists) for any id but their own. An unscoped member (`warehouseId = null`,
+every member before this feature and every non-vendor member) is unaffected.
+
 ## Endpoints
 
-| Method | Path                                         | Purpose                                            | Permission         |
-| ------ | -------------------------------------------- | -------------------------------------------------- | ------------------ |
-| GET    | `/v1/warehouses`                             | List warehouses (keyset).                          | `inventory.read`   |
-| GET    | `/v1/warehouses/{warehouseId}`               | Warehouse detail.                                  | `inventory.read`   |
-| POST   | `/v1/warehouses`                             | Create a warehouse. `201` + `Location`.            | `inventory.manage` |
-| PATCH  | `/v1/warehouses/{warehouseId}`               | Update a warehouse.                                | `inventory.manage` |
-| DELETE | `/v1/warehouses/{warehouseId}`               | Archive a warehouse (soft-delete). `204`.          | `inventory.manage` |
-| GET    | `/v1/inventory/stock`                        | Stock levels (keyset, filterable).                 | `inventory.read`   |
-| PUT    | `/v1/inventory/reorder-points`               | Set a level's low-stock threshold.                 | `inventory.manage` |
-| POST   | `/v1/inventory/reservations`                 | Reserve stock (atomic). `Idempotency-Key`.         | `inventory.manage` |
-| DELETE | `/v1/inventory/reservations/{reservationId}` | Release a reservation (atomic). `204`.             | `inventory.manage` |
-| POST   | `/v1/inventory/transfers`                    | Transfer between warehouses (atomic). `Idem.-Key`. | `inventory.manage` |
-| POST   | `/v1/inventory/adjustments`                  | Adjust with a reason (atomic). `Idempotency-Key`.  | `inventory.manage` |
+| Method | Path                                            | Purpose                                                                                     | Permission         |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------ |
+| GET    | `/v1/warehouses`                                | List warehouses (keyset).                                                                   | `inventory.read`   |
+| GET    | `/v1/warehouses/{warehouseId}`                  | Warehouse detail.                                                                           | `inventory.read`   |
+| POST   | `/v1/warehouses`                                | Create a warehouse. `201` + `Location`.                                                     | `inventory.manage` |
+| PATCH  | `/v1/warehouses/{warehouseId}`                  | Update a warehouse.                                                                         | `inventory.manage` |
+| DELETE | `/v1/warehouses/{warehouseId}`                  | Archive a warehouse (soft-delete). `204`.                                                   | `inventory.manage` |
+| GET    | `/v1/warehouses/{warehouseId}/join-code`        | Join-code status (exists/active/createdAt — never the plaintext). Vendor Accounts, Phase 1. | `inventory.read`   |
+| POST   | `/v1/warehouses/{warehouseId}/join-code/rotate` | Issue a fresh join code, invalidating any previous one. Plaintext returned once.            | `inventory.manage` |
+| DELETE | `/v1/warehouses/{warehouseId}/join-code`        | Revoke the warehouse's join code. `204`.                                                    | `inventory.manage` |
+| GET    | `/v1/inventory/stock`                           | Stock levels (keyset, filterable).                                                          | `inventory.read`   |
+| PUT    | `/v1/inventory/reorder-points`                  | Set a level's low-stock threshold.                                                          | `inventory.manage` |
+| POST   | `/v1/inventory/reservations`                    | Reserve stock (atomic). `Idempotency-Key`.                                                  | `inventory.manage` |
+| DELETE | `/v1/inventory/reservations/{reservationId}`    | Release a reservation (atomic). `204`.                                                      | `inventory.manage` |
+| POST   | `/v1/inventory/transfers`                       | Transfer between warehouses (atomic). `Idem.-Key`.                                          | `inventory.manage` |
+| POST   | `/v1/inventory/adjustments`                     | Adjust with a reason (atomic). `Idempotency-Key`.                                           | `inventory.manage` |
 
 Every route is behind `JwtAuthGuard` + `AccessGuard`; any layer failing
 (subscription ∧ feature ∧ permission) is a `403`. The tenant comes from the

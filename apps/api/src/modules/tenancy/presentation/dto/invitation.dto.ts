@@ -36,7 +36,9 @@ export class CreateInvitationDto {
   @ApiPropertyOptional({
     type: [String],
     example: ["orders.read", "orders.manage"],
-    description: 'Required (non-empty) when role is "custom"; disallowed otherwise.',
+    description:
+      'Required (non-empty) when role is "custom". Optional extra keys layered on top of the ' +
+      'template when role is "manager" (e.g. "access.manage"). Disallowed for every other role.',
   })
   @IsOptional()
   @IsArray()

@@ -8,6 +8,7 @@
 /** The fixed permission-template keys a member may be invited under (EPIC-5 catalog). */
 export const TEMPLATE_ROLES = [
   "owner",
+  "manager",
   "store_manager",
   "call_center",
   "warehouse",
@@ -24,6 +25,14 @@ export const TEMPLATE_ROLES = [
  */
 export const OWNER_ROLE = "owner" as const;
 
+/**
+ * The Manager template key. Full operational access like Owner, minus
+ * `access.manage` by default — an inviter may optionally layer `access.manage`
+ * (or other keys) on top via `permissionKeys`, same mechanism as the custom
+ * role, so granting team-management power to a Manager is opt-in per invite.
+ */
+export const MANAGER_ROLE = "manager" as const;
+
 /** Sentinel role for a one-off, hand-picked permission set (never a reusable role). */
 export const CUSTOM_ROLE = "custom" as const;
 
@@ -31,3 +40,12 @@ export const CUSTOM_ROLE = "custom" as const;
 export const INVITABLE_ROLES = [...TEMPLATE_ROLES, CUSTOM_ROLE] as const;
 
 export type InvitableRole = (typeof INVITABLE_ROLES)[number];
+
+/**
+ * The Vendor template key (Vendor Accounts, Phase 1). Deliberately NOT part of
+ * `TEMPLATE_ROLES`/`INVITABLE_ROLES` — a vendor membership always carries a
+ * `warehouseId`, which the general `POST /companies/:id/invitations` endpoint
+ * has no way to supply. A vendor membership is only ever created by accepting
+ * a `WarehouseJoinCode` (see `TenancyService.joinWarehouseByCode`).
+ */
+export const VENDOR_ROLE = "vendor" as const;

@@ -11,14 +11,17 @@ export interface InventoryAuditRecord {
     | "inventory.transferred"
     | "inventory.adjusted"
     | "inventory.reorder_point_set"
-    | "inventory.variant_warehouse_set";
+    | "inventory.variant_warehouse_set"
+    | "inventory.warehouse_join_code_rotated"
+    | "inventory.warehouse_join_code_revoked";
   /** The kind of row the change landed on. */
   readonly entityType:
     | "warehouse"
     | "stock_reservation"
     | "stock_transfer"
     | "stock_adjustment"
-    | "inventory_stock";
+    | "inventory_stock"
+    | "warehouse_join_code";
   /** The affected row's id. */
   readonly entityId: string;
   /** A secret-free snapshot of what changed. */

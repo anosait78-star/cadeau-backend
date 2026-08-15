@@ -5,6 +5,7 @@ export type TenancyAuditEvent =
   | "member.invited"
   | "member.invite_revoked"
   | "member.joined"
+  | "member.joined_via_warehouse_code"
   | "member.removed";
 
 /** Structured, secret-free details for a tenancy audit record. */
@@ -15,6 +16,8 @@ export interface TenancyAuditDetails {
   readonly email?: string;
   readonly role?: string;
   readonly memberId?: string;
+  /** The warehouse a vendor member is scoped to (Vendor Accounts, Phase 1). */
+  readonly warehouseId?: string | null;
 }
 
 /**

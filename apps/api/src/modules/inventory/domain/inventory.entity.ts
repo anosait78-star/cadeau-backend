@@ -35,6 +35,25 @@ export interface StockLevelView {
   readonly updatedAt: string;
 }
 
+/**
+ * The status of a warehouse's join code (Vendor Accounts, Phase 1) — never the
+ * plaintext. `exists: false` means no code has been created for this
+ * warehouse yet.
+ */
+export type WarehouseJoinCodeStatusView =
+  | { readonly exists: false }
+  | { readonly exists: true; readonly isActive: boolean; readonly createdAt: string };
+
+/**
+ * A freshly created/rotated join code, including its one-time plaintext. Shown
+ * once, like an {@link Invitation} code — the server stores only its hash and
+ * can never redisplay it.
+ */
+export interface WarehouseJoinCodeCreatedView {
+  readonly code: string;
+  readonly createdAt: string;
+}
+
 /** An outstanding (or released) commitment against a stock level. */
 export interface ReservationView {
   readonly id: string;

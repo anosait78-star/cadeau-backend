@@ -104,6 +104,12 @@ function makeHarness(): Harness {
     createWarehouse: vi.fn(),
     updateWarehouse: vi.fn(),
     archiveWarehouse: vi.fn(),
+    // Vendor Accounts, Phase 1: null ⇒ unscoped (sees the whole company),
+    // matching every member before this column existed.
+    findMemberWarehouseScope: vi.fn().mockResolvedValue(null),
+    getWarehouseJoinCodeStatus: vi.fn(),
+    rotateWarehouseJoinCode: vi.fn(),
+    revokeWarehouseJoinCode: vi.fn(),
     listStock: vi.fn().mockResolvedValue(emptyPage()),
     setReorderPoint: vi.fn(),
     setVariantWarehouse: vi.fn(),
@@ -507,5 +513,117 @@ describe("InventoryService — adjust + reorder points", () => {
       }),
     );
     expect(h.events.publish).not.toHaveBeenCalled();
+  });
+});
+
+describe("InventoryService — warehouse-scoped members (Vendor Accounts, Phase 1)", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  it("scopes the list to only the member's own warehouse", async () => {
+    h.repo.findMemberWarehouseScope.mockResolvedValue(WAREHOUSE);
+    h.repo.findWarehouse.mockResolvedValue(warehouse(WAREHOUSE));
+    const page = await h.service.listWarehouses(principal(), {});
+    expect(page.data).toEqual([warehouse(WAREHOUSE)]);
+    expect(h.repo.listWarehouses).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty list if the member's own warehouse is gone", async () => {
+    h.repo.findMemberWarehouseScope.mockResolvedValue(WAREHOUSE);
+    h.repo.findWarehouse.mockResolvedValue(null);
+    const page = await h.service.listWarehouses(principal(), {});
+    expect(page.data).toEqual([]);
+  });
+
+  it("returns the whole company's list for an unscoped member", async () => {
+    h.repo.findMemberWarehouseScope.mockResolvedValue(null);
+    h.repo.listWarehouses.mockResolvedValue({
+      data: [warehouse(WAREHOUSE), warehouse(OTHER_WAREHOUSE)],
+      page: { limit: 25, nextCursor: null, hasMore: false },
+    });
+    const page = await h.service.listWarehouses(principal(), {});
+    expect(page.data.map((w) => w.id)).toEqual([WAREHOUSE, OTHER_WAREHOUSE]);
+  });
+
+  it("404s a scoped member reading another warehouse, even if it exists", async () => {
+    h.repo.findMemberWarehouseScope.mockResolvedValue(WAREHOUSE);
+    await expectStatus(h.service.getWarehouse(principal(), OTHER_WAREHOUSE), 404);
+    // Never even asked the repository about the other warehouse.
+    expect(h.repo.findWarehouse).not.toHaveBeenCalled();
+  });
+
+  it("lets a scoped member read their own warehouse", async () => {
+    h.repo.findMemberWarehouseScope.mockResolvedValue(WAREHOUSE);
+    h.repo.findWarehouse.mockResolvedValue(warehouse(WAREHOUSE));
+    const row = await h.service.getWarehouse(principal(), WAREHOUSE);
+    expect(row.id).toBe(WAREHOUSE);
+  });
+
+  it("does not scope an unscoped member's single-warehouse read", async () => {
+    h.repo.findMemberWarehouseScope.mockResolvedValue(null);
+    h.repo.findWarehouse.mockResolvedValue(warehouse(OTHER_WAREHOUSE));
+    const row = await h.service.getWarehouse(principal(), OTHER_WAREHOUSE);
+    expect(row.id).toBe(OTHER_WAREHOUSE);
+  });
+});
+
+describe("InventoryService — warehouse join codes (Vendor Accounts, Phase 1)", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  it("returns join-code status", async () => {
+    h.repo.getWarehouseJoinCodeStatus.mockResolvedValue({
+      exists: true,
+      isActive: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const status = await h.service.getWarehouseJoinCode(principal(), WAREHOUSE);
+    expect(status).toEqual({ exists: true, isActive: true, createdAt: "2026-01-01T00:00:00.000Z" });
+  });
+
+  it("404s the status read for an unknown warehouse", async () => {
+    h.repo.getWarehouseJoinCodeStatus.mockResolvedValue(null);
+    await expectStatus(h.service.getWarehouseJoinCode(principal(), "w9"), 404);
+  });
+
+  it("rotates a code, returns the plaintext once, and audits without leaking it", async () => {
+    h.repo.rotateWarehouseJoinCode.mockResolvedValue({ createdAt: "2026-01-01T00:00:00.000Z" });
+    const created = await h.service.rotateWarehouseJoinCode(principal(), WAREHOUSE);
+    expect(created.code).toEqual(expect.any(String));
+    expect(created.code.length).toBeGreaterThan(20);
+    expect(created.createdAt).toBe("2026-01-01T00:00:00.000Z");
+    // The repository only ever receives the HASH, never the plaintext.
+    expect(h.repo.rotateWarehouseJoinCode).toHaveBeenCalledWith(
+      { companyId: COMPANY, actorId: USER },
+      WAREHOUSE,
+      expect.not.stringContaining(created.code),
+    );
+    const auditCall = h.audit.record.mock.calls.find(
+      (c) => (c[0] as { action: string }).action === "inventory.warehouse_join_code_rotated",
+    );
+    expect(auditCall).toBeDefined();
+    expect(JSON.stringify(auditCall?.[0])).not.toContain(created.code);
+  });
+
+  it("404s rotate for an unknown warehouse", async () => {
+    h.repo.rotateWarehouseJoinCode.mockResolvedValue(null);
+    await expectStatus(h.service.rotateWarehouseJoinCode(principal(), "w9"), 404);
+  });
+
+  it("revokes a code and audits it", async () => {
+    h.repo.revokeWarehouseJoinCode.mockResolvedValue(true);
+    await h.service.revokeWarehouseJoinCode(principal(), WAREHOUSE);
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "inventory.warehouse_join_code_revoked" }),
+    );
+  });
+
+  it("404s revoking a code that does not exist", async () => {
+    h.repo.revokeWarehouseJoinCode.mockResolvedValue(false);
+    await expectStatus(h.service.revokeWarehouseJoinCode(principal(), WAREHOUSE), 404);
   });
 });

@@ -152,6 +152,8 @@ model Company {
   storefrontConnections        StorefrontConnection[]
   storefrontWebhookEvents      StorefrontWebhookEvent[]
   storefrontConnectionVendorWarehouses StorefrontConnectionVendorWarehouse[]
+  warehouseJoinCodes           WarehouseJoinCode[]
+  orderVendorGroups             OrderVendorGroup[]
 
   @@map("companies")
 }
@@ -164,6 +166,13 @@ model CompanyMember {
   userId    String   @map("user_id") @db.Uuid
   role      String   @default("member")
   status    String   @default("active")
+  /// The single warehouse this member is scoped to (Vendor Accounts, Phase 1).
+  /// NULL for every member created before this column existed and for every
+  /// non-vendor member going forward — an unscoped member sees the whole
+  /// company exactly as before. Set only when the membership was created by
+  /// accepting a `WarehouseJoinCode` (role = "vendor"); the scope is always
+  /// `Company -> Member -> Warehouse`, never a bare warehouse id.
+  warehouseId String? @map("warehouse_id") @db.Uuid
   createdBy String?  @map("created_by") @db.Uuid
   updatedBy String?  @map("updated_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -171,11 +180,13 @@ model CompanyMember {
 
   company     Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user        Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warehouse   Warehouse?         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   permissions MemberPermission[]
 
   @@unique([companyId, userId], map: "company_members_company_user_key")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "company_members_keyset_idx")
   @@index([userId], map: "company_members_user_idx")
+  @@index([warehouseId], map: "company_members_warehouse_idx")
   @@map("company_members")
 }
 
@@ -769,11 +780,40 @@ model Warehouse {
   orderItems            OrderItem[]
   storefrontConnections StorefrontConnection[]
   vendorMappings        StorefrontConnectionVendorWarehouse[]
+  vendorMembers         CompanyMember[]
+  joinCode              WarehouseJoinCode?
+  orderVendorGroups     OrderVendorGroup[]
 
   @@unique([companyId, name], map: "warehouses_company_name_key")
   @@index([companyId, name, id], map: "warehouses_keyset_idx")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "warehouses_created_keyset_idx")
   @@map("warehouses")
+}
+
+/// A rotatable, revocable self-service join code for one warehouse (Vendor
+/// Accounts, Phase 1). One row per warehouse (`warehouseId` unique) — the
+/// "current slot" a company can create/rotate/revoke, not a history of past
+/// invitations. Distinct from {@link Invitation}: not email-scoped, reusable
+/// by anyone who has it, and there is no expiry — only `isActive`.
+/// `codeHash` follows the same show-once convention as `Invitation.codeHash`
+/// (sha256 of the plaintext; the plaintext itself is never stored and is
+/// returned to the caller only once, at creation/rotation time).
+model WarehouseJoinCode {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  warehouseId String   @unique @map("warehouse_id") @db.Uuid
+  codeHash    String   @unique(map: "warehouse_join_codes_code_hash_key") @map("code_hash")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@index([companyId], map: "warehouse_join_codes_company_idx")
+  @@map("warehouse_join_codes")
 }
 
 /// Per-(warehouse, variant) stock level (EPIC-9). `onHand` is physical stock,
@@ -1028,6 +1068,7 @@ model Order {
   shipments    Shipment[]
   invoices     Invoice[]
   refunds      Refund[]
+  vendorGroups OrderVendorGroup[]
 
   @@unique([companyId, orderNumber], map: "orders_company_number_key")
   @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
@@ -1074,6 +1115,36 @@ model OrderItem {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "order_items_keyset_idx")
   @@index([variantId], map: "order_items_variant_idx")
   @@map("order_items")
+}
+
+/// A vendor's slice of one order (Vendor Accounts, Phase 2): one row per
+/// (order, warehouse) pair found among that order's `order_items.warehouse_id`
+/// routing. Purely a materialized grouping — computed and upserted
+/// idempotently on read (`OrdersService.listVendorGroups`), not tied to any
+/// order status transition and carrying no workflow semantics yet. `status`
+/// defaults to `"new"` and is reserved for a later phase's per-vendor
+/// lifecycle (NEW → PROCESSING → READY → DELIVERED) — nothing reads or
+/// enforces it today. The Parent Order's own `status` is completely
+/// unaffected by this table's existence.
+model OrderVendorGroup {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  warehouseId String   @map("warehouse_id") @db.Uuid
+  status      String   @default("new")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, warehouseId], map: "order_vendor_groups_order_warehouse_key")
+  @@index([companyId, orderId], map: "order_vendor_groups_order_idx")
+  @@index([warehouseId], map: "order_vendor_groups_warehouse_idx")
+  @@map("order_vendor_groups")
 }
 
 /// The append-only activity log of an order (EPIC-11): one row per meaningful

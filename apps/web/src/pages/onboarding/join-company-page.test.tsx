@@ -44,10 +44,19 @@ const ME_AFTER_JOIN = {
 function routedFetch(opts: {
   acceptStatus?: number;
   acceptBody?: unknown;
+  warehouseAcceptStatus?: number;
+  warehouseAcceptBody?: unknown;
 }): ReturnType<typeof vi.fn> {
   const {
     acceptStatus = 200,
     acceptBody = { companyId: "c1", role: "member", alreadyMember: false },
+    warehouseAcceptStatus = 200,
+    warehouseAcceptBody = {
+      companyId: "c1",
+      role: "vendor",
+      warehouseId: "w1",
+      alreadyMember: false,
+    },
   } = opts;
   let meCalls = 0;
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -62,6 +71,9 @@ function routedFetch(opts: {
     }
     if (url.endsWith("/invitations/accept") && method === "POST") {
       return Promise.resolve(json(acceptStatus, acceptBody));
+    }
+    if (url.endsWith("/warehouse-join-codes/accept") && method === "POST") {
+      return Promise.resolve(json(warehouseAcceptStatus, warehouseAcceptBody));
     }
     if (url.endsWith("/companies/c1/switch") && method === "POST") {
       return Promise.resolve(json(200, { accessToken: "a2", refreshToken: "r2", expiresIn: 300 }));
@@ -116,6 +128,40 @@ describe("JoinCompanyPage", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "رمز الدعوة غير صالح أو منتهي الصلاحية.",
+    );
+  });
+
+  it("joins as a vendor by warehouse code (Vendor Accounts, Phase 1)", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", routedFetch({}));
+    renderJoin();
+
+    await user.click(screen.getByRole("radio", { name: "كود تاجر / مستودع" }));
+    await user.type(screen.getByLabelText("كود دعوة المستودع"), "a-warehouse-join-code");
+    await user.click(screen.getByRole("button", { name: "الانضمام" }));
+
+    expect(await screen.findByText("home page")).toBeInTheDocument();
+  });
+
+  it("shows an invalid-warehouse-code message on a 404", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        warehouseAcceptStatus: 404,
+        warehouseAcceptBody: {
+          error: { code: "NOT_FOUND", statusCode: 404, message: "not found" },
+        },
+      }),
+    );
+    renderJoin();
+
+    await user.click(screen.getByRole("radio", { name: "كود تاجر / مستودع" }));
+    await user.type(screen.getByLabelText("كود دعوة المستودع"), "a-bad-warehouse-code");
+    await user.click(screen.getByRole("button", { name: "الانضمام" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "كود دعوة المستودع غير صالح أو تم إلغاؤه.",
     );
   });
 });

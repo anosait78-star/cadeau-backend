@@ -27,6 +27,11 @@ export interface AuthContextValue {
   createCompany: (input: CreateCompanyInput) => Promise<CreateCompanyResponse>;
   /** Join a company by invite code, switch into it, and refresh the profile. */
   joinCompany: (code: string) => Promise<void>;
+  /**
+   * Join a company as a vendor by warehouse code, switch into it, and refresh
+   * the profile (Vendor Accounts, Phase 1).
+   */
+  joinWarehouse: (code: string) => Promise<void>;
   /** Re-fetch `GET /v1/me` (e.g. after joining/creating a company). */
   reload: () => Promise<void>;
 }

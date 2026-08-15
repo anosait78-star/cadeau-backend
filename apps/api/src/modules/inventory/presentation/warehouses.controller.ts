@@ -32,6 +32,8 @@ import {
   CreateWarehouseDto,
   UpdateWarehouseDto,
   WarehouseDto,
+  WarehouseJoinCodeCreatedDto,
+  WarehouseJoinCodeDto,
   WarehouseListDto,
 } from "./dto/inventory.dto";
 
@@ -110,5 +112,53 @@ export class WarehousesController {
     @Param("warehouseId", ParseUUIDPipe) warehouseId: string,
   ): Promise<void> {
     await this.service.archiveWarehouse(principal, warehouseId);
+  }
+
+  // ---- Join code (Vendor Accounts, Phase 1) ---------------------------------
+
+  @Get(":warehouseId/join-code")
+  @RequireCapability({ feature: INVENTORY_FEATURE, permission: "inventory.read" })
+  @ApiOperation({
+    summary: "Warehouse join-code status (never the plaintext)",
+    operationId: "getWarehouseJoinCode",
+  })
+  @ApiOkResponse({ type: WarehouseJoinCodeDto })
+  async getJoinCode(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("warehouseId", ParseUUIDPipe) warehouseId: string,
+  ): Promise<WarehouseJoinCodeDto> {
+    return WarehouseJoinCodeDto.from(
+      await this.service.getWarehouseJoinCode(principal, warehouseId),
+    );
+  }
+
+  @Post(":warehouseId/join-code/rotate")
+  @RequireCapability({ feature: INVENTORY_FEATURE, permission: "inventory.manage" })
+  @ApiOperation({
+    summary: "Issue a fresh warehouse join code, invalidating any previous one",
+    operationId: "rotateWarehouseJoinCode",
+  })
+  @ApiCreatedResponse({ type: WarehouseJoinCodeCreatedDto })
+  async rotateJoinCode(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("warehouseId", ParseUUIDPipe) warehouseId: string,
+  ): Promise<WarehouseJoinCodeCreatedDto> {
+    return WarehouseJoinCodeCreatedDto.from(
+      await this.service.rotateWarehouseJoinCode(principal, warehouseId),
+    );
+  }
+
+  @Delete(":warehouseId/join-code")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireCapability({ feature: INVENTORY_FEATURE, permission: "inventory.manage" })
+  @ApiOperation({
+    summary: "Revoke the warehouse's join code",
+    operationId: "revokeWarehouseJoinCode",
+  })
+  async revokeJoinCode(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("warehouseId", ParseUUIDPipe) warehouseId: string,
+  ): Promise<void> {
+    await this.service.revokeWarehouseJoinCode(principal, warehouseId);
   }
 }

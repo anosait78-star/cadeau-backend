@@ -148,6 +148,25 @@ export function acceptInvitation(code: string): Promise<AcceptInvitationResponse
   });
 }
 
+/** Outcome of accepting a warehouse join code (Vendor Accounts, Phase 1). */
+export interface AcceptWarehouseJoinCodeResponse {
+  readonly companyId: string;
+  readonly role: string;
+  readonly warehouseId: string | null;
+  readonly alreadyMember: boolean;
+}
+
+/**
+ * `POST /v1/warehouse-join-codes/accept` — join a company as a vendor, scoped
+ * to one warehouse, by its shareable join code (Vendor Accounts, Phase 1).
+ */
+export function acceptWarehouseJoinCode(code: string): Promise<AcceptWarehouseJoinCodeResponse> {
+  return apiFetch<AcceptWarehouseJoinCodeResponse>("/warehouse-join-codes/accept", {
+    method: "POST",
+    body: { code },
+  });
+}
+
 /** `PATCH /v1/companies/{id}/whatsapp-settings` — set (or clear) the dialing prefix. */
 export function updateWhatsappCountryCode(
   companyId: string,

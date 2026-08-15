@@ -13,7 +13,7 @@ import { CLOCK, type Clock } from "../../../shared/time/clock";
 import { TENANCY_AUDIT, type TenancyAuditPort } from "../domain/tenancy-audit.port";
 import { TENANCY_REPOSITORY, type TenancyRepositoryPort } from "../domain/tenancy-repository.port";
 import { SlugAlreadyTakenError } from "../domain/tenancy.errors";
-import { CUSTOM_ROLE, OWNER_ROLE } from "../domain/tenancy-roles";
+import { CUSTOM_ROLE, MANAGER_ROLE, OWNER_ROLE } from "../domain/tenancy-roles";
 import type {
   CompanyRecord,
   InvitationRecord,
@@ -44,6 +44,14 @@ export interface CreatedInvitation {
 export interface AcceptInvitationResult {
   readonly companyId: string;
   readonly role: string;
+  readonly alreadyMember: boolean;
+}
+
+/** Outcome of accepting a warehouse join code (Vendor Accounts, Phase 1). */
+export interface AcceptWarehouseJoinCodeResult {
+  readonly companyId: string;
+  readonly role: string;
+  readonly warehouseId: string | null;
   readonly alreadyMember: boolean;
 }
 
@@ -219,8 +227,12 @@ export class TenancyService {
   }
 
   /**
-   * Validate and normalize the custom-role permission set. Not part of the
-   * public surface — pulled out only to keep {@link createInvitation} short.
+   * Validate and normalize the invitation's extra permission-key overlay.
+   * `"custom"` requires a non-empty set (it has no template to fall back on);
+   * `"manager"` may optionally layer extra keys (e.g. `access.manage`) on top
+   * of its template; every other role disallows the field entirely. Not part
+   * of the public surface — pulled out only to keep {@link createInvitation}
+   * short.
    */
   private async resolveCustomPermissionKeys(
     companyId: string,
@@ -228,18 +240,23 @@ export class TenancyService {
   ): Promise<string[]> {
     const requested = input.permissionKeys ?? [];
 
-    if (input.role !== CUSTOM_ROLE) {
+    if (input.role !== CUSTOM_ROLE && input.role !== MANAGER_ROLE) {
       if (requested.length > 0) {
-        throw AppErrors.validation('permissionKeys is only allowed when role is "custom".');
+        throw AppErrors.validation(
+          'permissionKeys is only allowed when role is "custom" or "manager".',
+        );
       }
       return [];
     }
 
     const unique = [...new Set(requested)];
     if (unique.length === 0) {
-      throw AppErrors.validation(
-        'permissionKeys is required and must be non-empty for role "custom".',
-      );
+      if (input.role === CUSTOM_ROLE) {
+        throw AppErrors.validation(
+          'permissionKeys is required and must be non-empty for role "custom".',
+        );
+      }
+      return [];
     }
 
     const available = new Set(await this.repo.listCompanyAvailablePermissionKeys(companyId));
@@ -347,6 +364,52 @@ export class TenancyService {
           role: outcome.role,
         });
         return { companyId: outcome.companyId, role: outcome.role, alreadyMember: false };
+    }
+  }
+
+  /**
+   * Accept a warehouse join code, joining the company as a `"vendor"` member
+   * scoped to that code's warehouse (Vendor Accounts, Phase 1). Mirrors
+   * {@link acceptInvitation}'s shape (generic 404 so a bad code cannot be
+   * distinguished from an inactive one; idempotent already-member) but with no
+   * email check — the code is not email-scoped.
+   */
+  async joinWarehouseByCode(
+    principal: RequestPrincipal,
+    code: string,
+  ): Promise<AcceptWarehouseJoinCodeResult> {
+    const profile = await this.repo.findProfile(principal.userId);
+    if (profile === null) {
+      throw AppErrors.unauthorized();
+    }
+    const outcome = await this.repo.acceptWarehouseJoinCodeByCode({
+      codeHash: hashCode(code),
+      userId: principal.userId,
+    });
+    switch (outcome.kind) {
+      case "invalid":
+        // Generic 404 so a bad code cannot be distinguished from a revoked
+        // one (no code enumeration).
+        throw AppErrors.notFound("Join code is invalid.");
+      case "already_member":
+        return {
+          companyId: outcome.companyId,
+          role: outcome.role,
+          warehouseId: outcome.warehouseId,
+          alreadyMember: true,
+        };
+      case "accepted":
+        this.audit.record("member.joined_via_warehouse_code", {
+          userId: principal.userId,
+          companyId: outcome.companyId,
+          warehouseId: outcome.warehouseId,
+        });
+        return {
+          companyId: outcome.companyId,
+          role: outcome.role,
+          warehouseId: outcome.warehouseId,
+          alreadyMember: false,
+        };
     }
   }
 

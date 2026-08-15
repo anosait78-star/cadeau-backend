@@ -142,6 +142,37 @@ export function archiveWarehouse(id: string): Promise<void> {
   return apiFetch<void>(`/warehouses/${id}`, { method: "DELETE" });
 }
 
+/** A warehouse's join-code status (Vendor Accounts, Phase 1) — never the plaintext. */
+export type WarehouseJoinCodeStatus =
+  | { readonly exists: false }
+  | { readonly exists: true; readonly isActive: boolean; readonly createdAt: string };
+
+/** A freshly rotated join code, including its one-time plaintext. */
+export interface WarehouseJoinCodeCreated {
+  readonly code: string;
+  readonly createdAt: string;
+}
+
+/** `GET /v1/warehouses/{id}/join-code` — status only, never the plaintext. */
+export function getWarehouseJoinCode(warehouseId: string): Promise<WarehouseJoinCodeStatus> {
+  return apiFetch<WarehouseJoinCodeStatus>(`/warehouses/${warehouseId}/join-code`);
+}
+
+/**
+ * `POST /v1/warehouses/{id}/join-code/rotate` — issue a fresh join code,
+ * invalidating any previous one. Shown once: the server stores only its hash.
+ */
+export function rotateWarehouseJoinCode(warehouseId: string): Promise<WarehouseJoinCodeCreated> {
+  return apiFetch<WarehouseJoinCodeCreated>(`/warehouses/${warehouseId}/join-code/rotate`, {
+    method: "POST",
+  });
+}
+
+/** `DELETE /v1/warehouses/{id}/join-code` — revoke the warehouse's join code. */
+export function revokeWarehouseJoinCode(warehouseId: string): Promise<void> {
+  return apiFetch<void>(`/warehouses/${warehouseId}/join-code`, { method: "DELETE" });
+}
+
 /** `GET /v1/inventory/stock` — keyset-paginated stock levels. */
 export function listStock(options: StockListOptions = {}): Promise<Page<StockLevel>> {
   return apiFetch<Page<StockLevel>>(

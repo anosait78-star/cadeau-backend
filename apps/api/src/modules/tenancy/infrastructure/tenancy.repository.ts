@@ -1,10 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, type PrismaClient, setTenantContext, setUserContext } from "@cadeau/database";
-import { CUSTOM_ROLE } from "../domain/tenancy-roles";
 import type { TenancyRepositoryPort } from "../domain/tenancy-repository.port";
 import { SlugAlreadyTakenError } from "../domain/tenancy.errors";
 import type {
   AcceptOutcome,
+  AcceptWarehouseJoinCodeOutcome,
   CompanyRecord,
   InvitationRecord,
   MembershipCompany,
@@ -12,6 +12,7 @@ import type {
   MeProfileRow,
   RemoveMemberOutcome,
 } from "../domain/tenancy.types";
+import { VENDOR_ROLE } from "../domain/tenancy-roles";
 import { resolveCapabilities } from "../../../shared/access/capabilities";
 import { TENANCY_PRISMA_CLIENT } from "./prisma-client.provider";
 
@@ -413,11 +414,12 @@ export class TenancyRepository implements TenancyRepositoryPort {
         },
         select: { id: true },
       });
-      // Custom role: grant EXACTLY the invitation's chosen permissions — no
-      // template to inherit from (the member's `role` is the "custom" sentinel,
-      // which resolves to an empty template, so these overrides are the entirety
-      // of their effective permission set).
-      if (invite.role === CUSTOM_ROLE && invite.customPermissionKeys.length > 0) {
+      // Custom role: `customPermissionKeys` is the entirety of the member's
+      // effective set (their `role` is the "custom" sentinel, which resolves
+      // to an empty template). Any other role (e.g. "manager"): the service
+      // only ever populates this array as an opt-in overlay on top of the
+      // role's template, validated in `resolveCustomPermissionKeys`.
+      if (invite.customPermissionKeys.length > 0) {
         await tx.memberPermission.createMany({
           data: invite.customPermissionKeys.map((permissionKey) => ({
             companyId: invite.companyId,
@@ -434,6 +436,56 @@ export class TenancyRepository implements TenancyRepositoryPort {
         data: { status: "accepted", acceptedAt: new Date(), acceptedBy: input.userId },
       });
       return { kind: "accepted", companyId: invite.companyId, role: invite.role };
+    });
+  }
+
+  async acceptWarehouseJoinCodeByCode(input: {
+    readonly codeHash: string;
+    readonly userId: string;
+  }): Promise<AcceptWarehouseJoinCodeOutcome> {
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Resolve the code pre-tenant (user context only ⇒ the
+      // `warehouse_join_codes_lookup` bootstrap policy).
+      await setUserContext(tx, input.userId);
+      const joinCode = await tx.warehouseJoinCode.findFirst({
+        where: { codeHash: input.codeHash, isActive: true },
+        select: { companyId: true, warehouseId: true },
+      });
+      if (joinCode === null) {
+        return { kind: "invalid" };
+      }
+
+      // 2. Bind the code's tenant for the membership insert.
+      await setTenantContext(tx, joinCode.companyId);
+      const existing = await tx.companyMember.findFirst({
+        where: { companyId: joinCode.companyId, userId: input.userId },
+        select: { role: true, warehouseId: true },
+      });
+      if (existing !== null) {
+        return {
+          kind: "already_member",
+          companyId: joinCode.companyId,
+          role: existing.role,
+          warehouseId: existing.warehouseId,
+        };
+      }
+      await tx.companyMember.create({
+        data: {
+          companyId: joinCode.companyId,
+          userId: input.userId,
+          role: VENDOR_ROLE,
+          warehouseId: joinCode.warehouseId,
+          status: "active",
+          createdBy: input.userId,
+          updatedBy: input.userId,
+        },
+      });
+      return {
+        kind: "accepted",
+        companyId: joinCode.companyId,
+        role: VENDOR_ROLE,
+        warehouseId: joinCode.warehouseId,
+      };
     });
   }
 }
