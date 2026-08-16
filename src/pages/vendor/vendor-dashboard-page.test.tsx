@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeTokens } from "@/auth/auth-storage";
 import { AppProviders } from "@/providers/app-providers";
@@ -24,42 +24,49 @@ const ME = {
 
 const CAPS = { features: [], permissions: [], isSuperAdmin: false };
 
-const GROUP_NEW = {
-  id: "g1",
-  orderId: "o1",
-  orderNumber: 1042,
-  warehouseId: "w1",
-  warehouseName: "Main",
-  warehouseCode: null,
-  vendorMemberId: "m1",
-  vendorName: "Me",
-  status: "new",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-  items: [{ id: "i1", variantId: "v1", nameSnapshot: "T-Shirt — L", quantity: 2, price: 15000 }],
-};
+function group(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "g1",
+    orderId: "o1",
+    orderNumber: 1042,
+    warehouseId: "w1",
+    warehouseName: "Main",
+    warehouseCode: null,
+    vendorMemberId: "m1",
+    vendorName: "Me",
+    status: "new",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    items: [
+      {
+        id: "i1",
+        variantId: "v1",
+        nameSnapshot: "T-Shirt — L",
+        quantity: 2,
+        price: 15000,
+        imageUrl: null,
+      },
+    ],
+    ...overrides,
+  };
+}
 
 /** Routes `/me` and `/access/capabilities` (fired by AppProviders on hydrate)
- * plus the vendor endpoints, by URL/method rather than call order. */
+ * plus the vendor groups endpoint. */
 function routedFetch(opts: {
   groups?: unknown[];
   groupsStatus?: number;
-  advanceResponse?: unknown;
 }): ReturnType<typeof vi.fn> {
-  const { groups = [GROUP_NEW], groupsStatus = 200, advanceResponse } = opts;
-  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+  const { groups = [group()], groupsStatus = 200 } = opts;
+  return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    const method = init?.method ?? "GET";
     if (url.endsWith("/me")) return Promise.resolve(json(200, ME));
     if (url.endsWith("/access/capabilities")) return Promise.resolve(json(200, CAPS));
-    if (url.endsWith("/vendor/order-groups") && method === "GET") {
+    if (url.endsWith("/vendor/order-groups")) {
       return Promise.resolve(
         groupsStatus === 200
           ? json(200, { data: groups })
           : json(500, { error: { code: "INTERNAL", statusCode: 500, message: "boom" } }),
       );
-    }
-    if (url.includes("/vendor/order-groups/") && url.endsWith("/status") && method === "POST") {
-      return Promise.resolve(json(200, advanceResponse ?? { ...GROUP_NEW, status: "processing" }));
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   });
@@ -70,69 +77,56 @@ function renderPage(fetchMock: ReturnType<typeof vi.fn>): void {
   writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
   vi.stubGlobal("fetch", fetchMock);
   render(
-    <AppProviders>
-      <VendorDashboardPage />
-    </AppProviders>,
+    <MemoryRouter initialEntries={["/vendor"]}>
+      <AppProviders>
+        <VendorDashboardPage />
+      </AppProviders>
+    </MemoryRouter>,
   );
 }
 
-describe("VendorDashboardPage (Vendor Accounts, Phase 4)", () => {
+describe("VendorDashboardPage (Vendor Accounts, Phase 7)", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("renders", async () => {
+    renderPage(routedFetch({}));
+    expect(await screen.findByText("Overview")).toBeInTheDocument();
+  });
 
   it("shows the empty state when the vendor has no groups yet", async () => {
     renderPage(routedFetch({ groups: [] }));
     expect(await screen.findByText("No orders yet.")).toBeInTheDocument();
   });
 
-  it("shows only my own items and the correct status badge", async () => {
-    renderPage(routedFetch({}));
-    expect(await screen.findByText("T-Shirt — L × 2")).toBeInTheDocument();
-    expect(screen.getByText("New")).toBeInTheDocument();
-    expect(screen.getByText("Order #1042")).toBeInTheDocument();
-  });
-
-  it("advances the group's status by exactly one step on click", async () => {
-    const user = userEvent.setup();
-    const fetchMock = routedFetch({ advanceResponse: { ...GROUP_NEW, status: "processing" } });
-    renderPage(fetchMock);
-
-    const button = await screen.findByRole("button", { name: "Start processing" });
-    await user.click(button);
-
-    expect(await screen.findByText("Processing")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/vendor/order-groups/g1/status"),
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ toStatus: "processing" }),
-      }),
-    );
-  });
-
-  it("groups active vs. delivered orders into separate, counted sections (Phase 6)", async () => {
+  it("shows KPI counts by status, scoped to my own groups", async () => {
     renderPage(
       routedFetch({
         groups: [
-          { ...GROUP_NEW, id: "g1", orderNumber: 1, status: "delivered" },
-          { ...GROUP_NEW, id: "g2", orderNumber: 2, status: "ready" },
-          { ...GROUP_NEW, id: "g3", orderNumber: 3, status: "new" },
+          group({ id: "g1", orderNumber: 1, status: "new" }),
+          group({ id: "g2", orderNumber: 2, status: "processing" }),
+          group({ id: "g3", orderNumber: 3, status: "delivered" }),
         ],
       }),
     );
-    expect(await screen.findByText("Active (2)")).toBeInTheDocument();
-    expect(screen.getByText("Delivered (1)")).toBeInTheDocument();
-
-    // Active section lists urgency-first: "new" before "ready".
-    const orderLabels = screen.getAllByText(/^Order #/).map((el) => el.textContent);
-    expect(orderLabels).toEqual(["Order #3", "Order #2", "Order #1"]);
+    expect(await screen.findByText("Total orders")).toBeInTheDocument();
+    // 3 total, 1 each of new/processing/delivered, 0 ready.
+    const kpiValues = screen
+      .getAllByText(/^[0-9]+$/)
+      .map((el) => el.textContent)
+      .slice(0, 5);
+    expect(kpiValues).toEqual(["3", "1", "1", "0", "1"]);
   });
 
-  it("shows no advance button for a delivered (terminal) group", async () => {
-    renderPage(routedFetch({ groups: [{ ...GROUP_NEW, status: "delivered" }] }));
-    await screen.findByText("Delivered");
-    expect(
-      screen.queryByRole("button", { name: /start processing|mark ready|mark delivered/i }),
-    ).not.toBeInTheDocument();
+  it("shows a recent-orders list, clicking a row links to its detail page", async () => {
+    renderPage(routedFetch({}));
+    const link = await screen.findByRole("link", { name: /Order #1042/ });
+    expect(link).toHaveAttribute("href", "/vendor/orders/g1");
+  });
+
+  it("links to the full orders list", async () => {
+    renderPage(routedFetch({}));
+    const link = await screen.findByRole("link", { name: "View all orders" });
+    expect(link).toHaveAttribute("href", "/vendor/orders");
   });
 
   it("shows an error state with retry on load failure", async () => {

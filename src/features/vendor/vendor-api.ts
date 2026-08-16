@@ -7,6 +7,8 @@ export interface VendorGroupItem {
   readonly nameSnapshot: string;
   readonly quantity: number;
   readonly price: number;
+  /** The product's display image, or null (Vendor Accounts, Phase 7). */
+  readonly imageUrl: string | null;
 }
 
 /** The 4-state vendor group lifecycle. */
