@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { Prisma, type PrismaClient, setTenantContext } from "@cadeau/database";
+import type { PrismaClient } from "@cadeau/database";
+import { AuditLogAdapter } from "../../../shared/database/audit-log-adapter";
 import type { CustomersAuditPort, CustomersAuditRecord } from "../domain/customers-audit.port";
 import { CUSTOMERS_PRISMA_CLIENT } from "./prisma-client.provider";
 
@@ -13,24 +14,11 @@ import { CUSTOMERS_PRISMA_CLIENT } from "./prisma-client.provider";
  * across tenants, so personal data must not reach it (docs/privacy-model.md §6).
  */
 @Injectable()
-export class CustomersAuditLogAdapter implements CustomersAuditPort {
-  constructor(@Inject(CUSTOMERS_PRISMA_CLIENT) private readonly prisma: PrismaClient) {}
-
-  async record(record: CustomersAuditRecord): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await setTenantContext(tx, record.companyId);
-      await tx.auditLog.create({
-        data: {
-          companyId: record.companyId,
-          actorId: record.actorId,
-          action: record.action,
-          entityType: record.entityType,
-          entityId: record.entityId,
-          ...(record.changes === undefined
-            ? {}
-            : { changes: record.changes as Prisma.InputJsonValue }),
-        },
-      });
-    });
+export class CustomersAuditLogAdapter
+  extends AuditLogAdapter<CustomersAuditRecord>
+  implements CustomersAuditPort
+{
+  constructor(@Inject(CUSTOMERS_PRISMA_CLIENT) prisma: PrismaClient) {
+    super(prisma);
   }
 }

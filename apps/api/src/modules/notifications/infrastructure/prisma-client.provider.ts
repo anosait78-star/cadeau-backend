@@ -1,11 +1,9 @@
-import { type Provider } from "@nestjs/common";
-import { getPrismaClient, type PrismaClient } from "@cadeau/database";
+import { createPrismaClientProvider } from "../../../shared/database/prisma-client-provider";
+
+const { token, provider } = createPrismaClientProvider("NOTIFICATIONS_PRISMA_CLIENT");
 
 /** DI token for the Prisma client used by the notifications module. */
-export const NOTIFICATIONS_PRISMA_CLIENT = Symbol("NOTIFICATIONS_PRISMA_CLIENT");
+export const NOTIFICATIONS_PRISMA_CLIENT = token;
 
 /** Provides the shared Prisma client singleton to the notifications module. */
-export const notificationsPrismaClientProvider: Provider = {
-  provide: NOTIFICATIONS_PRISMA_CLIENT,
-  useFactory: (): PrismaClient => getPrismaClient(),
-};
+export const notificationsPrismaClientProvider = provider;

@@ -1,11 +1,9 @@
-import { type Provider } from "@nestjs/common";
-import { getPrismaClient, type PrismaClient } from "@cadeau/database";
+import { createPrismaClientProvider } from "../../../shared/database/prisma-client-provider";
+
+const { token, provider } = createPrismaClientProvider("PRODUCTS_PRISMA_CLIENT");
 
 /** DI token for the Prisma client used by the products repository. */
-export const PRODUCTS_PRISMA_CLIENT = Symbol("PRODUCTS_PRISMA_CLIENT");
+export const PRODUCTS_PRISMA_CLIENT = token;
 
 /** Provides the shared Prisma client singleton to the products module. */
-export const productsPrismaClientProvider: Provider = {
-  provide: PRODUCTS_PRISMA_CLIENT,
-  useFactory: (): PrismaClient => getPrismaClient(),
-};
+export const productsPrismaClientProvider = provider;
