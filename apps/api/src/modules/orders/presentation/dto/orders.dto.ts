@@ -559,6 +559,8 @@ export class OrderVendorGroupItemDto {
   quantity!: number;
   @ApiProperty({ example: 15000 })
   price!: number;
+  @ApiProperty({ nullable: true, description: "The product's display image, or null." })
+  imageUrl!: string | null;
 
   static from(view: OrderVendorGroupItemView): OrderVendorGroupItemDto {
     const dto = new OrderVendorGroupItemDto();
@@ -567,6 +569,7 @@ export class OrderVendorGroupItemDto {
     dto.nameSnapshot = view.nameSnapshot;
     dto.quantity = view.quantity;
     dto.price = view.price;
+    dto.imageUrl = view.imageUrl;
     return dto;
   }
 }

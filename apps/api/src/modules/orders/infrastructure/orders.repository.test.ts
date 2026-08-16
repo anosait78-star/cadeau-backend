@@ -99,6 +99,10 @@ function makeRepo() {
         averageCost: 8000n,
         product: { name: "T", allowOversell: false },
       }),
+      // Vendor Accounts, Phase 7: resolves each item's product image. Empty
+      // by default (every item's imageUrl falls back to null) — tests that
+      // care about a real image override this per-call.
+      findMany: vi.fn().mockResolvedValue([]),
     },
     orderLabel: { findFirst: vi.fn().mockResolvedValue({ id: "l1" }) },
     orderReason: { findFirst: vi.fn().mockResolvedValue({ id: "r1" }) },
@@ -904,6 +908,28 @@ describe("OrdersRepository — vendor self-service (Vendor Accounts, Phase 3)", 
       orderNumber: 1002,
       status: "processing",
     });
+  });
+
+  it("listVendorGroupsForWarehouse resolves each item's product image, or null when it has none (Phase 7)", async () => {
+    const { repo, models } = makeRepo();
+    models.orderVendorGroup.findMany.mockResolvedValueOnce([
+      { id: "g1", orderId: "o1", status: "new", updatedAt: DATE },
+    ]);
+    models.order.findMany.mockResolvedValueOnce([{ id: "o1", orderNumber: 1001n }]);
+    models.warehouse.findFirst.mockResolvedValueOnce({ name: "Store A", code: "A" });
+    models.orderItem.findMany.mockResolvedValueOnce([
+      { id: "i1", orderId: "o1", variantId: "v1", nameSnapshot: "A", quantity: 1n, price: 1000n },
+      { id: "i2", orderId: "o1", variantId: "v2", nameSnapshot: "B", quantity: 1n, price: 1000n },
+    ]);
+    models.productVariant.findMany.mockResolvedValueOnce([
+      { id: "v1", product: { imageUrl: "https://cdn.example/t.jpg" } },
+      { id: "v2", product: { imageUrl: null } },
+    ]);
+
+    const groups = await repo.listVendorGroupsForWarehouse(COMPANY, "w1");
+    const byId = new Map(groups[0]?.items.map((i) => [i.id, i.imageUrl]));
+    expect(byId.get("i1")).toBe("https://cdn.example/t.jpg");
+    expect(byId.get("i2")).toBeNull();
   });
 
   it("findVendorGroupById returns null when unknown in this tenant", async () => {

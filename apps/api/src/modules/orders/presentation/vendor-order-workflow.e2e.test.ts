@@ -136,11 +136,11 @@ describe("Vendor Order workflow (e2e) — Phases 1–6, 8", () => {
       .send({ name: "Sara Ali", phone: "+201001234567" });
     expect(customer.status).toBe(201);
 
-    async function createVariant(productName: string): Promise<string> {
+    async function createVariant(productName: string, imageUrl?: string): Promise<string> {
       const product = await request(server())
         .post("/v1/products")
         .set("Authorization", auth(ownerToken))
-        .send({ name: productName });
+        .send({ name: productName, ...(imageUrl !== undefined ? { imageUrl } : {}) });
       expect(product.status).toBe(201);
       const variant = await request(server())
         .post(`/v1/products/${product.body.id}/variants`)
@@ -149,7 +149,10 @@ describe("Vendor Order workflow (e2e) — Phases 1–6, 8", () => {
       expect(variant.status).toBe(201);
       return variant.body.id as string;
     }
-    const variantA = await createVariant(`Product for Store A ${run}`);
+    // Store A's product carries a real image URL (Vendor Accounts, Phase 7);
+    // Store B's has none, to prove the null case doesn't break anything.
+    const productImageUrl = "https://cdn.example.com/products/shirt.jpg";
+    const variantA = await createVariant(`Product for Store A ${run}`, productImageUrl);
     const variantB = await createVariant(`Product for Store B ${run}`);
     const variantC = await createVariant(`Product for Store C ${run}`);
 
@@ -255,17 +258,25 @@ describe("Vendor Order workflow (e2e) — Phases 1–6, 8", () => {
       .set("Authorization", auth(vendorAToken));
     expect(vendorAList.status).toBe(200);
     expect(vendorAList.body.data).toHaveLength(1);
-    const vendorAGroup = vendorAList.body.data[0] as { id: string; items: { variantId: string }[] };
+    const vendorAGroup = vendorAList.body.data[0] as {
+      id: string;
+      items: { variantId: string; imageUrl: string | null }[];
+    };
     expect(vendorAGroup.id).toBe(groupW1.id);
     expect(vendorAGroup.items.map((i) => i.variantId)).toEqual([variantA]);
     expect(JSON.stringify(vendorAList.body)).not.toContain(variantB);
     expect(JSON.stringify(vendorAList.body)).not.toContain(variantC);
+    // Product image (Phase 7): flows through from Product.imageUrl, no new
+    // image system, no WooCommerce touch.
+    expect(vendorAGroup.items[0]?.imageUrl).toBe(productImageUrl);
 
     const vendorBList = await request(server())
       .get("/v1/vendor/order-groups")
       .set("Authorization", auth(vendorBToken));
     expect(vendorBList.body.data).toHaveLength(1);
     expect(vendorBList.body.data[0].id).toBe(groupW2.id);
+    // Store B's product has no image — the field is present but null, not omitted.
+    expect(vendorBList.body.data[0].items[0].imageUrl).toBeNull();
 
     // ---- 8. Vendor A advances new → processing → ready → delivered -------
     async function advance(

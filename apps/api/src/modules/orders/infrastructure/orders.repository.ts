@@ -503,6 +503,25 @@ export class OrdersRepository implements OrdersRepositoryPort {
    * order since) resolves to an empty array both times — no new rows, no
    * behavior change. Must run inside an already-tenant-bound transaction.
    */
+  /**
+   * variantId → the variant's product's `imageUrl` (Vendor Accounts, Phase 7)
+   * — reuses the existing `Product.imageUrl` column products already expose;
+   * no new image system, no WooCommerce/storage changes. A variant with no
+   * image, or one Prisma can't resolve, maps to `null`.
+   */
+  private async productImagesByVariant(
+    tx: Tx,
+    companyId: string,
+    variantIds: readonly string[],
+  ): Promise<Map<string, string | null>> {
+    if (variantIds.length === 0) return new Map();
+    const rows = await tx.productVariant.findMany({
+      where: { id: { in: [...variantIds] }, companyId },
+      select: { id: true, product: { select: { imageUrl: true } } },
+    });
+    return new Map(rows.map((row) => [row.id, row.product.imageUrl]));
+  }
+
   private async materializeVendorGroups(
     tx: Tx,
     actor: WriteActor,
@@ -520,6 +539,11 @@ export class OrdersRepository implements OrdersRepositoryPort {
       },
     });
     if (items.length === 0) return [];
+    const imageByVariant = await this.productImagesByVariant(
+      tx,
+      actor.companyId,
+      items.map((i) => i.variantId),
+    );
 
     const byWarehouse = new Map<string, typeof items>();
     for (const item of items) {
@@ -593,6 +617,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
           nameSnapshot: item.nameSnapshot,
           quantity: Number(item.quantity),
           price: Number(item.price),
+          imageUrl: imageByVariant.get(item.variantId) ?? null,
         })),
       };
     });
@@ -651,6 +676,11 @@ export class OrdersRepository implements OrdersRepositoryPort {
         if (bucket === undefined) itemsByOrder.set(item.orderId, [item]);
         else bucket.push(item);
       }
+      const imageByVariant = await this.productImagesByVariant(
+        tx,
+        companyId,
+        items.map((i) => i.variantId),
+      );
 
       return groups.map(
         (group): OrderVendorGroupView => ({
@@ -672,6 +702,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
             nameSnapshot: item.nameSnapshot,
             quantity: Number(item.quantity),
             price: Number(item.price),
+            imageUrl: imageByVariant.get(item.variantId) ?? null,
           })),
         }),
       );
@@ -729,6 +760,11 @@ export class OrdersRepository implements OrdersRepositoryPort {
           select: { id: true, variantId: true, nameSnapshot: true, quantity: true, price: true },
         }),
       ]);
+      const imageByVariant = await this.productImagesByVariant(
+        tx,
+        actor.companyId,
+        items.map((i) => i.variantId),
+      );
 
       // Vendor Accounts, Phase 6: append to the Parent Order's own activity
       // log too — reuses the existing GET /orders/{id}/activity endpoint and
@@ -759,6 +795,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
           nameSnapshot: item.nameSnapshot,
           quantity: Number(item.quantity),
           price: Number(item.price),
+          imageUrl: imageByVariant.get(item.variantId) ?? null,
         })),
       };
     });

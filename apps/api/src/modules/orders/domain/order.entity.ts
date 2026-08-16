@@ -72,6 +72,12 @@ export interface OrderVendorGroupItemView {
   readonly nameSnapshot: string;
   readonly quantity: number;
   readonly price: number;
+  /**
+   * The variant's product's display image (Vendor Accounts, Phase 7) — the
+   * same `Product.imageUrl` column products already expose; `null` when the
+   * product has none. Never a new image system, never touches storage.
+   */
+  readonly imageUrl: string | null;
 }
 
 /**
