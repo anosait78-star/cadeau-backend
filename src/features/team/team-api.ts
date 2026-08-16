@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api-client";
 /** The fixed permission-template keys a member may be invited under (backend EPIC-5 catalog). */
 export const TEMPLATE_ROLES = [
   "owner",
+  "manager",
   "store_manager",
   "call_center",
   "warehouse",
@@ -12,6 +13,9 @@ export const TEMPLATE_ROLES = [
 
 /** Sentinel role for a one-off, hand-picked permission set (never a reusable role). */
 export const CUSTOM_ROLE = "custom" as const;
+
+/** The Manager template key — full operational access, `access.manage` optional (see `permissionKeys`). */
+export const MANAGER_ROLE = "manager" as const;
 
 export type TemplateRole = (typeof TEMPLATE_ROLES)[number];
 
@@ -65,9 +69,11 @@ export function listInvitations(companyId: string): Promise<{ data: TeamInvitati
 
 /**
  * `POST /v1/companies/{id}/invitations` — invite a member. `permissionKeys` is
- * only meaningful (and required, non-empty) when `role` is `"custom"`; the
- * server re-validates it against the company's actual available permissions
- * regardless of what is sent here.
+ * required (non-empty) when `role` is `"custom"`, and optional extra keys
+ * layered on top of the template (e.g. `"access.manage"`) when `role` is
+ * `"manager"`; disallowed for every other role. The server re-validates it
+ * against the company's actual available permissions regardless of what is
+ * sent here.
  */
 export function createInvitation(
   companyId: string,

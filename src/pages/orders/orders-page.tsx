@@ -102,6 +102,7 @@ function OrdersScreen(): ReactNode {
   const isDesktop = useIsDesktop();
   const auth = useContext(AuthContext);
   const currentUserId = auth?.user?.id ?? null;
+  const companyId = auth?.user?.activeCompanyId ?? null;
   const companyName =
     auth?.user?.companies.find((c) => c.id === auth.user?.activeCompanyId)?.name ?? "";
 
@@ -321,8 +322,11 @@ function OrdersScreen(): ReactNode {
       ? buildOrderDetailSections({
           detail: detailData.detail,
           activity: detailData.activity,
+          vendorGroups: detailData.vendorGroups,
+          vendorAggregateStatus: detailData.vendorAggregateStatus,
           t,
           locale,
+          companyId,
           onNotify: flash,
           onPatch: (order) => {
             patchRow(order);
@@ -496,6 +500,8 @@ function OrdersScreen(): ReactNode {
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                </PermissionGate>
+                <PermissionGate permission="orders.assign">
                   <Button variant="outline" size="sm" onClick={() => void onBulkAssign()}>
                     {t("orders.bulk.assign")}
                   </Button>

@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import type { VendorGroupStatus } from "@/features/vendor/vendor-api";
 
 /**
  * Client for `/v1/orders` (contract: docs/api/orders.md). Money is always integer
@@ -236,6 +237,52 @@ export function bulkAssign(
 export function listOrderActivity(id: string, cursor?: string): Promise<OrderActivityPage> {
   const qs = cursor !== undefined ? `?cursor=${encodeURIComponent(cursor)}` : "";
   return apiFetch<OrderActivityPage>(`/orders/${id}/activity${qs}`);
+}
+
+/** One item within a vendor group (Vendor Accounts, Phase 2/3) — no cost snapshot. */
+export interface OrderVendorGroupItem {
+  readonly id: string;
+  readonly variantId: string;
+  readonly nameSnapshot: string;
+  readonly quantity: number;
+  readonly price: number;
+}
+
+/**
+ * A vendor's slice of this order — the items routed to one warehouse, plus
+ * that warehouse's own tracking status (`new`/`processing`/`ready`/`delivered`).
+ */
+export interface OrderVendorGroup {
+  readonly id: string;
+  readonly orderId: string;
+  readonly orderNumber: number;
+  readonly warehouseId: string;
+  readonly warehouseName: string;
+  readonly warehouseCode: string | null;
+  readonly vendorMemberId: string | null;
+  /** The vendor's name/email, or null if no vendor has joined this warehouse yet. */
+  readonly vendorName: string | null;
+  readonly status: string;
+  /** When `status` (or the group) last changed. */
+  readonly updatedAt: string;
+  readonly items: readonly OrderVendorGroupItem[];
+}
+
+/**
+ * `GET /v1/orders/{id}/vendor-groups` — the order's items grouped by
+ * warehouse (Vendor Accounts, Phase 2/3). Empty for every order that isn't
+ * multi-vendor-routed (every order before this feature, and every manual/
+ * CSV/bulk order since).
+ *
+ * `aggregateStatus` (Phase 8) is the LEAST advanced status among all groups
+ * — the order isn't really done until every vendor is — computed fresh on
+ * every read, never persisted, never affecting `Order.status` itself. `null`
+ * when `data` is empty.
+ */
+export function listOrderVendorGroups(
+  id: string,
+): Promise<{ data: OrderVendorGroup[]; aggregateStatus: VendorGroupStatus | null }> {
+  return apiFetch(`/orders/${id}/vendor-groups`);
 }
 
 /** A parsed order line from smart-paste. */

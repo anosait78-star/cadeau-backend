@@ -196,6 +196,7 @@ describe("OrdersPage", () => {
       }
       if (url.includes("/orders/status-counts")) return Promise.resolve(json(200, COUNTS));
       if (url.match(/\/orders\/o1\/activity/)) return Promise.resolve(json(200, ACTIVITY));
+      if (url.match(/\/orders\/o1\/vendor-groups/)) return Promise.resolve(json(200, { data: [] }));
       if (url.match(/\/shipping\/carriers$/) && method === "GET") {
         return Promise.resolve(
           json(200, {

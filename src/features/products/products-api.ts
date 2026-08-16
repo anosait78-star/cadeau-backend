@@ -55,6 +55,8 @@ export interface ListOptions {
   readonly categoryId?: string;
   /** Only products with a variant that has available stock (EPIC-9). */
   readonly hasStock?: boolean;
+  /** Only products with a variant holding a stock row in this warehouse. */
+  readonly warehouseId?: string;
 }
 
 function buildQuery(options: ListOptions): string {
@@ -64,6 +66,7 @@ function buildQuery(options: ListOptions): string {
   if (options.q !== undefined && options.q.length > 0) params.set("q", options.q);
   if (options.categoryId !== undefined) params.set("categoryId", options.categoryId);
   if (options.hasStock === true) params.set("hasStock", "true");
+  if (options.warehouseId !== undefined) params.set("warehouseId", options.warehouseId);
   const qs = params.toString();
   return qs.length > 0 ? `?${qs}` : "";
 }

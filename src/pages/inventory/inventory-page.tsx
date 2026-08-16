@@ -28,6 +28,7 @@ import {
   type Warehouse,
   type WarehouseInput,
 } from "@/features/inventory/inventory-api";
+import { WarehouseJoinCodeDialog } from "@/features/inventory/warehouse-join-code-dialog";
 import { listProducts, listVariants } from "@/features/products/products-api";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
@@ -709,6 +710,7 @@ function WarehousesTab({
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedWarehouse, setSelectedWarehouse] = useState<Warehouse | null>(null);
+  const [joinCodeWarehouse, setJoinCodeWarehouse] = useState<Warehouse | null>(null);
 
   const save = async (action: () => Promise<unknown>): Promise<void> => {
     try {
@@ -737,6 +739,7 @@ function WarehousesTab({
         warehouse={warehouse}
         onEdit={() => setEditingId(warehouse.id)}
         onArchive={() => void save(() => archiveWarehouse(warehouse.id))}
+        onJoinCode={() => setJoinCodeWarehouse(warehouse)}
       />
     );
 
@@ -808,6 +811,19 @@ function WarehousesTab({
               ]
         }
       />
+
+      {joinCodeWarehouse !== null ? (
+        <PermissionGate permission="inventory.manage">
+          <WarehouseJoinCodeDialog
+            open={joinCodeWarehouse !== null}
+            onOpenChange={(open) => {
+              if (!open) setJoinCodeWarehouse(null);
+            }}
+            warehouseId={joinCodeWarehouse.id}
+            warehouseName={joinCodeWarehouse.name}
+          />
+        </PermissionGate>
+      ) : null}
     </div>
   );
 }
@@ -816,10 +832,12 @@ function WarehouseCard({
   warehouse,
   onEdit,
   onArchive,
+  onJoinCode,
 }: {
   warehouse: Warehouse;
   onEdit: () => void;
   onArchive: () => void;
+  onJoinCode: () => void;
 }): ReactNode {
   const { t } = useI18n();
   const dash = "—";
@@ -856,6 +874,9 @@ function WarehouseCard({
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={onEdit}>
               {t("inventory.actions.edit")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onJoinCode}>
+              {t("inventory.actions.joinCode")}
             </Button>
             {warehouse.active ? (
               <Button size="sm" variant="ghost" onClick={onArchive}>

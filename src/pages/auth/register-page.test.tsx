@@ -69,6 +69,32 @@ describe("RegisterPage", () => {
     expect(await screen.findByText("home page")).toBeInTheDocument();
   });
 
+  it("registers then joins a company as a vendor by warehouse code (Vendor Accounts, Phase 1)", async () => {
+    const user = userEvent.setup();
+    const companyId = "c1";
+    fetchMock
+      .mockResolvedValueOnce(json(201, TOKENS_AND_USER)) // register
+      .mockResolvedValueOnce(json(200, ME)) // /me (from register)
+      .mockResolvedValueOnce(
+        json(200, { companyId, role: "vendor", warehouseId: "w1", alreadyMember: false }),
+      ) // warehouse-join-codes/accept
+      .mockResolvedValueOnce(json(200, TOKENS_AND_USER)) // companies/{id}/switch
+      .mockResolvedValueOnce(json(200, { ...ME, activeCompanyId: companyId })); // /me (post-switch)
+    renderRegister();
+
+    await user.type(screen.getByLabelText("البريد الإلكتروني"), "vendor@acme.test");
+    await user.type(screen.getByLabelText("كلمة المرور"), "correct horse battery");
+    await user.click(screen.getByRole("radio", { name: "الانضمام إلى شركة (كود تاجر)" }));
+    await user.type(screen.getByLabelText("كود دعوة المستودع"), "a-warehouse-join-code");
+    await user.click(screen.getByRole("button", { name: "إنشاء الحساب" }));
+
+    expect(await screen.findByText("home page")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/warehouse-join-codes/accept"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("shows a conflict error when the email is already taken", async () => {
     const user = userEvent.setup();
     fetchMock.mockResolvedValueOnce(json(409, { error: { code: "CONFLICT", statusCode: 409 } }));

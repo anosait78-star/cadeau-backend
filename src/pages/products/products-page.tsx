@@ -5,6 +5,7 @@ import { PermissionGate } from "@/components/access/permission-gate";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
+import { FilterBar } from "@/components/filter-bar/filter-bar";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
@@ -14,6 +15,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import {
+  createTransfer,
+  listStock,
+  listWarehouses,
+  setVariantWarehouse,
+  type Warehouse,
+} from "@/features/inventory/inventory-api";
 import { listItems, type MasterDataItem } from "@/features/master-data/master-data-api";
 import {
   archiveProduct,
@@ -83,20 +91,26 @@ function ProductsScreen(): ReactNode {
 
   const [categories, setCategories] = useState<RefOption[]>([]);
   const [units, setUnits] = useState<RefOption[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState("");
 
   const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
-  const load = useCallback(async (q: string): Promise<void> => {
+  const load = useCallback(async (q: string, wid: string): Promise<void> => {
     setState({ kind: "loading" });
     try {
-      const page = await listProducts({ active: "all", ...(q.length > 0 ? { q } : {}) });
+      const page = await listProducts({
+        active: "all",
+        ...(q.length > 0 ? { q } : {}),
+        ...(wid.length > 0 ? { warehouseId: wid } : {}),
+      });
       setState({ kind: "ready", items: page.data, nextCursor: page.page.nextCursor });
     } catch {
       setState({ kind: "error" });
     }
   }, []);
 
-  // Load the category/unit reference sets once (best-effort — selects still work empty).
+  // Load the category/unit/warehouse reference sets once (best-effort — selects still work empty).
   useEffect(() => {
     const toOptions = (rows: MasterDataItem[]): RefOption[] =>
       rows.map((r) => ({ id: r.id, name: String(r["name"] ?? "") }));
@@ -106,17 +120,30 @@ function ProductsScreen(): ReactNode {
     void listItems("units", { active: true })
       .then((p) => setUnits(toOptions(p.data)))
       .catch(() => setUnits([]));
+    void listWarehouses({ active: true })
+      .then(setWarehouses)
+      .catch(() => setWarehouses([]));
   }, []);
 
   useEffect(() => {
-    void load("");
+    void load("", "");
   }, [load]);
 
   const categoryNames: NameMap = new Map(categories.map((c) => [c.id, c.name]));
   const unitNames: NameMap = new Map(units.map((u) => [u.id, u.name]));
 
   const onSearch = (): void => {
-    void load(search.trim());
+    void load(search.trim(), warehouseId);
+  };
+
+  const onWarehouseFilterChange = (value: string): void => {
+    setWarehouseId(value);
+    void load(search.trim(), value);
+  };
+
+  const clearFilters = (): void => {
+    setWarehouseId("");
+    void load(search.trim(), "");
   };
 
   const loadMore = async (): Promise<void> => {
@@ -126,6 +153,7 @@ function ProductsScreen(): ReactNode {
       active: "all",
       cursor: state.nextCursor,
       ...(q.length > 0 ? { q } : {}),
+      ...(warehouseId.length > 0 ? { warehouseId } : {}),
     });
     setState({
       kind: "ready",
@@ -186,6 +214,7 @@ function ProductsScreen(): ReactNode {
         product={product}
         categories={categories}
         units={units}
+        warehouses={warehouses}
         onSubmit={(body) => onUpdate(product.id, body)}
         onCancel={() => setEditingId(null)}
       />
@@ -229,18 +258,45 @@ function ProductsScreen(): ReactNode {
         }
       />
 
+      <FilterBar
+        activeCount={warehouseId.length > 0 ? 1 : 0}
+        onClearAll={clearFilters}
+        clearAllLabel={t("products.filter.clear")}
+      >
+        <FormField
+          label={t("products.filter.warehouse")}
+          htmlFor="products-warehouse-filter"
+          optional
+        >
+          <Combobox
+            id="products-warehouse-filter"
+            value={warehouseId}
+            options={[
+              { value: "", label: DASH },
+              ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+            ]}
+            onChange={onWarehouseFilterChange}
+            ariaLabel={t("products.filter.warehouse")}
+            placeholder={DASH}
+          />
+        </FormField>
+      </FilterBar>
+
       {creating ? (
         <PermissionGate permission="products.manage">
           <ProductForm
             categories={categories}
             units={units}
+            warehouses={warehouses}
             onSubmit={onCreate}
             onCancel={() => setCreating(false)}
           />
         </PermissionGate>
       ) : null}
 
-      {state.kind === "error" ? <ErrorState onRetry={() => void load(search.trim())} /> : null}
+      {state.kind === "error" ? (
+        <ErrorState onRetry={() => void load(search.trim(), warehouseId)} />
+      ) : null}
 
       {state.kind !== "error" ? (
         isDesktop ? (
@@ -491,12 +547,14 @@ function ProductForm({
   product,
   categories,
   units,
+  warehouses,
   onSubmit,
   onCancel,
 }: {
   product?: Product;
   categories: readonly RefOption[];
   units: readonly RefOption[];
+  warehouses: readonly Warehouse[];
   onSubmit: (body: ProductInput) => void | Promise<void>;
   onCancel: () => void;
 }): ReactNode {
@@ -506,7 +564,7 @@ function ProductForm({
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
   const [unitId, setUnitId] = useState(product?.unitId ?? "");
   const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? "");
-  const [allowOversell, setAllowOversell] = useState(product?.allowOversell ?? false);
+  const [allowOversell, setAllowOversell] = useState(product?.allowOversell ?? true);
   const [submitting, setSubmitting] = useState(false);
   const editing = product !== undefined;
 
@@ -623,6 +681,11 @@ function ProductForm({
           />
           {t("products.field.allowOversell")}
         </label>
+
+        {editing && warehouses.length > 0 ? (
+          <VariantWarehousesEditor productId={product.id} warehouses={warehouses} />
+        ) : null}
+
         <div className="flex gap-2">
           <Button size="sm" disabled={submitting || nameInvalid} onClick={() => void submit()}>
             {t("products.actions.save")}
@@ -633,6 +696,106 @@ function ProductForm({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Each variant's current warehouse, with a control to move it. Loaded lazily on edit. */
+function VariantWarehousesEditor({
+  productId,
+  warehouses,
+}: {
+  productId: string;
+  warehouses: readonly Warehouse[];
+}): ReactNode {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [rows, setRows] = useState<{ variant: ProductVariant; warehouseId: string }[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { data: variants } = await listVariants(productId);
+      const withWarehouse = await Promise.all(
+        variants.map(async (variant) => {
+          const page = await listStock({ variantId: variant.id });
+          const withStock = page.data.find((s) => s.onHand > 0);
+          const current = withStock ?? page.data[0];
+          return { variant, warehouseId: current?.warehouseId ?? "" };
+        }),
+      );
+      if (!cancelled) setRows(withWarehouse);
+    })().catch(() => {
+      if (!cancelled) setRows([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
+  const onChangeWarehouse = async (
+    variant: ProductVariant,
+    fromWarehouseId: string,
+    toWarehouseId: string,
+  ): Promise<void> => {
+    try {
+      if (fromWarehouseId.length > 0 && fromWarehouseId !== toWarehouseId) {
+        const page = await listStock({ variantId: variant.id, warehouseId: fromWarehouseId });
+        const onHand = page.data[0]?.onHand ?? 0;
+        if (onHand > 0) {
+          await createTransfer({
+            fromWarehouseId,
+            toWarehouseId,
+            variantId: variant.id,
+            quantity: onHand,
+          });
+        } else {
+          await setVariantWarehouse({ warehouseId: toWarehouseId, variantId: variant.id });
+        }
+      } else {
+        await setVariantWarehouse({ warehouseId: toWarehouseId, variantId: variant.id });
+      }
+      setRows((rs) =>
+        (rs ?? []).map((r) =>
+          r.variant.id === variant.id ? { ...r, warehouseId: toWarehouseId } : r,
+        ),
+      );
+      toast.show(t("products.variant.warehouseSaved"));
+    } catch {
+      toast.show(t("products.variant.warehouseFailed"));
+    }
+  };
+
+  if (rows === null || rows.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-h3">{t("products.field.warehouse")}</h3>
+      <div className="form-gap grid grid-cols-1 sm:grid-cols-2">
+        {rows.map(({ variant, warehouseId }) => (
+          <FormField
+            key={variant.id}
+            label={variant.name}
+            htmlFor={`variant-warehouse-${variant.id}`}
+            optional
+          >
+            <Combobox
+              id={`variant-warehouse-${variant.id}`}
+              value={warehouseId}
+              options={[
+                { value: "", label: DASH },
+                ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+              ]}
+              onChange={(next) => {
+                if (next.length === 0) return;
+                void onChangeWarehouse(variant, warehouseId, next);
+              }}
+              ariaLabel={`${t("products.variant.field.warehouse")}: ${variant.name}`}
+              placeholder={DASH}
+            />
+          </FormField>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -149,9 +149,7 @@ export function createShipment(
       ...(bosta?.recipientLastName !== undefined
         ? { recipientLastName: bosta.recipientLastName }
         : {}),
-      ...(bosta?.recipientPhone2 !== undefined
-        ? { recipientPhone2: bosta.recipientPhone2 }
-        : {}),
+      ...(bosta?.recipientPhone2 !== undefined ? { recipientPhone2: bosta.recipientPhone2 } : {}),
       ...(bosta?.allowToOpenPackage !== undefined
         ? { allowToOpenPackage: bosta.allowToOpenPackage }
         : {}),
