@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type { RawListQuery } from "../domain/list-query";
@@ -51,11 +52,10 @@ export class MasterDataService {
     if (query === undefined) {
       throw AppErrors.validation("Request validation failed", errors);
     }
-    try {
-      return await this.repo.list(descriptor, companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.list(descriptor, companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   /** Read one row by id, or `404`. */
@@ -97,12 +97,10 @@ export class MasterDataService {
     const { data, errors } = validateCreate(descriptor, body);
     if (errors.length > 0) throw AppErrors.validation("Request validation failed", errors);
 
-    let row: ResourceView;
-    try {
-      row = await this.repo.create(descriptor, { companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: ResourceView = await withErrorMapping(
+      () => this.repo.create(descriptor, { companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.afterWrite(descriptor, companyId, principal.userId, row, "created");
     return row;
   }
@@ -119,12 +117,10 @@ export class MasterDataService {
     const { data, errors } = validateUpdate(descriptor, body);
     if (errors.length > 0) throw AppErrors.validation("Request validation failed", errors);
 
-    let row: ResourceView | null;
-    try {
-      row = await this.repo.update(descriptor, { companyId, actorId: principal.userId }, id, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: ResourceView | null = await withErrorMapping(
+      () => this.repo.update(descriptor, { companyId, actorId: principal.userId }, id, data),
+      (error) => this.mapError(error),
+    );
     if (row === null) throw AppErrors.notFound(`${descriptor.name} not found.`);
     await this.afterWrite(descriptor, companyId, principal.userId, row, "updated");
     return row;

@@ -3,6 +3,7 @@ import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type { InventoryAuditPort, InventoryAuditRecord } from "../domain/inventory-audit.port";
@@ -80,11 +81,10 @@ export class InventoryService {
       const data = row === null ? [] : [row];
       return { data, page: { limit: 1, nextCursor: null, hasMore: false } };
     }
-    try {
-      return await this.repo.listWarehouses(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listWarehouses(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async getWarehouse(principal: RequestPrincipal, id: string): Promise<WarehouseView> {
@@ -103,12 +103,10 @@ export class InventoryService {
     data: CreateWarehouseInput,
   ): Promise<WarehouseView> {
     const companyId = this.requireTenant(principal);
-    let row: WarehouseView;
-    try {
-      row = await this.repo.createWarehouse({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: WarehouseView = await withErrorMapping(
+      () => this.repo.createWarehouse({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.record(companyId, principal.userId, {
       action: "inventory.warehouse_created",
       entityType: "warehouse",
@@ -124,12 +122,10 @@ export class InventoryService {
     data: UpdateWarehouseInput,
   ): Promise<WarehouseView> {
     const companyId = this.requireTenant(principal);
-    let row: WarehouseView | null;
-    try {
-      row = await this.repo.updateWarehouse({ companyId, actorId: principal.userId }, id, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: WarehouseView | null = await withErrorMapping(
+      () => this.repo.updateWarehouse({ companyId, actorId: principal.userId }, id, data),
+      (error) => this.mapError(error),
+    );
     if (row === null) throw AppErrors.notFound("Warehouse not found.");
     await this.record(companyId, principal.userId, {
       action: "inventory.warehouse_updated",
@@ -216,11 +212,10 @@ export class InventoryService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parseStockListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
-    try {
-      return await this.repo.listStock(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listStock(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async setReorderPoint(
@@ -228,12 +223,10 @@ export class InventoryService {
     data: SetReorderPointInput,
   ): Promise<StockLevelView> {
     const companyId = this.requireTenant(principal);
-    let level: StockLevelView;
-    try {
-      level = await this.repo.setReorderPoint({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const level: StockLevelView = await withErrorMapping(
+      () => this.repo.setReorderPoint({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.record(companyId, principal.userId, {
       action: "inventory.reorder_point_set",
       entityType: "inventory_stock",
@@ -248,12 +241,10 @@ export class InventoryService {
     data: SetVariantWarehouseInput,
   ): Promise<StockLevelView> {
     const companyId = this.requireTenant(principal);
-    let level: StockLevelView;
-    try {
-      level = await this.repo.setVariantWarehouse({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const level: StockLevelView = await withErrorMapping(
+      () => this.repo.setVariantWarehouse({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.record(companyId, principal.userId, {
       action: "inventory.variant_warehouse_set",
       entityType: "inventory_stock",
@@ -267,12 +258,10 @@ export class InventoryService {
 
   async reserve(principal: RequestPrincipal, data: ReserveInput): Promise<ReservationView> {
     const companyId = this.requireTenant(principal);
-    let result: StockWriteResult<ReservationView>;
-    try {
-      result = await this.repo.reserve({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result: StockWriteResult<ReservationView> = await withErrorMapping(
+      () => this.repo.reserve({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.settle(companyId, principal.userId, result, {
       action: "inventory.reserved",
       entityType: "stock_reservation",
@@ -282,12 +271,10 @@ export class InventoryService {
 
   async release(principal: RequestPrincipal, reservationId: string): Promise<ReservationView> {
     const companyId = this.requireTenant(principal);
-    let result: StockWriteResult<ReservationView> | null;
-    try {
-      result = await this.repo.release({ companyId, actorId: principal.userId }, reservationId);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result: StockWriteResult<ReservationView> | null = await withErrorMapping(
+      () => this.repo.release({ companyId, actorId: principal.userId }, reservationId),
+      (error) => this.mapError(error),
+    );
     if (result === null) throw AppErrors.notFound("Reservation not found.");
     await this.settle(companyId, principal.userId, result, {
       action: "inventory.released",
@@ -303,12 +290,10 @@ export class InventoryService {
         { field: "toWarehouseId", messages: ["toWarehouseId must differ from fromWarehouseId"] },
       ]);
     }
-    let result: StockWriteResult<TransferView>;
-    try {
-      result = await this.repo.transfer({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result: StockWriteResult<TransferView> = await withErrorMapping(
+      () => this.repo.transfer({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.settle(companyId, principal.userId, result, {
       action: "inventory.transferred",
       entityType: "stock_transfer",
@@ -318,12 +303,10 @@ export class InventoryService {
 
   async adjust(principal: RequestPrincipal, data: AdjustInput): Promise<AdjustmentView> {
     const companyId = this.requireTenant(principal);
-    let result: StockWriteResult<AdjustmentView>;
-    try {
-      result = await this.repo.adjust({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result: StockWriteResult<AdjustmentView> = await withErrorMapping(
+      () => this.repo.adjust({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.settle(companyId, principal.userId, result, {
       action: "inventory.adjusted",
       entityType: "stock_adjustment",

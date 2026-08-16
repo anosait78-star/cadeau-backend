@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import type { VendorWarehouseMappingView } from "../domain/vendor-warehouse-mapping.entity";
 import {
   VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY,
@@ -55,15 +56,14 @@ export class VendorWarehouseMappingsService {
   ): Promise<VendorWarehouseMappingView> {
     const companyId = this.requireTenant(principal);
     await this.requireConnection(companyId, connectionId);
-    let mapping: VendorWarehouseMappingView;
-    try {
-      mapping = await this.repo.create(
-        { companyId, actorId: principal.userId },
-        { connectionId, externalVendorId: data.externalVendorId, warehouseId: data.warehouseId },
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const mapping: VendorWarehouseMappingView = await withErrorMapping(
+      () =>
+        this.repo.create(
+          { companyId, actorId: principal.userId },
+          { connectionId, externalVendorId: data.externalVendorId, warehouseId: data.warehouseId },
+        ),
+      (error) => this.mapError(error),
+    );
     await this.audit.record({
       companyId,
       actorId: principal.userId,

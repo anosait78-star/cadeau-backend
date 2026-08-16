@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import {
@@ -65,11 +66,10 @@ export class ProductsService {
     if (query === undefined) {
       throw AppErrors.validation("Request validation failed", errors);
     }
-    try {
-      return await this.repo.list(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.list(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async getOne(principal: RequestPrincipal, id: string): Promise<ProductWithVariants> {
@@ -81,12 +81,10 @@ export class ProductsService {
 
   async create(principal: RequestPrincipal, data: CreateProductInput): Promise<ProductView> {
     const companyId = this.requireTenant(principal);
-    let row: ProductView;
-    try {
-      row = await this.repo.create({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: ProductView = await withErrorMapping(
+      () => this.repo.create({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.auditProduct(companyId, principal.userId, "product.created", row);
     await this.emitProduct(companyId, principal.userId, "product.created", row.id);
     return row;
@@ -98,12 +96,10 @@ export class ProductsService {
     data: UpdateProductInput,
   ): Promise<ProductView> {
     const companyId = this.requireTenant(principal);
-    let row: ProductView | null;
-    try {
-      row = await this.repo.update({ companyId, actorId: principal.userId }, id, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: ProductView | null = await withErrorMapping(
+      () => this.repo.update({ companyId, actorId: principal.userId }, id, data),
+      (error) => this.mapError(error),
+    );
     if (row === null) throw AppErrors.notFound("Product not found.");
     await this.auditProduct(companyId, principal.userId, "product.updated", row);
     await this.emitProduct(companyId, principal.userId, "product.updated", row.id);
@@ -134,16 +130,10 @@ export class ProductsService {
     data: CreateVariantInput,
   ): Promise<ProductVariantView> {
     const companyId = this.requireTenant(principal);
-    let variant: ProductVariantView | null;
-    try {
-      variant = await this.repo.createVariant(
-        { companyId, actorId: principal.userId },
-        productId,
-        data,
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const variant: ProductVariantView | null = await withErrorMapping(
+      () => this.repo.createVariant({ companyId, actorId: principal.userId }, productId, data),
+      (error) => this.mapError(error),
+    );
     if (variant === null) throw AppErrors.notFound("Product not found.");
     await this.auditVariant(companyId, principal.userId, "product.variant_created", variant);
     await this.emitProduct(companyId, principal.userId, "product.updated", productId);
@@ -157,17 +147,16 @@ export class ProductsService {
     data: UpdateVariantInput,
   ): Promise<ProductVariantView> {
     const companyId = this.requireTenant(principal);
-    let variant: ProductVariantView | null;
-    try {
-      variant = await this.repo.updateVariant(
-        { companyId, actorId: principal.userId },
-        productId,
-        variantId,
-        data,
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const variant: ProductVariantView | null = await withErrorMapping(
+      () =>
+        this.repo.updateVariant(
+          { companyId, actorId: principal.userId },
+          productId,
+          variantId,
+          data,
+        ),
+      (error) => this.mapError(error),
+    );
     if (variant === null) throw AppErrors.notFound("Variant not found.");
     await this.auditVariant(companyId, principal.userId, "product.variant_updated", variant);
     await this.emitProduct(companyId, principal.userId, "product.updated", productId);

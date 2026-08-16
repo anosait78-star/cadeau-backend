@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type {
@@ -81,11 +82,10 @@ export class CustomersService {
     if (query === undefined) {
       throw AppErrors.validation("Request validation failed", errors);
     }
-    try {
-      return await this.repo.list(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.list(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   /**
@@ -105,12 +105,10 @@ export class CustomersService {
       throw AppErrors.validation("Request validation failed", errors);
     }
 
-    let rows: readonly CustomerView[];
-    try {
-      rows = await this.repo.exportAll(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const rows: readonly CustomerView[] = await withErrorMapping(
+      () => this.repo.exportAll(companyId, query),
+      (error) => this.mapError(error),
+    );
 
     await this.record(companyId, principal.userId, {
       action: "customer.exported",
@@ -145,18 +143,17 @@ export class CustomersService {
     const phone = this.requireE164(data.phone);
     const actor: WriteActor = { companyId, actorId: principal.userId };
 
-    let result;
-    try {
-      result = await this.repo.create(actor, {
-        name: data.name,
-        phone,
-        ...(data.email !== undefined ? { email: data.email } : {}),
-        ...(data.notes !== undefined ? { notes: data.notes } : {}),
-        ...(data.idempotencyKey !== undefined ? { idempotencyKey: data.idempotencyKey } : {}),
-      });
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () =>
+        this.repo.create(actor, {
+          name: data.name,
+          phone,
+          ...(data.email !== undefined ? { email: data.email } : {}),
+          ...(data.notes !== undefined ? { notes: data.notes } : {}),
+          ...(data.idempotencyKey !== undefined ? { idempotencyKey: data.idempotencyKey } : {}),
+        }),
+      (error) => this.mapError(error),
+    );
 
     // A replay moved nothing, so it is not a change: no audit row, no event.
     if (!result.replayed) {
@@ -184,17 +181,16 @@ export class CustomersService {
     const companyId = this.requireTenant(principal);
     const phone = data.phone === undefined ? undefined : this.requireE164(data.phone);
 
-    let row: CustomerView | null;
-    try {
-      row = await this.repo.update({ companyId, actorId: principal.userId }, id, {
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(phone !== undefined ? { phone } : {}),
-        ...(data.email !== undefined ? { email: data.email } : {}),
-        ...(data.notes !== undefined ? { notes: data.notes } : {}),
-      });
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: CustomerView | null = await withErrorMapping(
+      () =>
+        this.repo.update({ companyId, actorId: principal.userId }, id, {
+          ...(data.name !== undefined ? { name: data.name } : {}),
+          ...(phone !== undefined ? { phone } : {}),
+          ...(data.email !== undefined ? { email: data.email } : {}),
+          ...(data.notes !== undefined ? { notes: data.notes } : {}),
+        }),
+      (error) => this.mapError(error),
+    );
     if (row === null) throw AppErrors.notFound("Customer not found.");
 
     const fields = this.changedFields(data);
@@ -261,16 +257,15 @@ export class CustomersService {
     mergedCustomerId: string,
   ): Promise<CustomerMergeResult> {
     const companyId = this.requireTenant(principal);
-    let result: CustomerMergeResult | null;
-    try {
-      result = await this.repo.merge(
-        { companyId, actorId: principal.userId },
-        survivingCustomerId,
-        mergedCustomerId,
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result: CustomerMergeResult | null = await withErrorMapping(
+      () =>
+        this.repo.merge(
+          { companyId, actorId: principal.userId },
+          survivingCustomerId,
+          mergedCustomerId,
+        ),
+      (error) => this.mapError(error),
+    );
     if (result === null) throw AppErrors.notFound("Customer not found.");
 
     await this.record(companyId, principal.userId, {
@@ -308,16 +303,10 @@ export class CustomersService {
     data: CreateAddressInput,
   ): Promise<CustomerAddressView> {
     const companyId = this.requireTenant(principal);
-    let address: CustomerAddressView | null;
-    try {
-      address = await this.repo.createAddress(
-        { companyId, actorId: principal.userId },
-        customerId,
-        data,
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const address: CustomerAddressView | null = await withErrorMapping(
+      () => this.repo.createAddress({ companyId, actorId: principal.userId }, customerId, data),
+      (error) => this.mapError(error),
+    );
     if (address === null) throw AppErrors.notFound("Customer not found.");
     await this.record(companyId, principal.userId, {
       action: "customer.address_created",
@@ -335,17 +324,16 @@ export class CustomersService {
     data: UpdateAddressInput,
   ): Promise<CustomerAddressView> {
     const companyId = this.requireTenant(principal);
-    let address: CustomerAddressView | null;
-    try {
-      address = await this.repo.updateAddress(
-        { companyId, actorId: principal.userId },
-        customerId,
-        addressId,
-        data,
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const address: CustomerAddressView | null = await withErrorMapping(
+      () =>
+        this.repo.updateAddress(
+          { companyId, actorId: principal.userId },
+          customerId,
+          addressId,
+          data,
+        ),
+      (error) => this.mapError(error),
+    );
     if (address === null) throw AppErrors.notFound("Address not found.");
     await this.record(companyId, principal.userId, {
       action: "customer.address_updated",

@@ -6,6 +6,7 @@ import type { KeysetPage } from "@cadeau/database";
 import { APP_CONFIG } from "../../../shared/config/config.tokens";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import type {
   StorefrontConnectionView,
   StorefrontConnectionWithSecret,
@@ -81,26 +82,25 @@ export class StorefrontConnectionsService {
   ): Promise<StorefrontConnectionWithSecret> {
     const companyId = this.requireTenant(principal);
     const { plaintext, prefix, hash } = await this.mintKey();
-    let connection: StorefrontConnectionView;
-    try {
-      connection = await this.repo.create(
-        { companyId, actorId: principal.userId },
-        {
-          label: data.label,
-          ...(data.platform === undefined ? {} : { platform: data.platform }),
-          apiKeyHash: hash,
-          apiKeyPrefix: prefix,
-          ...(data.defaultWarehouseId === undefined
-            ? {}
-            : { defaultWarehouseId: data.defaultWarehouseId }),
-          ...(data.webhookSecret === undefined
-            ? {}
-            : { webhookSecretEncrypted: this.encryptWebhookSecret(data.webhookSecret) }),
-        },
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const connection: StorefrontConnectionView = await withErrorMapping(
+      () =>
+        this.repo.create(
+          { companyId, actorId: principal.userId },
+          {
+            label: data.label,
+            ...(data.platform === undefined ? {} : { platform: data.platform }),
+            apiKeyHash: hash,
+            apiKeyPrefix: prefix,
+            ...(data.defaultWarehouseId === undefined
+              ? {}
+              : { defaultWarehouseId: data.defaultWarehouseId }),
+            ...(data.webhookSecret === undefined
+              ? {}
+              : { webhookSecretEncrypted: this.encryptWebhookSecret(data.webhookSecret) }),
+          },
+        ),
+      (error) => this.mapError(error),
+    );
     await this.record(companyId, principal.userId, {
       action: "storefront_connection.created",
       entityType: "storefront_connection",
@@ -116,24 +116,25 @@ export class StorefrontConnectionsService {
     data: UpdateConnectionCommand,
   ): Promise<StorefrontConnectionView> {
     const companyId = this.requireTenant(principal);
-    let row: StorefrontConnectionView | null;
-    try {
-      row = await this.repo.update({ companyId, actorId: principal.userId }, id, {
-        ...(data.label === undefined ? {} : { label: data.label }),
-        ...(data.defaultWarehouseId === undefined
-          ? {}
-          : { defaultWarehouseId: data.defaultWarehouseId }),
-        ...(data.status === undefined ? {} : { status: data.status }),
-        ...(data.webhookSecret === undefined
-          ? {}
-          : {
-              webhookSecretEncrypted:
-                data.webhookSecret === null ? null : this.encryptWebhookSecret(data.webhookSecret),
-            }),
-      });
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: StorefrontConnectionView | null = await withErrorMapping(
+      () =>
+        this.repo.update({ companyId, actorId: principal.userId }, id, {
+          ...(data.label === undefined ? {} : { label: data.label }),
+          ...(data.defaultWarehouseId === undefined
+            ? {}
+            : { defaultWarehouseId: data.defaultWarehouseId }),
+          ...(data.status === undefined ? {} : { status: data.status }),
+          ...(data.webhookSecret === undefined
+            ? {}
+            : {
+                webhookSecretEncrypted:
+                  data.webhookSecret === null
+                    ? null
+                    : this.encryptWebhookSecret(data.webhookSecret),
+              }),
+        }),
+      (error) => this.mapError(error),
+    );
     if (row === null) throw AppErrors.notFound("Connection not found.");
     await this.record(companyId, principal.userId, {
       action: "storefront_connection.updated",

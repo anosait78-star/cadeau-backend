@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { KeysetPage } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type { FinanceAuditPort, FinanceAuditRecord } from "../domain/finance-audit.port";
@@ -105,11 +106,10 @@ export class FinanceService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parseSupplierListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
-    try {
-      return await this.repo.listSuppliers(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listSuppliers(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async getSupplier(principal: RequestPrincipal, id: string): Promise<SupplierView> {
@@ -172,11 +172,10 @@ export class FinanceService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parsePurchaseOrderListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
-    try {
-      return await this.repo.listPurchaseOrders(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listPurchaseOrders(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async getPurchaseOrder(principal: RequestPrincipal, id: string): Promise<PurchaseOrderView> {
@@ -191,12 +190,10 @@ export class FinanceService {
     data: CreatePurchaseOrderInput,
   ): Promise<PurchaseOrderView> {
     const companyId = this.requireTenant(principal);
-    let result;
-    try {
-      result = await this.repo.createPurchaseOrder({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.createPurchaseOrder({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
         action: "purchase_order.created",
@@ -214,16 +211,10 @@ export class FinanceService {
     data: CreateReceiptInput,
   ): Promise<PurchaseOrderReceiptView> {
     const companyId = this.requireTenant(principal);
-    let result;
-    try {
-      result = await this.repo.receivePurchaseOrder(
-        { companyId, actorId: principal.userId },
-        id,
-        data,
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.receivePurchaseOrder({ companyId, actorId: principal.userId }, id, data),
+      (error) => this.mapError(error),
+    );
     if (result === null) throw AppErrors.notFound("Purchase order not found.");
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
@@ -249,12 +240,10 @@ export class FinanceService {
     data: CreatePaymentInput,
   ): Promise<PurchaseOrderPaymentView> {
     const companyId = this.requireTenant(principal);
-    let result;
-    try {
-      result = await this.repo.payPurchaseOrder({ companyId, actorId: principal.userId }, id, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.payPurchaseOrder({ companyId, actorId: principal.userId }, id, data),
+      (error) => this.mapError(error),
+    );
     if (result === null) throw AppErrors.notFound("Purchase order not found.");
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
@@ -283,11 +272,10 @@ export class FinanceService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parseExpenseListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
-    try {
-      return await this.repo.listExpenses(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listExpenses(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async getExpense(principal: RequestPrincipal, id: string): Promise<ExpenseView> {
@@ -299,12 +287,10 @@ export class FinanceService {
 
   async createExpense(principal: RequestPrincipal, data: CreateExpenseInput): Promise<ExpenseView> {
     const companyId = this.requireTenant(principal);
-    let result;
-    try {
-      result = await this.repo.createExpense({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.createExpense({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
         action: "expense.created",
@@ -322,12 +308,10 @@ export class FinanceService {
     data: UpdateExpenseInput,
   ): Promise<ExpenseView> {
     const companyId = this.requireTenant(principal);
-    let row: ExpenseView | null;
-    try {
-      row = await this.repo.updateExpense({ companyId, actorId: principal.userId }, id, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: ExpenseView | null = await withErrorMapping(
+      () => this.repo.updateExpense({ companyId, actorId: principal.userId }, id, data),
+      (error) => this.mapError(error),
+    );
     if (row === null) throw AppErrors.notFound("Expense not found.");
     await this.record(companyId, principal.userId, {
       action: "expense.updated",
@@ -350,12 +334,10 @@ export class FinanceService {
     data: UpdateTaxSettingsInput,
   ): Promise<TaxSettingsView> {
     const companyId = this.requireTenant(principal);
-    let row: TaxSettingsView;
-    try {
-      row = await this.repo.updateTaxSettings({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const row: TaxSettingsView = await withErrorMapping(
+      () => this.repo.updateTaxSettings({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     await this.record(companyId, principal.userId, {
       action: "tax_settings.updated",
       entityType: "tax_settings",
@@ -374,11 +356,10 @@ export class FinanceService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parseInvoiceListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
-    try {
-      return await this.repo.listInvoices(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listInvoices(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async getInvoice(principal: RequestPrincipal, id: string): Promise<InvoiceView> {
@@ -394,12 +375,10 @@ export class FinanceService {
     const hasLines = data.lines !== undefined && data.lines.length > 0;
     if (hasOrder === hasLines) throw this.mapError(new InvalidInvoiceSourceError());
 
-    let result;
-    try {
-      result = await this.repo.createInvoice({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.createInvoice({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
         action: "invoice.issued",
@@ -449,11 +428,10 @@ export class FinanceService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parseRefundListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
-    try {
-      return await this.repo.listRefunds(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listRefunds(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   /**
@@ -471,15 +449,15 @@ export class FinanceService {
       throw this.mapError(new RefundTargetRequiredError());
     }
 
-    let result;
-    try {
-      result = await this.repo.createRefund(
-        { companyId, actorId: principal.userId },
-        { ...data, idempotencyKey: data.idempotencyKey },
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const idempotencyKey = data.idempotencyKey;
+    const result = await withErrorMapping(
+      () =>
+        this.repo.createRefund(
+          { companyId, actorId: principal.userId },
+          { ...data, idempotencyKey },
+        ),
+      (error) => this.mapError(error),
+    );
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
         action: "refund.issued",
@@ -507,11 +485,10 @@ export class FinanceService {
     const companyId = this.requireTenant(principal);
     const { query, errors } = parseReconciliationListQuery(rawQuery);
     if (query === undefined) throw AppErrors.validation("Request validation failed", errors);
-    try {
-      return await this.repo.listReconciliations(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.listReconciliations(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async getReconciliation(principal: RequestPrincipal, id: string): Promise<ReconciliationView> {
@@ -526,12 +503,10 @@ export class FinanceService {
     data: CreateReconciliationInput,
   ): Promise<ReconciliationView> {
     const companyId = this.requireTenant(principal);
-    let result;
-    try {
-      result = await this.repo.createReconciliation({ companyId, actorId: principal.userId }, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.createReconciliation({ companyId, actorId: principal.userId }, data),
+      (error) => this.mapError(error),
+    );
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
         action: "shipping_reconciliation.created",
@@ -557,12 +532,10 @@ export class FinanceService {
     const companyId = this.requireTenant(principal);
     if (!/^\d{4}-\d{2}$/.test(periodKey)) throw this.mapError(new InvalidPeriodKeyError());
 
-    let result;
-    try {
-      result = await this.repo.closePeriod({ companyId, actorId: principal.userId }, periodKey);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.closePeriod({ companyId, actorId: principal.userId }, periodKey),
+      (error) => this.mapError(error),
+    );
     if (!result.replayed) {
       await this.record(companyId, principal.userId, {
         action: "period.closed",

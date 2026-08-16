@@ -4,6 +4,7 @@ import { AccessResolverService } from "../../../shared/access/access-resolver.se
 import { can } from "../../../shared/access/capabilities";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type {
@@ -91,11 +92,10 @@ export class OrdersService {
   ): Promise<KeysetPage<OrderListView>> {
     const companyId = this.requireTenant(principal);
     const query = await this.scopeToOwnOrders(principal, this.parseQuery(rawQuery));
-    try {
-      return await this.repo.list(companyId, query);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    return withErrorMapping(
+      () => this.repo.list(companyId, query),
+      (error) => this.mapError(error),
+    );
   }
 
   async statusCounts(
@@ -122,12 +122,10 @@ export class OrdersService {
     const companyId = this.requireTenant(principal);
     const actor: WriteActor = { companyId, actorId: principal.userId };
 
-    let result;
-    try {
-      result = await this.repo.create(actor, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.create(actor, data),
+      (error) => this.mapError(error),
+    );
 
     if (!result.replayed) {
       await this.audit.record({
@@ -160,12 +158,10 @@ export class OrdersService {
     if (before === null) throw AppErrors.notFound("Order not found.");
     await this.assertVisible(principal, before);
 
-    let order: OrderView | null;
-    try {
-      order = await this.repo.update({ companyId, actorId: principal.userId }, id, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const order: OrderView | null = await withErrorMapping(
+      () => this.repo.update({ companyId, actorId: principal.userId }, id, data),
+      (error) => this.mapError(error),
+    );
     if (order === null) throw AppErrors.notFound("Order not found.");
 
     await this.audit.record({
@@ -209,12 +205,10 @@ export class OrdersService {
     await this.assertVisible(principal, before);
     const input = await this.toTransitionInput(principal, command);
 
-    let change: StatusChangeResult | null;
-    try {
-      change = await this.repo.transition({ companyId, actorId: principal.userId }, id, input);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const change: StatusChangeResult | null = await withErrorMapping(
+      () => this.repo.transition({ companyId, actorId: principal.userId }, id, input),
+      (error) => this.mapError(error),
+    );
     if (change === null) throw AppErrors.notFound("Order not found.");
 
     await this.recordTransition(principal, change);
@@ -227,12 +221,10 @@ export class OrdersService {
     assigneeId: string | null,
   ): Promise<OrderView> {
     const companyId = this.requireTenant(principal);
-    let order: OrderView | null;
-    try {
-      order = await this.repo.assign({ companyId, actorId: principal.userId }, id, assigneeId);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const order: OrderView | null = await withErrorMapping(
+      () => this.repo.assign({ companyId, actorId: principal.userId }, id, assigneeId),
+      (error) => this.mapError(error),
+    );
     if (order === null) throw AppErrors.notFound("Order not found.");
     await this.audit.record({
       companyId,

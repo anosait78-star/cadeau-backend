@@ -4,6 +4,7 @@ import { encrypt } from "@cadeau/crypto";
 import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
+import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type { CarrierConnectionView } from "../domain/carrier-connection.entity";
@@ -128,12 +129,10 @@ export class ShippingService {
       throw AppErrors.badRequest(`Unknown or unsupported carrier '${carrier}'.`);
     }
 
-    let pickupLocationWarning: boolean;
-    try {
-      pickupLocationWarning = await this.probeBosta(apiKey);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const pickupLocationWarning: boolean = await withErrorMapping(
+      () => this.probeBosta(apiKey),
+      (error) => this.mapError(error),
+    );
 
     const webhookToken = randomBytes(32).toString("base64url");
     const webhookTokenHash = createHash("sha256").update(webhookToken).digest("hex");
@@ -182,12 +181,11 @@ export class ShippingService {
     const cached = this.bostaCatalog.get<BostaCityView[]>("cities");
     if (cached !== null) return cached;
 
-    let response: { data?: { list?: { _id: string; name: string; nameAr?: string }[] } };
-    try {
-      response = await this.bostaHttpClient.request("GET", "cities");
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const response: { data?: { list?: { _id: string; name: string; nameAr?: string }[] } } =
+      await withErrorMapping(
+        () => this.bostaHttpClient.request("GET", "cities"),
+        (error) => this.mapError(error),
+      );
     const cities = (response.data?.list ?? []).map((c) => ({
       id: c._id,
       name: c.name,
@@ -207,22 +205,17 @@ export class ShippingService {
     const cached = this.bostaCatalog.get<BostaDistrictView[]>(cacheKey);
     if (cached !== null) return cached;
 
-    let response: {
+    const response: {
       data?: readonly {
         districtId: string;
         districtName: string;
         zoneId: string;
         zoneName: string;
       }[];
-    };
-    try {
-      response = await this.bostaHttpClient.request(
-        "GET",
-        `cities/${encodeURIComponent(cityId)}/districts`,
-      );
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    } = await withErrorMapping(
+      () => this.bostaHttpClient.request("GET", `cities/${encodeURIComponent(cityId)}/districts`),
+      (error) => this.mapError(error),
+    );
     const districts = (response.data ?? []).map((d) => ({
       districtId: d.districtId,
       districtName: d.districtName,
@@ -278,12 +271,10 @@ export class ShippingService {
     const companyId = this.requireTenant(principal);
     const actor: WriteActor = { companyId, actorId: principal.userId };
 
-    let result;
-    try {
-      result = await this.repo.create(actor, data);
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const result = await withErrorMapping(
+      () => this.repo.create(actor, data),
+      (error) => this.mapError(error),
+    );
 
     if (!result.replayed) {
       await this.audit.record({
@@ -349,15 +340,14 @@ export class ShippingService {
     command: TransitionCommand,
   ): Promise<ShipmentView> {
     const companyId = this.requireTenant(principal);
-    let change: ShipmentStatusChangeResult | null;
-    try {
-      change = await this.repo.transition({ companyId, actorId: principal.userId }, id, {
-        toStatus: command.toStatus,
-        ...(command.note !== undefined ? { note: command.note } : {}),
-      });
-    } catch (error) {
-      throw this.mapError(error);
-    }
+    const change: ShipmentStatusChangeResult | null = await withErrorMapping(
+      () =>
+        this.repo.transition({ companyId, actorId: principal.userId }, id, {
+          toStatus: command.toStatus,
+          ...(command.note !== undefined ? { note: command.note } : {}),
+        }),
+      (error) => this.mapError(error),
+    );
     if (change === null) throw AppErrors.notFound("Shipment not found.");
 
     await this.recordTransition(principal, change);
