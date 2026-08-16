@@ -18,6 +18,7 @@ import {
 } from "@/features/orders/orders-api";
 import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
 import { useI18n } from "@/i18n/i18n-provider";
+import { formatMoney } from "@/lib/format-money";
 
 const DASH = "—";
 
@@ -37,13 +38,6 @@ interface VariantOption {
 interface RefOption {
   readonly id: string;
   readonly name: string;
-}
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 function toMinor(value: string): number {

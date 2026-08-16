@@ -1,17 +1,12 @@
 import type { ReactNode } from "react";
 import { Label } from "@/components/ui/label";
 import type { SparklinePoint } from "@/features/analytics/analytics-api";
+import { formatMoney } from "@/lib/format-money";
 
 /** Placeholder for a missing optional value. */
 export const DASH = "—";
 
-/** Format integer minor units as a locale-formatted decimal amount (2dp), matching finance. */
-export function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+export { formatMoney };
 
 /** Format a signed percentage delta, or a dash when there is no prior-period baseline. */
 export function formatDeltaPct(pct: number | null, locale: string): string {

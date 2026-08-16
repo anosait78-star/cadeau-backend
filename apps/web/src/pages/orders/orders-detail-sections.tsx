@@ -23,15 +23,9 @@ import {
 import { listMembers, type TeamMember } from "@/features/team/team-api";
 import { ShipmentSection } from "@/features/shipping/shipment-section";
 import type { TranslationKey } from "@/i18n/dictionaries";
+import { formatMoney } from "@/lib/format-money";
 
 const DASH = "—";
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 function formatDate(iso: string | null, locale: string): string {
   return iso === null ? DASH : new Date(iso).toLocaleDateString(locale);

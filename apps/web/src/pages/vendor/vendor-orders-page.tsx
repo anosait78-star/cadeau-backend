@@ -22,15 +22,9 @@ import { useIsDesktop } from "@/hooks/use-media-query";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
+import { formatMoney } from "@/lib/format-money";
 import { VendorLayout } from "./vendor-layout";
 import { buildVendorOrderColumns, vendorGroupTotal } from "./vendor-orders-columns";
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 /**
  * Full orders list for the vendor (Vendor Accounts, Phase 7) — search /

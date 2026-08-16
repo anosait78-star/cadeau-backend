@@ -20,6 +20,7 @@ import { listProducts, listVariants } from "@/features/products/products-api";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
+import { formatMoney } from "@/lib/format-money";
 import { SalesChart, StatusChart } from "./dashboard-charts";
 
 const RECENT_ORDERS_LIMIT = 5;
@@ -206,13 +207,6 @@ export function DashboardPage(): ReactNode {
       </div>
     </div>
   );
-}
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 function KpiTile({

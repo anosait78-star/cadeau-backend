@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client";
+import { buildQuery } from "@/lib/build-query";
 
 /** A stock location. */
 export interface Warehouse {
@@ -78,18 +79,6 @@ export interface StockListOptions {
   /** Only levels at or below their reorder point. */
   readonly belowReorder?: boolean;
   readonly sort?: "available" | "-available" | "updatedAt" | "-updatedAt";
-}
-
-function buildQuery(options: Record<string, string | number | boolean | undefined>): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(options)) {
-    if (value === undefined) continue;
-    const text = String(value);
-    if (text.length === 0) continue;
-    params.set(key, text);
-  }
-  const qs = params.toString();
-  return qs.length > 0 ? `?${qs}` : "";
 }
 
 /** Create/update warehouse body. Send `null` to clear an optional field. */

@@ -7,6 +7,7 @@ import { StatusBadge as Badge } from "@/components/status-badge/status-badge";
 import type { OrderListItem } from "@/features/orders/orders-api";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { cn } from "@/lib/cn";
+import { formatMoney } from "@/lib/format-money";
 import { ORDER_STATUS_TONE } from "./orders-status-tones";
 
 const PAYMENT_TONE: Readonly<Record<OrderListItem["paymentStatus"], BadgeTone>> = {
@@ -39,13 +40,6 @@ export interface OrderLabel {
   readonly id: string;
   readonly name: string;
   readonly color: string | null;
-}
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 function formatDateTime(iso: string, locale: string): string {

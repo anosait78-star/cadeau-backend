@@ -6,13 +6,7 @@ import type { VendorGroup } from "@/features/vendor/vendor-api";
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import type { Translate } from "@/components/i18n/translate-type";
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+import { formatMoney } from "@/lib/format-money";
 
 function formatDateTime(iso: string, locale: string): string {
   return new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });

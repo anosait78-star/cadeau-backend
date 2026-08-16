@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchBlob } from "@/lib/api-client";
+import { buildQuery } from "@/lib/build-query";
 
 /** A keyset page (api-conventions §5). */
 export interface Page<T> {
@@ -8,18 +9,6 @@ export interface Page<T> {
     readonly nextCursor: string | null;
     readonly hasMore: boolean;
   };
-}
-
-function buildQuery(options: Record<string, string | number | boolean | undefined>): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(options)) {
-    if (value === undefined) continue;
-    const text = String(value);
-    if (text.length === 0) continue;
-    params.set(key, text);
-  }
-  const qs = params.toString();
-  return qs.length > 0 ? `?${qs}` : "";
 }
 
 /** A fresh idempotency key for a money-moving create (crypto.randomUUID, RFC 4122). */

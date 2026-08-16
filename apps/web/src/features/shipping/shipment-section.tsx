@@ -15,6 +15,7 @@ import {
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
+import { formatMoney } from "@/lib/format-money";
 import { SelectCarrierDialog } from "./select-carrier-dialog";
 import { shipmentErrorText } from "./shipment-error-text";
 import {
@@ -321,11 +322,4 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
       <dd>{children}</dd>
     </div>
   );
-}
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }

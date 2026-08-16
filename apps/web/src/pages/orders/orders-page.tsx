@@ -59,6 +59,7 @@ import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
+import { formatMoney } from "@/lib/format-money";
 import { buildOrderColumns, PaymentBadge, StatusBadge, type OrderLabel } from "./orders-columns";
 import { OrderForm } from "./orders-create-form";
 import { buildOrderDetailSections, useOrderDetailData } from "./orders-detail-sections";
@@ -985,13 +986,6 @@ function toListItem(detail: OrderDetail): OrderListItem {
   void _items;
   void _notes;
   return rest;
-}
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 interface StockShortage {

@@ -2,15 +2,9 @@ import type { Column } from "@/components/data-grid/types";
 import { StatusBadge } from "@/components/status-badge/status-badge";
 import type { Translate } from "@/components/i18n/translate-type";
 import type { CustomerListItem } from "@/features/customers/customers-api";
+import { formatMoney } from "@/lib/format-money";
 
 const DASH = "—";
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 function formatDate(iso: string | null, locale: string): string {
   return iso === null ? DASH : new Date(iso).toLocaleDateString(locale);

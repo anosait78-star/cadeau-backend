@@ -35,6 +35,7 @@ import { listItems, type MasterDataItem } from "@/features/master-data/master-da
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
+import { formatMoney } from "@/lib/format-money";
 import { buildCustomerColumns } from "./customers-columns";
 
 /** A governorate option for the address select. */
@@ -793,14 +794,6 @@ function toListItem(detail: CustomerDetail): CustomerListItem {
 function maskPhone(e164: string): string {
   if (e164.length <= 9) return e164;
   return `${e164.slice(0, 5)}•••${e164.slice(-4)}`;
-}
-
-/** Integer minor units → a locale-formatted amount. */
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 /** An ISO date-time → a locale date, or a dash when there is none. */

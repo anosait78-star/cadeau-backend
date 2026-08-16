@@ -1,17 +1,12 @@
 import type { ReactNode } from "react";
 import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
+import { formatMoney } from "@/lib/format-money";
 
 /** Placeholder for a missing optional value. */
 export const DASH = "—";
 
-/** Format integer minor units as a locale-formatted decimal amount (2dp), matching orders/products. */
-export function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+export { formatMoney };
 
 /** Format an ISO date string for display, or a dash when absent. */
 export function formatDate(iso: string | null | undefined, locale: string): string {

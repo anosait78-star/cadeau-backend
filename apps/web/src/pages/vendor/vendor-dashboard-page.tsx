@@ -12,16 +12,10 @@ import type { VendorGroup, VendorGroupStatus } from "@/features/vendor/vendor-ap
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
+import { formatMoney } from "@/lib/format-money";
 import { VendorLayout } from "./vendor-layout";
 
 const RECENT_LIMIT = 5;
-
-function formatMoney(minorUnits: number, locale: string): string {
-  return (minorUnits / 100).toLocaleString(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 function itemsTotal(group: VendorGroup): number {
   return group.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
