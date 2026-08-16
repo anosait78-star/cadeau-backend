@@ -22,7 +22,10 @@ lists with deep-linking, and a pivotal `collectedAmount`. Follows
   `status_changed_at`; when `status`, or the group itself, last changed).
   Materialized idempotently (never duplicated) both when the company-side
   `GET .../vendor-groups` is read and when the Parent Order enters
-  `processing`. Never affects `Order.status` itself.
+  `processing`. Never affects `Order.status` itself. Each item also carries
+  `imageUrl` (Phase 7) — the variant's product's existing `Product.imageUrl`,
+  joined in at read time; `null` when the product has none. No new image
+  system, no WooCommerce touch.
 
 ## Endpoints (delivered)
 
