@@ -1,28 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
+import { ProductThumb } from "@/components/product-thumb/product-thumb";
 import { StatusBadge } from "@/components/status-badge/status-badge";
-import { useToast } from "@/components/toast/toast";
-import {
-  advanceVendorGroupStatus,
-  listMyVendorGroups,
-  NEXT_VENDOR_GROUP_STATUS,
-  type VendorGroup,
-  type VendorGroupStatus,
-} from "@/features/vendor/vendor-api";
+import { useMyVendorGroups } from "@/features/vendor/use-my-vendor-groups";
+import type { VendorGroup, VendorGroupStatus } from "@/features/vendor/vendor-api";
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
-import { useI18n } from "@/i18n/i18n-provider";
 import type { TranslationKey } from "@/i18n/dictionaries";
+import { useI18n } from "@/i18n/i18n-provider";
 import { VendorLayout } from "./vendor-layout";
 
-type State =
-  | { readonly kind: "loading" }
-  | { readonly kind: "error" }
-  | { readonly kind: "ready"; readonly groups: VendorGroup[] };
+const RECENT_LIMIT = 5;
 
 function formatMoney(minorUnits: number, locale: string): string {
   return (minorUnits / 100).toLocaleString(locale, {
@@ -31,182 +23,127 @@ function formatMoney(minorUnits: number, locale: string): string {
   });
 }
 
-function formatUpdatedAt(iso: string, locale: string): string {
-  return new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+function itemsTotal(group: VendorGroup): number {
+  return group.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 }
 
-/** Sort order within the "active" section — what still needs my attention first. */
-const ACTIVE_STATUS_ORDER: Readonly<Record<VendorGroupStatus, number>> = {
-  new: 0,
-  processing: 1,
-  ready: 2,
-  delivered: 3,
-};
+/** Mirrors the company Dashboard's `KpiTile` (dashboard-page.tsx) — same shape, vendor-scoped data. */
+function KpiTile({ label, value }: { label: string; value: number }): ReactNode {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-lg font-semibold tabular-nums" dir="ltr">
+        {value}
+      </p>
+    </div>
+  );
+}
 
 /**
- * "حساب التاجر" — the vendor's own, deliberately simple dashboard (Vendor
- * Accounts, Phase 4, polished in Phase 6): the groups routed to their
- * warehouse, across every order, and a single button to advance each one
- * exactly one step (`new → processing → ready → delivered`). Reuses the
- * existing `/v1/vendor/order-groups` surface as-is — no new API.
+ * "حساب التاجر" — a real dashboard for the vendor (Vendor Accounts, Phase 7),
+ * matching the Company Dashboard's UX/organization (KPI row + a recent-orders
+ * card) but entirely vendor-scoped: every number here is computed client-side
+ * from {@link useMyVendorGroups}, the same `GET /v1/vendor/order-groups` read
+ * that is itself the server-side isolation boundary (Phase 3) — a vendor
+ * literally cannot receive another vendor's group from this endpoint, so
+ * there is nothing here to leak. No company-wide KPI (revenue, customers,
+ * other vendors' orders, …) is ever fetched or shown.
  *
- * Phase 6 polish: active work (new/processing/ready) is grouped ahead of
- * completed (delivered) orders, each section carries a count, and every card
- * shows when it was last updated — all computed client-side from fields the
- * API already returns.
+ * Status changes now live on the Order Detail screen (`/vendor/orders/:id`)
+ * — this page is read-only, matching the Company Dashboard's own
+ * RecentOrdersCard (click a row to act on it, don't act on it here).
  */
 export function VendorDashboardPage(): ReactNode {
   const { t, locale } = useI18n();
-  const toast = useToast();
-  const [state, setState] = useState<State>({ kind: "loading" });
-  const [advancingId, setAdvancingId] = useState<string | null>(null);
+  const { state, reload } = useMyVendorGroups();
 
-  const load = useCallback(async (): Promise<void> => {
-    setState({ kind: "loading" });
-    try {
-      const { data } = await listMyVendorGroups();
-      setState({ kind: "ready", groups: data });
-    } catch {
-      setState({ kind: "error" });
-    }
-  }, []);
+  const counts = useMemo(() => {
+    const base: Record<VendorGroupStatus | "total", number> = {
+      total: 0,
+      new: 0,
+      processing: 0,
+      ready: 0,
+      delivered: 0,
+    };
+    if (state.kind !== "ready") return base;
+    base.total = state.groups.length;
+    for (const group of state.groups) base[group.status] += 1;
+    return base;
+  }, [state]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const advance = async (group: VendorGroup): Promise<void> => {
-    const next = NEXT_VENDOR_GROUP_STATUS[group.status];
-    if (next === null) return;
-    setAdvancingId(group.id);
-    try {
-      const updated = await advanceVendorGroupStatus(group.id, next);
-      setState((prev) =>
-        prev.kind === "ready"
-          ? { kind: "ready", groups: prev.groups.map((g) => (g.id === updated.id ? updated : g)) }
-          : prev,
-      );
-      toast.show(t("vendor.dashboard.saved"));
-    } catch {
-      toast.show(t("vendor.dashboard.saveFailed"));
-    } finally {
-      setAdvancingId(null);
-    }
-  };
-
-  const { active, delivered } = useMemo(() => {
-    if (state.kind !== "ready") return { active: [], delivered: [] };
-    const active = state.groups
-      .filter((g) => g.status !== "delivered")
-      .sort((a, b) => ACTIVE_STATUS_ORDER[a.status] - ACTIVE_STATUS_ORDER[b.status]);
-    const delivered = state.groups.filter((g) => g.status === "delivered");
-    return { active, delivered };
+  const recent = useMemo(() => {
+    if (state.kind !== "ready") return [];
+    return [...state.groups]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, RECENT_LIMIT);
   }, [state]);
 
   return (
     <VendorLayout>
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("vendor.dashboard.myOrders")}</h1>
+        <h1 className="text-2xl font-semibold">{t("vendor.dashboard.overview.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("vendor.dashboard.subtitle")}</p>
       </header>
 
       {state.kind === "loading" ? <LoadingState /> : null}
-      {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
+      {state.kind === "error" ? <ErrorState onRetry={reload} /> : null}
+
       {state.kind === "ready" && state.groups.length === 0 ? (
         <EmptyState title={t("vendor.dashboard.empty")} />
       ) : null}
 
-      {state.kind === "ready" && active.length > 0 ? (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">
-            {t("vendor.dashboard.section.active")} ({active.length})
-          </h2>
-          {active.map((group) => (
-            <VendorGroupCard
-              key={group.id}
-              group={group}
-              locale={locale}
-              t={t}
-              pending={advancingId === group.id}
-              onAdvance={() => void advance(group)}
-            />
-          ))}
-        </section>
-      ) : null}
+      {state.kind === "ready" && state.groups.length > 0 ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <KpiTile label={t("vendor.dashboard.kpi.total")} value={counts.total} />
+            <KpiTile label={t("vendor.dashboard.kpi.new")} value={counts.new} />
+            <KpiTile label={t("vendor.dashboard.kpi.processing")} value={counts.processing} />
+            <KpiTile label={t("vendor.dashboard.kpi.ready")} value={counts.ready} />
+            <KpiTile label={t("vendor.dashboard.kpi.delivered")} value={counts.delivered} />
+          </div>
 
-      {state.kind === "ready" && delivered.length > 0 ? (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">
-            {t("vendor.dashboard.section.delivered")} ({delivered.length})
-          </h2>
-          {delivered.map((group) => (
-            <VendorGroupCard
-              key={group.id}
-              group={group}
-              locale={locale}
-              t={t}
-              pending={false}
-              onAdvance={() => {}}
-              muted
-            />
-          ))}
-        </section>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle className="text-base">{t("vendor.dashboard.recent.title")}</CardTitle>
+              <Link
+                to="/vendor/orders"
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                {t("vendor.dashboard.recent.viewAll")}
+              </Link>
+            </CardHeader>
+            <CardContent>
+              <ul className="flex flex-col divide-y divide-border">
+                {recent.map((group) => (
+                  <li key={group.id}>
+                    <Link
+                      to={`/vendor/orders/${group.id}`}
+                      className="flex items-center gap-3 py-2.5 text-sm hover:bg-muted/50"
+                    >
+                      <ProductThumb imageUrl={group.items[0]?.imageUrl ?? null} size="sm" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium text-foreground">
+                          {t("vendor.dashboard.order")} #{group.orderNumber}
+                        </span>
+                        <span className="block truncate text-caption text-muted-foreground">
+                          {group.items.length} {t("orders.field.items")}
+                        </span>
+                      </span>
+                      <StatusBadge
+                        tone={VENDOR_GROUP_STATUS_TONE[group.status]}
+                        label={t(`vendor.group.status.${group.status}` as TranslationKey)}
+                      />
+                      <span className="w-20 shrink-0 text-end tabular-nums" dir="ltr">
+                        {formatMoney(itemsTotal(group), locale)}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </>
       ) : null}
     </VendorLayout>
-  );
-}
-
-function VendorGroupCard({
-  group,
-  locale,
-  t,
-  pending,
-  onAdvance,
-  muted = false,
-}: {
-  group: VendorGroup;
-  locale: string;
-  t: (k: TranslationKey) => string;
-  pending: boolean;
-  onAdvance: () => void;
-  muted?: boolean;
-}): ReactNode {
-  const next = NEXT_VENDOR_GROUP_STATUS[group.status];
-  return (
-    <Card className={muted ? "opacity-80" : undefined}>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-          <span>
-            {t("vendor.dashboard.order")} #{group.orderNumber}
-          </span>
-          <StatusBadge
-            tone={VENDOR_GROUP_STATUS_TONE[group.status]}
-            label={t(`vendor.group.status.${group.status}` as TranslationKey)}
-          />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <ul className="flex flex-col gap-1 text-sm">
-          {group.items.map((item) => (
-            <li key={item.id} className="flex justify-between gap-2">
-              <span>
-                {item.nameSnapshot} × {item.quantity}
-              </span>
-              <span dir="ltr">{formatMoney(item.price * item.quantity, locale)}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-xs text-muted-foreground" dir="ltr">
-          {t("vendor.dashboard.updatedAt")} {formatUpdatedAt(group.updatedAt, locale)}
-        </p>
-        {next !== null ? (
-          <div>
-            <Button size="sm" disabled={pending} onClick={onAdvance}>
-              {t(`vendor.dashboard.advanceTo.${next}` as TranslationKey)}
-            </Button>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
   );
 }

@@ -246,6 +246,8 @@ export interface OrderVendorGroupItem {
   readonly nameSnapshot: string;
   readonly quantity: number;
   readonly price: number;
+  /** The product's display image, or null (Vendor Accounts, Phase 7). */
+  readonly imageUrl: string | null;
 }
 
 /**

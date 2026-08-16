@@ -1019,6 +1019,32 @@ export const en = {
   "vendor.group.status.processing": "Processing",
   "vendor.group.status.ready": "Ready",
   "vendor.group.status.delivered": "Delivered",
+
+  "vendor.nav.label": "Vendor navigation",
+  "vendor.nav.home": "Home",
+  "vendor.nav.orders": "Orders",
+
+  "vendor.dashboard.overview.title": "Overview",
+  "vendor.dashboard.kpi.total": "Total orders",
+  "vendor.dashboard.kpi.new": "New",
+  "vendor.dashboard.kpi.processing": "Processing",
+  "vendor.dashboard.kpi.ready": "Ready",
+  "vendor.dashboard.kpi.delivered": "Delivered",
+  "vendor.dashboard.recent.title": "Recent orders",
+  "vendor.dashboard.recent.viewAll": "View all orders",
+
+  "vendor.orders.search.placeholder": "Search by order number",
+  "vendor.orders.tabs.all": "All",
+  "vendor.orders.sort.newestFirst": "Newest first",
+  "vendor.orders.sort.oldestFirst": "Oldest first",
+
+  "vendor.orderDetail.back": "Back to orders",
+  "vendor.orderDetail.notFound.title": "Order not found",
+  "vendor.orderDetail.notFound.description":
+    "This order isn't assigned to your warehouse, or doesn't exist.",
+  "vendor.orderDetail.field.warehouse": "Warehouse",
+  "vendor.orderDetail.items.title": "My items",
+  "vendor.orderDetail.status.title": "Status",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -2030,6 +2056,31 @@ export const ar: Record<TranslationKey, string> = {
   "vendor.group.status.processing": "جاري المعالجة",
   "vendor.group.status.ready": "جاهز",
   "vendor.group.status.delivered": "تم التسليم",
+
+  "vendor.nav.label": "قائمة تنقّل التاجر",
+  "vendor.nav.home": "الرئيسية",
+  "vendor.nav.orders": "الطلبات",
+
+  "vendor.dashboard.overview.title": "نظرة عامة",
+  "vendor.dashboard.kpi.total": "إجمالي الطلبات",
+  "vendor.dashboard.kpi.new": "جديدة",
+  "vendor.dashboard.kpi.processing": "جاري المعالجة",
+  "vendor.dashboard.kpi.ready": "جاهزة",
+  "vendor.dashboard.kpi.delivered": "تم التسليم",
+  "vendor.dashboard.recent.title": "أحدث الطلبات",
+  "vendor.dashboard.recent.viewAll": "عرض كل الطلبات",
+
+  "vendor.orders.search.placeholder": "ابحث برقم الطلب",
+  "vendor.orders.tabs.all": "الكل",
+  "vendor.orders.sort.newestFirst": "الأحدث أولًا",
+  "vendor.orders.sort.oldestFirst": "الأقدم أولًا",
+
+  "vendor.orderDetail.back": "العودة إلى الطلبات",
+  "vendor.orderDetail.notFound.title": "الطلب غير موجود",
+  "vendor.orderDetail.notFound.description": "هذا الطلب غير مُسند إلى مستودعك، أو غير موجود.",
+  "vendor.orderDetail.field.warehouse": "المستودع",
+  "vendor.orderDetail.items.title": "منتجاتي",
+  "vendor.orderDetail.status.title": "الحالة",
 };
 
 export const dictionaries = { ar, en } as const;

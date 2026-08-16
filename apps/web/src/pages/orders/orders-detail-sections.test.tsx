@@ -230,7 +230,16 @@ describe("buildOrderDetailSections", () => {
           vendorName: "Vendor A",
           status: "delivered",
           updatedAt: "2026-01-02T00:00:00.000Z",
-          items: [{ id: "i1", variantId: "v1", nameSnapshot: "T — L", quantity: 1, price: 15000 }],
+          items: [
+            {
+              id: "i1",
+              variantId: "v1",
+              nameSnapshot: "T — L",
+              quantity: 1,
+              price: 15000,
+              imageUrl: null,
+            },
+          ],
         },
         {
           id: "g2",
