@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { type PrismaClient, setTenantContext } from "@cadeau/database";
-import { decrypt } from "@cadeau/crypto";
+import { decrypt, EncryptionError } from "@cadeau/crypto";
 import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
 import {
   CARRIER_CONNECTIONS_REPOSITORY,
@@ -15,6 +15,7 @@ import type {
 } from "../domain/carrier.port";
 import type { ShipmentStatus } from "../domain/shipment-status";
 import {
+  CarrierAuthError,
   CarrierNotConnectedError,
   CodLimitExceededError,
   CustomerAddressMissingError,
@@ -236,10 +237,21 @@ export class BostaCarrierAdapter implements CarrierPort {
     await v1Client.request("DELETE", `deliveries/${encodeURIComponent(lookup.data._id)}`, apiKey);
   }
 
-  /** Confirms the pickup-location probe would still work isn't repeated here — just decrypts the stored key. */
+  /**
+   * Confirms the pickup-location probe would still work isn't repeated here —
+   * just decrypts the stored key. A connection encrypted under a since-rotated
+   * `ENCRYPTION_KEY` can no longer be decrypted; that surfaces as the same
+   * "reconnect the carrier" prompt a genuinely rejected key would (rather than
+   * an opaque 500), since the caller-facing fix is identical either way.
+   */
   private async requireApiKey(companyId: string): Promise<string> {
     const connection = await this.connections.findActive(companyId, CARRIER);
     if (connection === null) throw new CarrierNotConnectedError(CARRIER);
-    return decrypt(connection.apiKeyEncrypted, this.config.encryption.key);
+    try {
+      return decrypt(connection.apiKeyEncrypted, this.config.encryption.key);
+    } catch (error) {
+      if (error instanceof EncryptionError) throw new CarrierAuthError(CARRIER);
+      throw error;
+    }
   }
 }

@@ -3,6 +3,7 @@ import { encrypt } from "@cadeau/crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CarrierConnectionsRepositoryPort } from "../domain/carrier-connections-repository.port";
 import {
+  CarrierAuthError,
   CarrierNotConnectedError,
   CodLimitExceededError,
   CustomerAddressMissingError,
@@ -25,6 +26,8 @@ function makeAdapter(
     customer?: Record<string, unknown> | null;
     address?: Record<string, unknown> | null;
     connected?: boolean;
+    /** Simulates a connection encrypted under a since-rotated ENCRYPTION_KEY. */
+    staleKeyConnection?: boolean;
   } = {},
 ) {
   const order =
@@ -60,7 +63,12 @@ function makeAdapter(
       options.connected === false
         ? null
         : {
-            apiKeyEncrypted: encrypt("real-bosta-key", config.encryption.key),
+            apiKeyEncrypted: encrypt(
+              "real-bosta-key",
+              options.staleKeyConnection === true
+                ? "0".repeat(60) + "beef" // a key other than config.encryption.key
+                : config.encryption.key,
+            ),
             webhookTokenHash: "h",
           },
     ),
@@ -129,6 +137,14 @@ describe("BostaCarrierAdapter.createShipment", () => {
     await expect(
       adapter.createShipment({ companyId: COMPANY, orderId: ORDER }),
     ).rejects.toBeInstanceOf(CarrierNotConnectedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("prompts to reconnect (not a raw 500) when the stored key predates a key rotation", async () => {
+    const { adapter } = makeAdapter({ staleKeyConnection: true });
+    await expect(
+      adapter.createShipment({ companyId: COMPANY, orderId: ORDER }),
+    ).rejects.toBeInstanceOf(CarrierAuthError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
