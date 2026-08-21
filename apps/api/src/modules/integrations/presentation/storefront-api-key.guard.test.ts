@@ -185,6 +185,8 @@ describe("StorefrontApiKeyGuard — WooCommerce webhook signature", () => {
     }));
   }
 
+  const ORDERS_PATH = "/v1/integrations/storefront/orders";
+
   it("skips signature verification when the connection has no secret configured", async () => {
     const repo = {
       findActiveByKeyPrefix: vi.fn().mockResolvedValue([await candidate(null)]),
@@ -193,6 +195,7 @@ describe("StorefrontApiKeyGuard — WooCommerce webhook signature", () => {
     const req = {
       headers: { authorization: `Bearer ${KEY}` },
       rawBody: Buffer.from("{}"),
+      path: ORDERS_PATH,
     } as unknown as StorefrontIngestionRequest;
     await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
   });
@@ -209,6 +212,7 @@ describe("StorefrontApiKeyGuard — WooCommerce webhook signature", () => {
     const req = {
       headers: { authorization: `Bearer ${KEY}`, "x-wc-webhook-signature": validSignature },
       rawBody,
+      path: ORDERS_PATH,
     } as unknown as StorefrontIngestionRequest;
     await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
   });
@@ -222,6 +226,7 @@ describe("StorefrontApiKeyGuard — WooCommerce webhook signature", () => {
     const req = {
       headers: { authorization: `Bearer ${KEY}` },
       rawBody: Buffer.from('{"id":123}'),
+      path: ORDERS_PATH,
     } as unknown as StorefrontIngestionRequest;
     await expect(guard.canActivate(makeContext(req))).rejects.toBeInstanceOf(AppException);
   });
@@ -238,6 +243,7 @@ describe("StorefrontApiKeyGuard — WooCommerce webhook signature", () => {
         "x-wc-webhook-signature": "not-the-right-signature",
       },
       rawBody: Buffer.from('{"id":123}'),
+      path: ORDERS_PATH,
     } as unknown as StorefrontIngestionRequest;
     await expect(guard.canActivate(makeContext(req))).rejects.toBeInstanceOf(AppException);
   });
@@ -250,7 +256,24 @@ describe("StorefrontApiKeyGuard — WooCommerce webhook signature", () => {
     const guard = makeGuard(repo);
     const req = {
       headers: { authorization: `Bearer ${KEY}`, "x-wc-webhook-signature": "whatever" },
+      path: ORDERS_PATH,
     } as unknown as StorefrontIngestionRequest;
     await expect(guard.canActivate(makeContext(req))).rejects.toBeInstanceOf(AppException);
+  });
+
+  it("skips signature verification on the vendors route even with a matching secret configured", async () => {
+    // .../vendors is never a native WooCommerce webhook delivery, so it can
+    // never carry a WooCommerce-computed signature — the API key alone is
+    // its full trust boundary (vendor auto-registration, 2026-08-21).
+    const encryptedSecret = encrypt(secret, ENCRYPTION_KEY);
+    const repo = {
+      findActiveByKeyPrefix: vi.fn().mockResolvedValue([await candidate(encryptedSecret)]),
+    };
+    const guard = makeGuard(repo);
+    const req = {
+      headers: { authorization: `Bearer ${KEY}` },
+      path: "/v1/integrations/storefront/vendors",
+    } as unknown as StorefrontIngestionRequest;
+    await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
   });
 });

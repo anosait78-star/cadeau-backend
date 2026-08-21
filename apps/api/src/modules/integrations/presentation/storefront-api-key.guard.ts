@@ -43,6 +43,16 @@ export interface StorefrontIngestionRequest extends Request {
  * SUPPLEMENTARY check, opt-in per connection, layered on top of the API key
  * rather than replacing it (a connection with no secret configured behaves
  * exactly as before: API key only).
+ *
+ * That supplementary check only applies to `.../orders` and `.../products` —
+ * the two routes WooCommerce's own `WC_Webhook::deliver()` actually dispatches
+ * (and therefore the only ones that can ever carry a genuine
+ * `X-WC-Webhook-Signature`, computed by WooCommerce core itself from the
+ * connection's configured secret). `.../vendors` is not a native WooCommerce
+ * webhook delivery — it's a hand-built request a WPCode snippet fires
+ * directly on the storefront's `wcfmmp_new_store_created` action — so it is
+ * never signature-checked; the API key alone remains its full trust boundary
+ * (vendor auto-registration, 2026-08-21).
  */
 @Injectable()
 export class StorefrontApiKeyGuard implements CanActivate {
@@ -66,7 +76,11 @@ export class StorefrontApiKeyGuard implements CanActivate {
     const candidates = await this.repo.findActiveByKeyPrefix(prefix);
     for (const candidate of candidates) {
       if (!(await verifyPassword(apiKey, candidate.apiKeyHash))) continue;
-      if (candidate.platform === "woocommerce" && candidate.webhookSecretEncrypted !== null) {
+      if (
+        candidate.platform === "woocommerce" &&
+        candidate.webhookSecretEncrypted !== null &&
+        this.isNativeWebhookRoute(request)
+      ) {
         this.verifyWooCommerceSignature(request, candidate.webhookSecretEncrypted);
       }
       request.storefrontConnection = {
@@ -79,6 +93,17 @@ export class StorefrontApiKeyGuard implements CanActivate {
       return true;
     }
     throw AppErrors.unauthorized("Invalid storefront API key.");
+  }
+
+  /**
+   * `true` only for `.../orders` and `.../products` — the two routes
+   * WooCommerce's own webhook delivery actually posts to. `.../vendors`
+   * (and any future non-native route added under this guard) is exempt: it
+   * can never carry a WooCommerce-computed signature, so requiring one would
+   * just lock every caller out regardless of how valid their API key is.
+   */
+  private isNativeWebhookRoute(request: RawBodyRequest<StorefrontIngestionRequest>): boolean {
+    return /\/(orders|products)$/.test(request.path);
   }
 
   /** @throws an `AppException` (401) if the header is missing or the signature doesn't match. */
