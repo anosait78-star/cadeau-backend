@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
-import { decrypt } from "@cadeau/crypto";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { decrypt, EncryptionError } from "@cadeau/crypto";
 import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import {
@@ -64,6 +64,8 @@ export interface AcceptWarehouseJoinCodeResult {
  */
 @Injectable()
 export class TenancyService {
+  private readonly logger = new Logger(TenancyService.name);
+
   constructor(
     @Inject(TENANCY_REPOSITORY) private readonly repo: TenancyRepositoryPort,
     @Inject(TENANCY_AUDIT) private readonly audit: TenancyAuditPort,
@@ -83,14 +85,31 @@ export class TenancyService {
       id: profile.id,
       email: profile.email,
       fullName: profile.fullName,
-      phone:
-        profile.phoneEncrypted === null
-          ? null
-          : decrypt(profile.phoneEncrypted, this.config.encryption.key),
+      phone: this.decryptProfilePhone(profile.id, profile.phoneEncrypted),
       twoFactorEnabled: profile.totpEnabledAt !== null,
       activeCompanyId: principal.companyId,
       companies,
     };
+  }
+
+  /**
+   * Decrypt the profile phone for `/v1/me`. A row written before a key
+   * rotation can no longer be decrypted with the current key — that must not
+   * take down the whole login/session-bootstrap call, so a decrypt failure is
+   * logged and degrades to `null` (the same shape as "no phone on file")
+   * instead of throwing.
+   */
+  private decryptProfilePhone(userId: string, phoneEncrypted: string | null): string | null {
+    if (phoneEncrypted === null) return null;
+    try {
+      return decrypt(phoneEncrypted, this.config.encryption.key);
+    } catch (error) {
+      if (error instanceof EncryptionError) {
+        this.logger.warn(`Could not decrypt profile ${userId} phone: ${error.message}`);
+        return null;
+      }
+      throw error;
+    }
   }
 
   /** Companies the caller belongs to. */

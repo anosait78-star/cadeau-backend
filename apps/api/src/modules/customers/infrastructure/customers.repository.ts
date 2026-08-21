@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   buildKeysetPage,
   clampLimit,
@@ -12,7 +12,7 @@ import {
   stampForCreate,
   stampForUpdate,
 } from "@cadeau/database";
-import { blindIndex, decrypt, encrypt } from "@cadeau/crypto";
+import { blindIndex, decrypt, encrypt, EncryptionError } from "@cadeau/crypto";
 import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
 import type {
   CustomerAddressView,
@@ -143,8 +143,13 @@ type AddressRow = {
  * that step, and hashing an un-normalized value would quietly defeat the unique
  * index.
  */
+/** Shown in place of a phone/address that failed decryption (stale key). */
+const UNREADABLE_PLACEHOLDER = "[تعذّر فك التشفير]";
+
 @Injectable()
 export class CustomersRepository implements CustomersRepositoryPort {
+  private readonly logger = new Logger(CustomersRepository.name);
+
   constructor(
     @Inject(CUSTOMERS_PRISMA_CLIENT) private readonly prisma: PrismaClient,
     @Inject(APP_CONFIG) private readonly config: InjectedAppConfig,
@@ -516,8 +521,35 @@ export class CustomersRepository implements CustomersRepositoryPort {
     return encrypt(line, this.config.encryption.key);
   }
 
-  private decryptPhone(token: string): string {
-    return decrypt(token, this.config.encryption.key);
+  /**
+   * Decrypt a phone for display. Rows written before a key rotation can no
+   * longer be decrypted with the current key — that must not crash the whole
+   * list/detail response for every other customer, so a decrypt failure here
+   * is logged and degrades to a visible placeholder instead of throwing.
+   */
+  private decryptPhone(token: string, context: string): string {
+    try {
+      return decrypt(token, this.config.encryption.key);
+    } catch (error) {
+      if (error instanceof EncryptionError) {
+        this.logger.warn(`Could not decrypt ${context}: ${error.message}`);
+        return UNREADABLE_PLACEHOLDER;
+      }
+      throw error;
+    }
+  }
+
+  /** Decrypt an address line for display; see {@link decryptPhone}. */
+  private decryptLine(token: string, context: string): string {
+    try {
+      return decrypt(token, this.config.encryption.key);
+    } catch (error) {
+      if (error instanceof EncryptionError) {
+        this.logger.warn(`Could not decrypt ${context}: ${error.message}`);
+        return UNREADABLE_PLACEHOLDER;
+      }
+      throw error;
+    }
   }
 
   /** Look up a prior create by its idempotency key, if one was supplied. */
@@ -587,12 +619,13 @@ export class CustomersRepository implements CustomersRepositoryPort {
   }
 
   private toListView(row: CustomerRow): CustomerListView {
+    // Masking still requires decrypting the row; what it limits is what the
+    // *response* carries, not what the server reads.
+    const phone = this.decryptPhone(row.phoneEncrypted, `customer ${row.id} phone`);
     return {
       id: row.id,
       name: row.name,
-      // Masking still requires decrypting the row; what it limits is what the
-      // *response* carries, not what the server reads.
-      phoneMasked: maskPhone(this.decryptPhone(row.phoneEncrypted)),
+      phoneMasked: phone === UNREADABLE_PLACEHOLDER ? phone : maskPhone(phone),
       email: row.email,
       ordersCount: row.ordersCount,
       totalSpent: Number(row.totalSpent),
@@ -607,7 +640,7 @@ export class CustomersRepository implements CustomersRepositoryPort {
     return {
       id: row.id,
       name: row.name,
-      phone: this.decryptPhone(row.phoneEncrypted),
+      phone: this.decryptPhone(row.phoneEncrypted, `customer ${row.id} phone`),
       email: row.email,
       notes: row.notes,
       ordersCount: row.ordersCount,
@@ -623,7 +656,7 @@ export class CustomersRepository implements CustomersRepositoryPort {
     return {
       id: row.id,
       customerId: row.customerId,
-      line: decrypt(row.lineEncrypted, this.config.encryption.key),
+      line: this.decryptLine(row.lineEncrypted, `address ${row.id} line`),
       landmark: row.landmark,
       notes: row.notes,
       governorateId: row.governorateId,

@@ -235,6 +235,45 @@ describe("CustomersRepository — reads", () => {
     const page = await repo.list(COMPANY, listQuery);
     expect(page.data[0]?.totalSpent).toBe(125000);
   });
+
+  it("degrades one row with an undecryptable phone instead of failing the whole list", async () => {
+    const { repo, models } = makeRepo();
+    // Ciphertext from a key rotation the current ENCRYPTION_KEY can no longer open.
+    const staleCipherText = encrypt(PHONE, BLIND_INDEX_KEY);
+    models.customer.findMany.mockResolvedValue([
+      customerRow({ id: "c-stale", phoneEncrypted: staleCipherText }),
+      customerRow({ id: "c-fine" }),
+    ]);
+
+    const page = await repo.list(COMPANY, listQuery);
+
+    expect(page.data[0]).toMatchObject({ id: "c-stale", phoneMasked: "[تعذّر فك التشفير]" });
+    expect(page.data[1]).toMatchObject({ id: "c-fine", phoneMasked: "+2010•••4567" });
+  });
+
+  it("degrades a detail view's phone the same way, without throwing", async () => {
+    const { repo, models } = makeRepo();
+    const staleCipherText = encrypt(PHONE, BLIND_INDEX_KEY);
+    models.customer.findFirst.mockResolvedValueOnce(
+      customerRow({ phoneEncrypted: staleCipherText }),
+    );
+    models.customerAddress.findMany.mockResolvedValueOnce([]);
+
+    const view = await repo.findById(COMPANY, "c1");
+    expect(view?.phone).toBe("[تعذّر فك التشفير]");
+  });
+
+  it("degrades an undecryptable address line the same way", async () => {
+    const { repo, models } = makeRepo();
+    const staleCipherText = encrypt("12 Nile St", BLIND_INDEX_KEY);
+    models.customer.findFirst.mockResolvedValueOnce(customerRow());
+    models.customerAddress.findMany.mockResolvedValueOnce([
+      addressRow({ lineEncrypted: staleCipherText }),
+    ]);
+
+    const view = await repo.findById(COMPANY, "c1");
+    expect(view?.addresses[0]?.line).toBe("[تعذّر فك التشفير]");
+  });
 });
 
 describe("CustomersRepository — export", () => {

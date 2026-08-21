@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getConfig } from "@cadeau/config";
+import { encrypt } from "@cadeau/crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import type { SessionReissuePort } from "../../../shared/contracts/session-reissue.port";
@@ -436,6 +437,22 @@ describe("getMe", () => {
     expect(me.twoFactorEnabled).toBe(false);
     expect(me.activeCompanyId).toBe(companyId);
     expect(me.companies).toHaveLength(1);
+  });
+
+  it("degrades to a null phone instead of throwing when the stored ciphertext predates a key rotation", async () => {
+    const { service, repo } = build();
+    const { userId, companyId } = seedOwner(repo, "me@test.dev");
+    // Ciphertext from a key the current config's encryption.key can no longer open.
+    const staleKey = "0".repeat(60) + "beef";
+    repo.profiles.set(userId, {
+      ...(await repo.findProfile(userId))!,
+      phoneEncrypted: encrypt("+201234567890", staleKey),
+    });
+    const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
+
+    const me = await service.getMe(principal);
+
+    expect(me.phone).toBeNull();
   });
 });
 
