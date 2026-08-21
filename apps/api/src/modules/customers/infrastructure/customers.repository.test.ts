@@ -72,6 +72,7 @@ function makeRepo() {
     customerAddress: delegate(),
     governorate: delegate(),
     order: delegate(),
+    orderReview: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -585,12 +586,47 @@ describe("CustomersRepository — EPIC-11 list & order history", () => {
         total: 35000n,
         collectedAmount: 0n,
         createdAt: CREATED,
+        review: null,
       },
     ]);
     const page = await repo.listCustomerOrders(COMPANY, "c1", undefined, undefined);
-    expect(page?.data[0]).toMatchObject({ orderNumber: 1042, status: "processing", total: 35000 });
+    expect(page?.data[0]).toMatchObject({
+      orderNumber: 1042,
+      status: "processing",
+      total: 35000,
+      review: null,
+    });
 
     models.customer.findFirst.mockResolvedValue(null);
     expect(await repo.listCustomerOrders(COMPANY, "missing", undefined, undefined)).toBeNull();
+  });
+
+  it("includes the order's review summary, with the average computed from it", async () => {
+    const { repo, models } = makeRepo();
+    models.customer.findFirst.mockResolvedValue({ id: "c1" });
+    models.order.findMany.mockResolvedValue([
+      {
+        id: "o1",
+        orderNumber: 1042n,
+        status: "delivered",
+        total: 35000n,
+        collectedAmount: 35000n,
+        createdAt: CREATED,
+        review: {
+          id: "r1",
+          productType: "clothes",
+          qualityRating: 5,
+          packagingRating: 4,
+          shippingRating: 3,
+          createdAt: CREATED,
+        },
+      },
+    ]);
+    const page = await repo.listCustomerOrders(COMPANY, "c1", undefined, undefined);
+    expect(page?.data[0]?.review).toMatchObject({
+      id: "r1",
+      productType: "clothes",
+      averageRating: 4,
+    });
   });
 });

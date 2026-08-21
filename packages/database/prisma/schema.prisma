@@ -154,6 +154,7 @@ model Company {
   storefrontConnectionVendorWarehouses StorefrontConnectionVendorWarehouse[]
   warehouseJoinCodes           WarehouseJoinCode[]
   orderVendorGroups             OrderVendorGroup[]
+  orderReviews                  OrderReview[]
 
   @@map("companies")
 }
@@ -971,6 +972,7 @@ model Customer {
   company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   addresses CustomerAddress[]
   orders    Order[]
+  reviews   OrderReview[]
 
   @@unique([companyId, phoneHash], map: "customers_company_phone_key")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "customers_created_keyset_idx")
@@ -1069,6 +1071,7 @@ model Order {
   invoices     Invoice[]
   refunds      Refund[]
   vendorGroups OrderVendorGroup[]
+  review       OrderReview?
 
   @@unique([companyId, orderNumber], map: "orders_company_number_key")
   @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
@@ -1080,6 +1083,41 @@ model Order {
   @@index([companyId, assigneeId, createdAt], map: "orders_assignee_analytics_idx")
   @@index([warehouseId], map: "orders_warehouse_idx")
   @@map("orders")
+}
+
+/// A one-time, immutable customer review of a delivered/completed order
+/// (Order Reviews feature). Exactly one review per order — enforced by the
+/// `@unique` on orderId — with no update path once created (create-only).
+/// `customerId` is denormalized from `order.customerId` (matches the rest of
+/// the schema's tenant-row-scoping style) and must be kept in sync by
+/// `CustomersRepository.merge()` when orders are re-parented.
+model OrderReview {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId             String   @map("company_id") @db.Uuid
+  orderId               String   @unique @map("order_id") @db.Uuid
+  customerId            String   @map("customer_id") @db.Uuid
+  /// One of `clothes` / `electronics` / `gifts`.
+  productType           String   @map("product_type")
+  /// Set only when productType = "gifts"; null otherwise (DB CHECK enforces this).
+  giftRecipientName     String?  @map("gift_recipient_name")
+  giftRecipientRelation String?  @map("gift_recipient_relation")
+  giftOccasion          String?  @map("gift_occasion")
+  /// 1-5. A rating of 1-2 requires its own *LowReason (DB CHECK enforces this).
+  qualityRating         Int      @map("quality_rating")
+  qualityLowReason      String?  @map("quality_low_reason")
+  packagingRating       Int      @map("packaging_rating")
+  packagingLowReason    String?  @map("packaging_low_reason")
+  shippingRating        Int      @map("shipping_rating")
+  shippingLowReason     String?  @map("shipping_low_reason")
+  createdBy             String?  @map("created_by") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, customerId, createdAt(sort: Desc)], map: "order_reviews_customer_idx")
+  @@map("order_reviews")
 }
 
 /// A line on an order (EPIC-11): a product variant, a quantity, a unit sell
@@ -1325,11 +1363,16 @@ model StorefrontConnection {
   @@map("storefront_connections")
 }
 
-/// Explicit, admin-managed WCFM/marketplace vendor -> CRM warehouse routing
-/// for one storefront connection (multi-vendor order routing, discovery
-/// report 2026-08-10). No row is ever created automatically — an unmapped
-/// vendor fails the ingestion event closed rather than falling back to a
-/// default warehouse.
+/// WCFM/marketplace vendor -> CRM warehouse routing for one storefront
+/// connection (multi-vendor order routing, discovery report 2026-08-10).
+/// Rows are created either by an admin (management API) or automatically by
+/// `StorefrontIngestionService.ingestVendor` when the storefront's vendor
+/// webhook fires (self-registration/admin-add parity, 2026-08-21) — in both
+/// cases `createdBy`/`updatedBy` records who/what wrote the row (`null` for
+/// a system-originated auto-registration). An order/product line whose
+/// vendor still has no mapping (e.g. auto-registration hasn't fired yet, or
+/// isn't wired up on this connection) fails the ingestion event closed
+/// rather than falling back to a default warehouse.
 model StorefrontConnectionVendorWarehouse {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   companyId         String   @map("company_id") @db.Uuid

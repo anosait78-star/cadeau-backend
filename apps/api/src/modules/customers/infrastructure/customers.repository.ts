@@ -63,7 +63,7 @@ export const EXPORT_MAX_ROWS = 5_000;
  * fails loudly if a new model gains a `customerId` foreign key without being
  * added here — so a future customer-owned table can never silently escape merge.
  */
-export const CUSTOMER_OWNED_TABLES = ["customer_addresses", "orders"] as const;
+export const CUSTOMER_OWNED_TABLES = ["customer_addresses", "orders", "order_reviews"] as const;
 
 const CUSTOMER_SELECT = {
   id: true,
@@ -401,6 +401,18 @@ export class CustomersRepository implements CustomersRepositoryPort {
           total: true,
           collectedAmount: true,
           createdAt: true,
+          // Order.review is a plain Prisma relation on the shared schema — no
+          // import from the `reviews` module (no-cross-feature-imports).
+          review: {
+            select: {
+              id: true,
+              productType: true,
+              qualityRating: true,
+              packagingRating: true,
+              shippingRating: true,
+              createdAt: true,
+            },
+          },
         },
       });
       const views: CustomerOrderSummaryView[] = rows.map((r) => ({
@@ -410,6 +422,23 @@ export class CustomersRepository implements CustomersRepositoryPort {
         total: Number(r.total),
         collectedAmount: Number(r.collectedAmount),
         createdAt: r.createdAt.toISOString(),
+        review:
+          r.review === null
+            ? null
+            : {
+                id: r.review.id,
+                productType: r.review.productType,
+                qualityRating: r.review.qualityRating,
+                packagingRating: r.review.packagingRating,
+                shippingRating: r.review.shippingRating,
+                averageRating:
+                  Math.round(
+                    ((r.review.qualityRating + r.review.packagingRating + r.review.shippingRating) /
+                      3) *
+                      10,
+                  ) / 10,
+                createdAt: r.review.createdAt.toISOString(),
+              },
       }));
       return buildKeysetPage(views, take, (v) => ({ p: v.createdAt, t: v.id }));
     });
@@ -448,6 +477,14 @@ export class CustomersRepository implements CustomersRepositoryPort {
         data: stampForUpdate(actor, {
           customerId: survivingCustomerId,
         }) as Prisma.OrderUncheckedUpdateManyInput,
+      });
+      // order_reviews.customerId is denormalized from order.customerId (Order
+      // Reviews feature) — re-parent it alongside the orders it belongs to, or
+      // a merged customer's reviews would silently orphan from their survivor.
+      // No stampForUpdate: the table has no updatedBy/updatedAt (create-only).
+      await tx.orderReview.updateMany({
+        where: { customerId: mergedCustomerId, ...where },
+        data: { customerId: survivingCustomerId },
       });
 
       // Archive the merged customer (never delete) and recompute the survivor's

@@ -232,6 +232,9 @@ describe("OrdersPage", () => {
           json(200, { shipmentId: "s1", carrier: "manual", trackingNumber: "MAN-ABC123" }),
         );
       }
+      if (url.match(/\/reviews\/orders\/o1$/) && method === "GET") {
+        return Promise.resolve(json(404, { error: { code: "NOT_FOUND", statusCode: 404 } }));
+      }
       if (url.match(/\/orders\/o1\/status$/) && method === "POST") {
         return Promise.resolve(json(200, { ...ORDER_DETAIL, status: "processing" }));
       }

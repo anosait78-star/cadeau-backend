@@ -21,6 +21,7 @@ import {
   type OrderVendorGroup,
 } from "@/features/orders/orders-api";
 import { listMembers, type TeamMember } from "@/features/team/team-api";
+import { ReviewSection } from "@/features/reviews/review-section";
 import { ShipmentSection } from "@/features/shipping/shipment-section";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { formatMoney } from "@/lib/format-money";
@@ -515,6 +516,13 @@ export function buildOrderDetailSections({
           onNotify={onNotify}
           onOrderPatch={onPatch}
         />
+      ),
+    },
+    {
+      key: "review",
+      label: t("orders.detail.tabs.review"),
+      content: (
+        <ReviewSection orderId={detail.id} orderStatus={detail.status} onNotify={onNotify} />
       ),
     },
     {

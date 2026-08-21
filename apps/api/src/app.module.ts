@@ -13,6 +13,7 @@ import { MasterDataModule } from "./modules/master-data/master-data.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { ProductsModule } from "./modules/products/products.module";
+import { ReviewsModule } from "./modules/reviews/reviews.module";
 import { ShippingModule } from "./modules/shipping/shipping.module";
 import { AccessCoreModule } from "./shared/access/access.module";
 import { ConfigModule } from "./shared/config/config.module";
@@ -41,6 +42,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     CustomersModule,
     OrdersModule,
     ShippingModule,
+    ReviewsModule,
     IntegrationsModule,
     FinanceModule,
     AnalyticsModule,

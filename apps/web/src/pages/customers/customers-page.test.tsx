@@ -141,6 +141,11 @@ describe("CustomersPage", () => {
           }),
         );
       }
+      if (url.match(/\/customers\/c1\/orders/) && method === "GET") {
+        return Promise.resolve(
+          json(200, { data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
+        );
+      }
       if (url.match(/\/customers\/c1$/) && method === "GET")
         return Promise.resolve(json(200, DETAIL));
       if (url.match(/\/customers\/c1$/) && method === "DELETE") {

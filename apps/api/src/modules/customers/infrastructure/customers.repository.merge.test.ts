@@ -22,6 +22,7 @@ function makeRepo() {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     customerAddress: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    orderReview: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     order: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findMany: vi.fn().mockResolvedValue([]),
@@ -53,6 +54,13 @@ describe("CustomersRepository — merge (EPIC-11, decision D5)", () => {
     );
     // … orders re-parented …
     expect(models.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ customerId: LOSER }),
+        data: expect.objectContaining({ customerId: WINNER }),
+      }),
+    );
+    // … reviews re-parented …
+    expect(models.orderReview.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ customerId: LOSER }),
         data: expect.objectContaining({ customerId: WINNER }),

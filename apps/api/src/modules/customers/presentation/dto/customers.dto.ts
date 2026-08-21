@@ -16,6 +16,7 @@ import type {
   CustomerAddressView,
   CustomerListView,
   CustomerMergeResult,
+  CustomerOrderReviewSummary,
   CustomerOrderSummaryView,
   CustomerView,
   CustomerWithAddresses,
@@ -488,6 +489,36 @@ export class CustomerExportDto {
   }
 }
 
+/** The review summary attached to an order-history row, if the order has one. */
+export class CustomerOrderReviewSummaryDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+  @ApiProperty({ example: "clothes" })
+  productType!: string;
+  @ApiProperty({ minimum: 1, maximum: 5 })
+  qualityRating!: number;
+  @ApiProperty({ minimum: 1, maximum: 5 })
+  packagingRating!: number;
+  @ApiProperty({ minimum: 1, maximum: 5 })
+  shippingRating!: number;
+  @ApiProperty({ description: "Mean of the three ratings, rounded to one decimal." })
+  averageRating!: number;
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  static from(summary: CustomerOrderReviewSummary): CustomerOrderReviewSummaryDto {
+    const dto = new CustomerOrderReviewSummaryDto();
+    dto.id = summary.id;
+    dto.productType = summary.productType;
+    dto.qualityRating = summary.qualityRating;
+    dto.packagingRating = summary.packagingRating;
+    dto.shippingRating = summary.shippingRating;
+    dto.averageRating = summary.averageRating;
+    dto.createdAt = summary.createdAt;
+    return dto;
+  }
+}
+
 /** A row of a customer's order history (EPIC-11). */
 export class CustomerOrderSummaryDto {
   @ApiProperty({ format: "uuid" })
@@ -502,6 +533,12 @@ export class CustomerOrderSummaryDto {
   collectedAmount!: number;
   @ApiProperty({ format: "date-time" })
   createdAt!: string;
+  @ApiProperty({
+    type: CustomerOrderReviewSummaryDto,
+    nullable: true,
+    description: "null when this order has no review yet — a normal state, not an error.",
+  })
+  review!: CustomerOrderReviewSummaryDto | null;
 
   static from(view: CustomerOrderSummaryView): CustomerOrderSummaryDto {
     const dto = new CustomerOrderSummaryDto();
@@ -511,6 +548,7 @@ export class CustomerOrderSummaryDto {
     dto.total = view.total;
     dto.collectedAmount = view.collectedAmount;
     dto.createdAt = view.createdAt;
+    dto.review = view.review === null ? null : CustomerOrderReviewSummaryDto.from(view.review);
     return dto;
   }
 }

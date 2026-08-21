@@ -17,11 +17,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { StarRatingDisplay } from "@/components/ui/star-rating";
 import {
   archiveCustomer,
   createAddress,
   createCustomer,
   getCustomer,
+  listCustomerOrders,
   listCustomers,
   updateAddress,
   updateCustomer,
@@ -30,9 +32,11 @@ import {
   type CustomerDetail,
   type CustomerInput,
   type CustomerListItem,
+  type CustomerOrder,
 } from "@/features/customers/customers-api";
 import { listItems, type MasterDataItem } from "@/features/master-data/master-data-api";
 import { useIsDesktop } from "@/hooks/use-media-query";
+import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format-money";
@@ -545,7 +549,74 @@ function CustomerDetailExpansion({
           ))}
         </ul>
       ) : null}
+
+      <PurchaseHistorySection customerId={customerId} />
     </section>
+  );
+}
+
+/** A customer's order history + each order's review, if any (EPIC-11). */
+function PurchaseHistorySection({ customerId }: { customerId: string }): ReactNode {
+  const { t, locale } = useI18n();
+  const [orders, setOrders] = useState<CustomerOrder[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOrders(null);
+    setFailed(false);
+    listCustomerOrders(customerId)
+      .then((page) => {
+        if (!cancelled) setOrders(page.data);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-3">
+      <h3 className="text-sm font-medium">{t("customers.purchaseHistory.title")}</h3>
+
+      {orders === null && !failed ? <LoadingState className="p-2" /> : null}
+      {failed ? (
+        <p className="text-sm text-muted-foreground">{t("customers.purchaseHistory.empty")}</p>
+      ) : null}
+      {orders !== null && orders.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("customers.purchaseHistory.empty")}</p>
+      ) : null}
+
+      {orders !== null && orders.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {orders.map((order) => (
+            <li
+              key={order.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2 text-sm"
+            >
+              <div className="flex flex-col">
+                <span className="font-medium">
+                  #{order.orderNumber} · {t(`orders.status.${order.status}` as TranslationKey)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {formatMoney(order.total, locale)} ·{" "}
+                  {new Date(order.createdAt).toLocaleDateString(locale)}
+                </span>
+              </div>
+              {order.review === null ? (
+                <span className="text-xs text-muted-foreground">
+                  {t("customers.purchaseHistory.noReview")}
+                </span>
+              ) : (
+                <StarRatingDisplay value={order.review.averageRating} />
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

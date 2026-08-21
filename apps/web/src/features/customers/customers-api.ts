@@ -142,6 +142,48 @@ export function archiveCustomer(id: string): Promise<void> {
   return apiFetch<void>(`/customers/${id}`, { method: "DELETE" });
 }
 
+/** The review summary attached to an order-history row, if the order has one. */
+export interface CustomerOrderReview {
+  readonly id: string;
+  readonly productType: string;
+  readonly qualityRating: number;
+  readonly packagingRating: number;
+  readonly shippingRating: number;
+  readonly averageRating: number;
+  readonly createdAt: string;
+}
+
+/** A row of a customer's order history (EPIC-11). */
+export interface CustomerOrder {
+  readonly id: string;
+  readonly orderNumber: number;
+  readonly status: string;
+  readonly total: number;
+  readonly collectedAmount: number;
+  readonly createdAt: string;
+  /** `null` when this order has no review yet — a normal state, not an error. */
+  readonly review: CustomerOrderReview | null;
+}
+
+/** A keyset page of a customer's orders (api-conventions §5). */
+export interface CustomerOrderPage {
+  readonly data: CustomerOrder[];
+  readonly page: {
+    readonly limit: number;
+    readonly nextCursor: string | null;
+    readonly hasMore: boolean;
+  };
+}
+
+/** `GET /v1/customers/{id}/orders` — a customer's order history, most recent first. */
+export function listCustomerOrders(
+  customerId: string,
+  cursor?: string,
+): Promise<CustomerOrderPage> {
+  const qs = cursor !== undefined ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return apiFetch<CustomerOrderPage>(`/customers/${customerId}/orders${qs}`);
+}
+
 /** `GET /v1/customers/{id}/addresses` — a customer's addresses. */
 export function listAddresses(customerId: string): Promise<{ data: CustomerAddress[] }> {
   return apiFetch<{ data: CustomerAddress[] }>(`/customers/${customerId}/addresses`);

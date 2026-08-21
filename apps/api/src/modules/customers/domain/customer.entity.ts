@@ -72,6 +72,22 @@ export interface CustomerWithAddresses extends CustomerView {
 }
 
 /**
+ * The review summary attached to a row of a customer's order history, if the
+ * order has one. Same `no-cross-feature-imports` rationale as
+ * {@link CustomerOrderSummaryView}: a local type, not an import from the
+ * `reviews` module's own view types.
+ */
+export interface CustomerOrderReviewSummary {
+  readonly id: string;
+  readonly productType: string;
+  readonly qualityRating: number;
+  readonly packagingRating: number;
+  readonly shippingRating: number;
+  readonly averageRating: number;
+  readonly createdAt: string;
+}
+
+/**
  * A row of a customer's order history (EPIC-11, `GET /v1/customers/{id}/orders`).
  * A summary of the order the customers module is allowed to surface without
  * reaching into the orders module's own view types (`no-cross-feature-imports`);
@@ -84,6 +100,8 @@ export interface CustomerOrderSummaryView {
   readonly total: number;
   readonly collectedAmount: number;
   readonly createdAt: string;
+  /** `null` when the order has no review yet — a normal state, not an error. */
+  readonly review: CustomerOrderReviewSummary | null;
 }
 
 /** The outcome of a merge: the ids that were folded together. */

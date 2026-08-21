@@ -143,7 +143,7 @@ describe("buildOrderDetailSections", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("builds all 9 sections", () => {
+  it("builds all 10 sections", () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,
       activity: [],
@@ -160,6 +160,7 @@ describe("buildOrderDetailSections", () => {
       "customer",
       "items",
       "shipping",
+      "review",
       "payments",
       "activities",
       "timeline",
