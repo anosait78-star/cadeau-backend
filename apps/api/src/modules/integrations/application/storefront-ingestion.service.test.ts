@@ -5,12 +5,14 @@ import type { OrdersIngestionPort } from "../../../shared/contracts/orders-inges
 import type { ProductsCatalogPort } from "../../../shared/contracts/products-catalog.port";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import type { StorefrontAdapterResolverPort } from "../domain/storefront-adapter-resolver.port";
+import type { StorefrontAuditPort } from "../domain/storefront-audit.port";
 import type { StorefrontAdapterPort } from "../domain/storefront-adapter.port";
 import type { ResolvedStorefrontConnection } from "../domain/storefront-connection.entity";
 import type { StorefrontConnectionsRepositoryPort } from "../domain/storefront-connections-repository.port";
 import type { StorefrontWebhookInboxPort } from "../domain/storefront-webhook-inbox.port";
 import type { VendorWarehouseMappingsRepositoryPort } from "../domain/vendor-warehouse-mappings-repository.port";
 import {
+  DuplicateVendorMappingError,
   MissingVendorIdError,
   UnknownSkuError,
   VendorNotMappedError,
@@ -62,7 +64,12 @@ function makeHarness() {
     createVariant: vi.fn(),
     updateVariant: vi.fn(),
   };
-  const inventory = { listStock: vi.fn(), listWarehouses: vi.fn(), adjust: vi.fn() };
+  const inventory = {
+    listStock: vi.fn(),
+    listWarehouses: vi.fn(),
+    adjust: vi.fn(),
+    createWarehouse: vi.fn(),
+  };
   const customers = { list: vi.fn(), create: vi.fn() };
   const vendorWarehouses = {
     findWarehouseId: vi.fn(),
@@ -70,6 +77,7 @@ function makeHarness() {
     create: vi.fn(),
     delete: vi.fn(),
   };
+  const audit = { record: vi.fn().mockResolvedValue(undefined) };
 
   const service = new StorefrontIngestionService(
     inbox as unknown as StorefrontWebhookInboxPort,
@@ -80,6 +88,7 @@ function makeHarness() {
     inventory as unknown as InventoryAdjustmentPort,
     customers as unknown as CustomersDirectoryPort,
     vendorWarehouses as unknown as VendorWarehouseMappingsRepositoryPort,
+    audit as unknown as StorefrontAuditPort,
   );
   return {
     service,
@@ -92,6 +101,7 @@ function makeHarness() {
     inventory,
     customers,
     vendorWarehouses,
+    audit,
   };
 }
 
@@ -673,6 +683,110 @@ describe("StorefrontIngestionService.ingestProduct", () => {
       h.service.ingestProduct(CONNECTION, { ...PRODUCT_PAYLOAD, vendorExternalId: "vendor-A" }),
     ).rejects.toBeInstanceOf(VendorNotMappedError);
     expect(h.inventory.adjust).not.toHaveBeenCalled();
+  });
+});
+
+describe("StorefrontIngestionService.ingestVendor", () => {
+  let h: ReturnType<typeof makeHarness>;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  it("creates a warehouse and mapping for a brand-new vendor", async () => {
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue(null);
+    h.inventory.createWarehouse.mockResolvedValue({ id: "wh-new", name: "Ahmed Store" });
+    h.vendorWarehouses.create.mockResolvedValue({
+      id: "map-1",
+      connectionId: "conn-1",
+      externalVendorId: "vendor-A",
+      warehouseId: "wh-new",
+    });
+
+    const result = await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "Ahmed Store",
+    });
+
+    expect(result).toEqual({
+      externalVendorId: "vendor-A",
+      warehouseId: "wh-new",
+      status: "created",
+    });
+    expect(h.inventory.createWarehouse).toHaveBeenCalledWith(expect.anything(), {
+      name: "Ahmed Store",
+    });
+    expect(h.vendorWarehouses.create).toHaveBeenCalledWith(
+      { companyId: "co-1", actorId: "user-1" },
+      { connectionId: "conn-1", externalVendorId: "vendor-A", warehouseId: "wh-new" },
+    );
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "storefront_vendor_warehouse_mapping.auto_created" }),
+    );
+    expect(h.connections.touchLastEventAt).toHaveBeenCalledWith("co-1", "conn-1");
+  });
+
+  it("is idempotent: an already-mapped vendor returns the existing warehouse without creating anything", async () => {
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-existing");
+
+    const result = await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "Ahmed Store",
+    });
+
+    expect(result).toEqual({
+      externalVendorId: "vendor-A",
+      warehouseId: "wh-existing",
+      status: "existing",
+    });
+    expect(h.inventory.createWarehouse).not.toHaveBeenCalled();
+    expect(h.vendorWarehouses.create).not.toHaveBeenCalled();
+  });
+
+  it("retries with a disambiguated name when the vendor's store name collides with an existing warehouse", async () => {
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue(null);
+    h.inventory.createWarehouse
+      .mockRejectedValueOnce(
+        AppErrors.conflict("A warehouse with this name already exists.", [
+          { field: "name", messages: ["taken"] },
+        ]),
+      )
+      .mockResolvedValueOnce({ id: "wh-new", name: "Ahmed Store (2)" });
+    h.vendorWarehouses.create.mockResolvedValue({
+      id: "map-1",
+      connectionId: "conn-1",
+      externalVendorId: "vendor-A",
+      warehouseId: "wh-new",
+    });
+
+    const result = await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "Ahmed Store",
+    });
+
+    expect(result.status).toBe("created");
+    expect(h.inventory.createWarehouse).toHaveBeenNthCalledWith(2, expect.anything(), {
+      name: "Ahmed Store (2)",
+    });
+  });
+
+  it("recovers from a create-race by returning the winner's mapping instead of failing", async () => {
+    h.vendorWarehouses.findWarehouseId
+      .mockResolvedValueOnce(null) // pre-check: no mapping yet
+      .mockResolvedValueOnce("wh-winner"); // recovery lookup after the race
+    h.inventory.createWarehouse.mockResolvedValue({ id: "wh-mine", name: "Ahmed Store" });
+    h.vendorWarehouses.create.mockRejectedValue(new DuplicateVendorMappingError());
+
+    const result = await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "Ahmed Store",
+    });
+
+    expect(result).toEqual({
+      externalVendorId: "vendor-A",
+      warehouseId: "wh-winner",
+      status: "existing",
+    });
+    expect(h.audit.record).not.toHaveBeenCalled();
   });
 });
 

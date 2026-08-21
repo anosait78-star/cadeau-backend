@@ -29,6 +29,16 @@ export interface AdjustInput {
   readonly note?: string | null;
 }
 
+export interface CreateWarehouseCommand {
+  readonly name: string;
+}
+
+/** The subset of a created warehouse row callers outside `inventory` need. */
+export interface CreatedWarehouse {
+  readonly id: string;
+  readonly name: string;
+}
+
 /**
  * Shared cross-feature contract over inventory stock reads/writes. The
  * inventory feature implements it (`InventoryService` structurally satisfies
@@ -45,6 +55,11 @@ export interface InventoryAdjustmentPort {
     query: WarehouseListFilter,
   ): Promise<KeysetPage<WarehouseSummary>>;
   adjust(principal: RequestPrincipal, data: AdjustInput): Promise<unknown>;
+  /** @throws on a duplicate `name` within the tenant — caller retries with a disambiguated name. */
+  createWarehouse(
+    principal: RequestPrincipal,
+    data: CreateWarehouseCommand,
+  ): Promise<CreatedWarehouse>;
 }
 
 /** DI token for {@link InventoryAdjustmentPort}. */

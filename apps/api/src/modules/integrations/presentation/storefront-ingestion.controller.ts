@@ -3,7 +3,13 @@ import { ApiBody, ApiOkResponse, ApiOperation, ApiSecurity, ApiTags } from "@nes
 import type { Response } from "express";
 import { StorefrontIngestionService } from "../application/storefront-ingestion.service";
 import { CurrentStorefrontConnection } from "./current-storefront-connection.decorator";
-import { IngestOrderDto, IngestProductDto, IngestResultDto } from "./dto/storefront.dto";
+import {
+  IngestOrderDto,
+  IngestProductDto,
+  IngestResultDto,
+  IngestVendorDto,
+  VendorSyncResultDto,
+} from "./dto/storefront.dto";
 import { StorefrontApiKeyGuard } from "./storefront-api-key.guard";
 import type { ResolvedStorefrontConnection } from "../domain/storefront-connection.entity";
 
@@ -81,5 +87,27 @@ export class StorefrontIngestionController {
     const result = await this.ingestion.ingestProduct(connection, body);
     res.status(result.status === "created" ? HttpStatus.CREATED : HttpStatus.OK);
     return IngestResultDto.from(result);
+  }
+
+  @Post("vendors")
+  @ApiOperation({
+    summary: "Auto-register a storefront vendor as a CRM warehouse",
+    description:
+      "Same shape for every platform (unlike orders/products, D8) — the storefront " +
+      "side normalizes to `{ externalVendorId, vendorName }` before calling this route " +
+      "(e.g. a WooCommerce/WCFM `wcfmmp_new_store_created` hook). Idempotent: a vendor " +
+      "already mapped on this connection returns their existing warehouse instead of " +
+      "creating a duplicate.",
+    operationId: "ingestStorefrontVendor",
+  })
+  @ApiOkResponse({ type: VendorSyncResultDto })
+  async ingestVendor(
+    @CurrentStorefrontConnection() connection: ResolvedStorefrontConnection,
+    @Body() body: IngestVendorDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<VendorSyncResultDto> {
+    const result = await this.ingestion.ingestVendor(connection, body);
+    res.status(result.status === "created" ? HttpStatus.CREATED : HttpStatus.OK);
+    return VendorSyncResultDto.from(result);
   }
 }

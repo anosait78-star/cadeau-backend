@@ -5,6 +5,7 @@ import {
   type CustomersDirectoryPort,
 } from "../../../shared/contracts/customers-directory.port";
 import {
+  type CreatedWarehouse,
   INVENTORY_ADJUSTMENT,
   type InventoryAdjustmentPort,
 } from "../../../shared/contracts/inventory-adjustment.port";
@@ -41,7 +42,9 @@ import {
   VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY,
   type VendorWarehouseMappingsRepositoryPort,
 } from "../domain/vendor-warehouse-mappings-repository.port";
+import { STOREFRONT_AUDIT, type StorefrontAuditPort } from "../domain/storefront-audit.port";
 import {
+  DuplicateVendorMappingError,
   MissingVendorIdError,
   NotReprocessableError,
   UnknownSkuError,
@@ -55,6 +58,19 @@ const SYSTEM_SESSION = "storefront-sync";
 export interface IngestResult {
   readonly entityId: string;
   readonly status: "created" | "updated" | "duplicate";
+}
+
+/** What the vendor auto-registration route returns. */
+export interface VendorSyncResult {
+  readonly externalVendorId: string;
+  readonly warehouseId: string;
+  readonly status: "created" | "existing";
+}
+
+/** Fields accepted by {@link StorefrontIngestionService.ingestVendor}. */
+export interface IngestVendorInput {
+  readonly externalVendorId: string;
+  readonly vendorName: string;
 }
 
 /**
@@ -80,6 +96,7 @@ export class StorefrontIngestionService {
     @Inject(CUSTOMERS_DIRECTORY) private readonly customers: CustomersDirectoryPort,
     @Inject(VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY)
     private readonly vendorWarehouses: VendorWarehouseMappingsRepositoryPort,
+    @Inject(STOREFRONT_AUDIT) private readonly audit: StorefrontAuditPort,
   ) {}
 
   async ingestOrder(connection: ResolvedStorefrontConnection, raw: unknown): Promise<IngestResult> {
@@ -99,6 +116,47 @@ export class StorefrontIngestionService {
     return this.ingest(connection, "product", normalized.externalId, raw, () =>
       this.processProduct(connection, normalized),
     );
+  }
+
+  /**
+   * Auto-register a storefront vendor as a CRM warehouse (webhook parity
+   * with admin-managed mappings, 2026-08-21). Fired by the storefront's own
+   * `wcfmmp_new_store_created` hook — covers both admin-added and
+   * self-registered vendors, since both paths converge on that hook
+   * (discovery, 2026-08-21). Idempotent: replays for an already-mapped
+   * vendor (e.g. a WCFM profile update re-firing the hook) return the
+   * existing mapping instead of creating a second warehouse.
+   */
+  async ingestVendor(
+    connection: ResolvedStorefrontConnection,
+    data: IngestVendorInput,
+  ): Promise<VendorSyncResult> {
+    const principal = this.systemPrincipal(connection);
+    const existingWarehouseId = await this.vendorWarehouses.findWarehouseId(
+      connection.companyId,
+      connection.connectionId,
+      data.externalVendorId,
+    );
+    if (existingWarehouseId !== null) {
+      return {
+        externalVendorId: data.externalVendorId,
+        warehouseId: existingWarehouseId,
+        status: "existing",
+      };
+    }
+    const warehouse = await this.createWarehouseWithUniqueName(principal, data.vendorName);
+    const warehouseId = await this.createMappingOrUseWinner(
+      connection,
+      principal,
+      data.externalVendorId,
+      warehouse.id,
+    );
+    await this.connections.touchLastEventAt(connection.companyId, connection.connectionId);
+    return {
+      externalVendorId: data.externalVendorId,
+      warehouseId,
+      status: warehouseId === warehouse.id ? "created" : "existing",
+    };
   }
 
   /** Re-run one `failed` event on demand (management §6.1 reprocess route). */
@@ -357,6 +415,77 @@ export class StorefrontIngestionService {
     return (
       Array.isArray(details) && details.some((d) => (d as { field?: unknown })?.field === "name")
     );
+  }
+
+  /**
+   * A vendor's store name has no uniqueness guarantee on the storefront, but
+   * `Warehouse.name` is unique per company — same disambiguation strategy as
+   * {@link createProductWithUniqueName}: retry once with a numeric suffix
+   * rather than fail the whole vendor registration over a name collision.
+   */
+  private async createWarehouseWithUniqueName(
+    principal: RequestPrincipal,
+    vendorName: string,
+  ): Promise<CreatedWarehouse> {
+    try {
+      return await this.inventory.createWarehouse(principal, { name: vendorName });
+    } catch (error) {
+      if (!this.isNameConflict(error)) throw error;
+      let suffix = 2;
+      for (;;) {
+        try {
+          return await this.inventory.createWarehouse(principal, {
+            name: `${vendorName} (${suffix})`,
+          });
+        } catch (retryError) {
+          if (!this.isNameConflict(retryError) || suffix >= 50) throw retryError;
+          suffix += 1;
+        }
+      }
+    }
+  }
+
+  /**
+   * Two concurrent auto-registrations for the same new vendor can both pass
+   * the "no mapping yet" check before either commits — the DB unique
+   * constraint on `(connectionId, externalVendorId)` picks one winner and
+   * throws {@link DuplicateVendorMappingError} for the loser. Rather than
+   * fail the loser's request (and leave its freshly-created warehouse
+   * orphaned but silently unmapped), look up the winner's mapping and return
+   * that — same race-recovery shape as {@link resolveCustomer}. The loser's
+   * warehouse is left in place for an admin to notice/merge; harmless, not
+   * silently discarded.
+   */
+  private async createMappingOrUseWinner(
+    connection: ResolvedStorefrontConnection,
+    principal: RequestPrincipal,
+    externalVendorId: string,
+    warehouseId: string,
+  ): Promise<string> {
+    try {
+      const mapping = await this.vendorWarehouses.create(
+        { companyId: connection.companyId, actorId: principal.userId },
+        { connectionId: connection.connectionId, externalVendorId, warehouseId },
+      );
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_vendor_warehouse_mapping.auto_created",
+        entityType: "storefront_vendor_warehouse_mapping",
+        entityId: mapping.id,
+        changes: { connectionId: connection.connectionId, externalVendorId, warehouseId },
+      });
+      return mapping.warehouseId;
+    } catch (error) {
+      if (!(error instanceof DuplicateVendorMappingError)) throw error;
+      const winner = await this.vendorWarehouses.findWarehouseId(
+        connection.companyId,
+        connection.connectionId,
+        externalVendorId,
+      );
+      if (winner === null) throw error;
+      return winner;
+    }
   }
 
   /** Absolute stock quantity → a signed adjustment via the existing atomic path (D5). */

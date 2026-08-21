@@ -15,6 +15,7 @@ export interface StorefrontAuditRecord {
     | "storefront_connection.revoked"
     | "storefront_event.reprocessed"
     | "storefront_vendor_warehouse_mapping.created"
+    | "storefront_vendor_warehouse_mapping.auto_created"
     | "storefront_vendor_warehouse_mapping.deleted";
   readonly entityType:
     | "storefront_connection"

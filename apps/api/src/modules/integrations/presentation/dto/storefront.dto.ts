@@ -21,7 +21,10 @@ import type {
   StorefrontWebhookEventView,
 } from "../../domain/storefront-connection.entity";
 import { STOREFRONT_PLATFORMS } from "../../domain/storefront-connection.entity";
-import type { IngestResult } from "../../application/storefront-ingestion.service";
+import type {
+  IngestResult,
+  VendorSyncResult,
+} from "../../application/storefront-ingestion.service";
 import type { VendorWarehouseMappingView } from "../../domain/vendor-warehouse-mapping.entity";
 
 // ---- Management request DTOs ------------------------------------------------
@@ -340,6 +343,48 @@ export class IngestResultDto {
   static from(result: IngestResult): IngestResultDto {
     const dto = new IngestResultDto();
     dto.entityId = result.entityId;
+    dto.status = result.status;
+    return dto;
+  }
+}
+
+// ---- Vendor auto-registration (webhook, self-service parity, 2026-08-21) ---
+
+export class IngestVendorDto {
+  @ApiProperty({
+    description:
+      "The vendor's id as the platform reports it (WooCommerce/WCFM: WordPress user id).",
+    maxLength: 200,
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  externalVendorId!: string;
+
+  @ApiProperty({ description: "The vendor's store name — used to name their warehouse." })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  vendorName!: string;
+}
+
+export class VendorSyncResultDto {
+  @ApiProperty()
+  externalVendorId!: string;
+
+  @ApiProperty({ format: "uuid" })
+  warehouseId!: string;
+
+  @ApiProperty({
+    enum: ["created", "existing"],
+    description: "`existing` when this vendor already had a mapping (idempotent replay).",
+  })
+  status!: "created" | "existing";
+
+  static from(result: VendorSyncResult): VendorSyncResultDto {
+    const dto = new VendorSyncResultDto();
+    dto.externalVendorId = result.externalVendorId;
+    dto.warehouseId = result.warehouseId;
     dto.status = result.status;
     return dto;
   }
