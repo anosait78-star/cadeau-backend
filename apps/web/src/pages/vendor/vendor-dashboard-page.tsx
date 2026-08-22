@@ -13,7 +13,6 @@ import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { formatMoney } from "@/lib/format-money";
-import { VendorLayout } from "./vendor-layout";
 
 const RECENT_LIMIT = 5;
 
@@ -73,7 +72,7 @@ export function VendorDashboardPage(): ReactNode {
   }, [state]);
 
   return (
-    <VendorLayout>
+    <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">{t("vendor.dashboard.overview.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("vendor.dashboard.subtitle")}</p>
@@ -138,6 +137,6 @@ export function VendorDashboardPage(): ReactNode {
           </Card>
         </>
       ) : null}
-    </VendorLayout>
+    </div>
   );
 }

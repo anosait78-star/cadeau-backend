@@ -14,10 +14,12 @@ import { useAuth } from "./use-auth";
  * company-independent (`platform_admins`, EPIC-5), so an admin account with no
  * tenant membership must still reach `/admin` instead of being stuck in
  * onboarding forever. A member whose role in the active company is `"vendor"`
- * (Vendor Accounts, Phase 1) is sent to the standalone `/vendor` dashboard
- * instead of the regular shell — their permission template is `inventory.read`
- * only, so the normal sidebar (Orders, Customers, …) would be mostly
- * forbidden/empty for them. Everyone else renders the nested routes.
+ * (Vendor Accounts) is confined to `/vendor/*` — same {@link AppShell} as
+ * everyone else (identical sidebar/topbar chrome), but `useNavItems` gives
+ * them the short vendor-only destination list, since their permission
+ * template is `inventory.read` only and the rest of the company shell's
+ * routes would be forbidden/empty for them. Everyone else renders the nested
+ * routes.
  */
 export function RequireAuth(): ReactNode {
   const { status, user } = useAuth();

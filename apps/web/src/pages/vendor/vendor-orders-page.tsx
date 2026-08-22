@@ -23,7 +23,6 @@ import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
-import { VendorLayout } from "./vendor-layout";
 import { buildVendorOrderColumns, vendorGroupTotal } from "./vendor-orders-columns";
 
 /**
@@ -78,7 +77,7 @@ export function VendorOrdersPage(): ReactNode {
   };
 
   return (
-    <VendorLayout>
+    <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold">{t("vendor.dashboard.myOrders")}</h1>
         <p className="text-sm text-muted-foreground">{t("vendor.dashboard.subtitle")}</p>
@@ -159,7 +158,7 @@ export function VendorOrdersPage(): ReactNode {
           />
         )
       ) : null}
-    </VendorLayout>
+    </div>
   );
 }
 

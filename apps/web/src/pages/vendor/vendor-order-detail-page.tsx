@@ -16,7 +16,6 @@ import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { formatMoney } from "@/lib/format-money";
-import { VendorLayout } from "./vendor-layout";
 import { vendorGroupTotal } from "./vendor-orders-columns";
 
 function formatDateTime(iso: string, locale: string): string {
@@ -68,7 +67,7 @@ export function VendorOrderDetailPage(): ReactNode {
   };
 
   return (
-    <VendorLayout>
+    <div className="flex flex-col gap-4">
       <div>
         <Link
           to="/vendor/orders"
@@ -155,6 +154,6 @@ export function VendorOrderDetailPage(): ReactNode {
           ) : null}
         </>
       ) : null}
-    </VendorLayout>
+    </div>
   );
 }

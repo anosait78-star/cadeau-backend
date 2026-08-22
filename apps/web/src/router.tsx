@@ -39,13 +39,13 @@ export const router = createBrowserRouter([
       { path: "onboarding", element: <OnboardingStartPage /> },
       { path: "onboarding/create", element: <CreateCompanyPage /> },
       { path: "onboarding/join", element: <JoinCompanyPage /> },
-      { path: "vendor", element: <VendorDashboardPage /> },
-      { path: "vendor/orders", element: <VendorOrdersPage /> },
-      { path: "vendor/orders/:groupId", element: <VendorOrderDetailPage /> },
       {
         element: <AppShell />,
         children: [
           { index: true, element: <DashboardPage /> },
+          { path: "vendor", element: <VendorDashboardPage /> },
+          { path: "vendor/orders", element: <VendorOrdersPage /> },
+          { path: "vendor/orders/:groupId", element: <VendorOrderDetailPage /> },
           { path: "orders", element: <OrdersPage /> },
           { path: "customers", element: <CustomersPage /> },
           { path: "products", element: <ProductsPage /> },

@@ -1,11 +1,13 @@
 import {
   BarChart3,
   Database,
+  Home,
   LayoutDashboard,
   Package,
   Settings,
   ShieldAlert,
   ShieldCheck,
+  ShoppingBag,
   ShoppingCart,
   Users,
   UsersRound,
@@ -62,4 +64,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/settings/team", labelKey: "nav.team", icon: UsersRound, permission: "access.read" },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
   { to: "/admin", labelKey: "nav.admin", icon: ShieldAlert, superAdmin: true },
+];
+
+/**
+ * Navigation for a `"vendor"` member (warehouse-scoped, `inventory.read` only —
+ * see the Vendor permission template). Rendered by the same Desktop sidebar /
+ * Mobile bottom nav / Command Palette as {@link NAV_ITEMS}, via `useNavItems`,
+ * so the vendor gets the identical shell chrome as the company shell — just a
+ * shorter list, since every other destination's data isn't warehouse-scoped
+ * yet and would be forbidden/empty for them.
+ */
+export const VENDOR_NAV_ITEMS: readonly NavItem[] = [
+  { to: "/vendor", labelKey: "vendor.nav.home", icon: Home, end: true },
+  { to: "/vendor/orders", labelKey: "vendor.nav.orders", icon: ShoppingBag },
 ];
