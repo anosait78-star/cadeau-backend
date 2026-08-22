@@ -8,6 +8,7 @@ import { ProductsAuditLogAdapter } from "./infrastructure/audit-log.adapter";
 import { productsPrismaClientProvider } from "./infrastructure/prisma-client.provider";
 import { ProductsRepository } from "./infrastructure/products.repository";
 import { ProductsController } from "./presentation/products.controller";
+import { VendorProductsController } from "./presentation/vendor-products.controller";
 
 /**
  * Products feature module (composition root, EPIC-8). Wires the `/v1/products`
@@ -22,7 +23,7 @@ import { ProductsController } from "./presentation/products.controller";
  */
 @Global()
 @Module({
-  controllers: [ProductsController],
+  controllers: [ProductsController, VendorProductsController],
   providers: [
     ProductsService,
     systemClockProvider,

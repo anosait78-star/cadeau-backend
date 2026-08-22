@@ -1046,6 +1046,7 @@ export const en = {
   "vendor.nav.label": "Vendor navigation",
   "vendor.nav.home": "Home",
   "vendor.nav.orders": "Orders",
+  "vendor.nav.products": "Products",
 
   "vendor.dashboard.overview.title": "Overview",
   "vendor.dashboard.kpi.total": "Total orders",
@@ -1068,6 +1069,11 @@ export const en = {
   "vendor.orderDetail.field.warehouse": "Warehouse",
   "vendor.orderDetail.items.title": "My items",
   "vendor.orderDetail.status.title": "Status",
+
+  "vendor.products.title": "My products",
+  "vendor.products.subtitle": "Only the products stocked in your own warehouse.",
+  "vendor.products.empty": "No products in your warehouse yet.",
+  "vendor.products.available": "Available",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -2106,6 +2112,7 @@ export const ar: Record<TranslationKey, string> = {
   "vendor.nav.label": "قائمة تنقّل التاجر",
   "vendor.nav.home": "الرئيسية",
   "vendor.nav.orders": "الطلبات",
+  "vendor.nav.products": "المنتجات",
 
   "vendor.dashboard.overview.title": "نظرة عامة",
   "vendor.dashboard.kpi.total": "إجمالي الطلبات",
@@ -2127,6 +2134,11 @@ export const ar: Record<TranslationKey, string> = {
   "vendor.orderDetail.field.warehouse": "المستودع",
   "vendor.orderDetail.items.title": "منتجاتي",
   "vendor.orderDetail.status.title": "الحالة",
+
+  "vendor.products.title": "منتجاتي",
+  "vendor.products.subtitle": "المنتجات الموجودة في مستودعك فقط.",
+  "vendor.products.empty": "لا توجد منتجات في مستودعك بعد.",
+  "vendor.products.available": "الكمية المتاحة",
 };
 
 export const dictionaries = { ar, en } as const;

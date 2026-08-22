@@ -69,7 +69,11 @@ describe("useNavItems", () => {
       wrapper: wrapper("ready", [], [], false),
     });
     await waitFor(() =>
-      expect(result.current.map((i) => i.to)).toEqual(["/vendor", "/vendor/orders"]),
+      expect(result.current.map((i) => i.to)).toEqual([
+        "/vendor",
+        "/vendor/orders",
+        "/vendor/products",
+      ]),
     );
   });
 

@@ -1,6 +1,11 @@
 import type { KeysetPage } from "@cadeau/database";
 import type { ParsedProductListQuery } from "./list-query";
-import type { ProductVariantView, ProductView, ProductWithVariants } from "./product.entity";
+import type {
+  ProductVariantView,
+  ProductView,
+  ProductWithVariants,
+  VendorProductView,
+} from "./product.entity";
 
 /** The tenant + acting member for a write. */
 export interface WriteActor {
@@ -91,6 +96,20 @@ export interface ProductsRepositoryPort {
    * when no active variant carries that SKU in this company.
    */
   findVariantBySku(companyId: string, sku: string): Promise<ProductVariantView | null>;
+
+  /**
+   * The warehouse a `"vendor"`-role member is scoped to (Vendor Accounts),
+   * or `null` if they hold no active vendor membership in this company.
+   */
+  findVendorWarehouseId(companyId: string, userId: string): Promise<string | null>;
+
+  /**
+   * Active products stocked in one warehouse (Vendor Accounts) — every
+   * variant with an `InventoryStock` row there, `availableQuantity` and
+   * `priceMinor` derived from those rows only. No pagination: a single
+   * warehouse's catalog is bounded, matching the vendor order groups read.
+   */
+  listForWarehouse(companyId: string, warehouseId: string): Promise<readonly VendorProductView[]>;
 }
 
 /** DI token for {@link ProductsRepositoryPort}. */

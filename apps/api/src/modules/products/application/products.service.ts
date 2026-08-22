@@ -17,6 +17,7 @@ import type {
   ProductVariantView,
   ProductView,
   ProductWithVariants,
+  VendorProductView,
 } from "../domain/product.entity";
 import { PRODUCTS_AUDIT, type ProductsAuditPort } from "../domain/products-audit.port";
 import {
@@ -70,6 +71,19 @@ export class ProductsService {
       () => this.repo.list(companyId, query),
       (error) => this.mapError(error),
     );
+  }
+
+  /**
+   * My warehouse's products (Vendor Accounts) — a `"vendor"`-role member has
+   * none of `products.read`/`inventory.read`'s general reach, only their own
+   * warehouse's stock; quiet-empty (not 403) when they hold no active vendor
+   * membership, matching {@link OrdersService.listMyVendorGroups}.
+   */
+  async listMyVendorProducts(principal: RequestPrincipal): Promise<readonly VendorProductView[]> {
+    const companyId = this.requireTenant(principal);
+    const warehouseId = await this.repo.findVendorWarehouseId(companyId, principal.userId);
+    if (warehouseId === null) return [];
+    return this.repo.listForWarehouse(companyId, warehouseId);
   }
 
   async getOne(principal: RequestPrincipal, id: string): Promise<ProductWithVariants> {

@@ -17,6 +17,7 @@ import type {
   ProductVariantView,
   ProductView,
   ProductWithVariants,
+  VendorProductView,
 } from "../domain/product.entity";
 import type {
   CreateProductInput,
@@ -360,6 +361,60 @@ export class ProductsRepository implements ProductsRepositoryPort {
         select: VARIANT_SELECT,
       });
       return row === null ? null : this.toVariantView(row);
+    });
+  }
+
+  async findVendorWarehouseId(companyId: string, userId: string): Promise<string | null> {
+    const member = await this.tenantTx(companyId, (tx) =>
+      tx.companyMember.findFirst({
+        where: { companyId, userId, role: "vendor", status: "active" },
+        select: { warehouseId: true },
+      }),
+    );
+    return member?.warehouseId ?? null;
+  }
+
+  async listForWarehouse(
+    companyId: string,
+    warehouseId: string,
+  ): Promise<readonly VendorProductView[]> {
+    return this.tenantTx(companyId, async (tx) => {
+      const products = await tx.product.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          variants: { some: { stock: { some: { warehouseId } } } },
+        },
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          imageUrl: true,
+          variants: {
+            where: { stock: { some: { warehouseId } } },
+            select: {
+              sellingPriceMinor: true,
+              stock: { where: { warehouseId }, select: { available: true } },
+            },
+          },
+        },
+      });
+      return products.map((product) => {
+        let priceMinor = 0;
+        let availableQuantity = 0;
+        for (const variant of product.variants) {
+          const price = Number(variant.sellingPriceMinor);
+          if (priceMinor === 0 || price < priceMinor) priceMinor = price;
+          for (const stock of variant.stock) availableQuantity += Number(stock.available);
+        }
+        return {
+          id: product.id,
+          name: product.name,
+          imageUrl: product.imageUrl,
+          priceMinor,
+          availableQuantity,
+        };
+      });
     });
   }
 

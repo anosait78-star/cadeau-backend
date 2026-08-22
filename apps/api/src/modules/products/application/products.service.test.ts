@@ -76,6 +76,8 @@ function makeHarness(): Harness {
     createVariant: vi.fn(),
     updateVariant: vi.fn(),
     findVariantBySku: vi.fn(),
+    findVendorWarehouseId: vi.fn(),
+    listForWarehouse: vi.fn().mockResolvedValue([]),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
@@ -328,5 +330,31 @@ describe("ProductsService.importProducts", () => {
     await expect(
       h.service.importProducts(principal(), header + rows, { name: "name" }),
     ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("listMyVendorProducts (Vendor Accounts)", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  it("returns an empty list for a caller with no vendor membership", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce(null);
+    const products = await h.service.listMyVendorProducts(principal());
+    expect(products).toEqual([]);
+    expect(h.repo.listForWarehouse).not.toHaveBeenCalled();
+  });
+
+  it("delegates to the repository for the caller's own warehouse", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.listForWarehouse.mockResolvedValueOnce([
+      { id: "p1", name: "Mug", imageUrl: null, priceMinor: 15000, availableQuantity: 12 },
+    ]);
+    const products = await h.service.listMyVendorProducts(principal());
+    expect(products).toEqual([
+      { id: "p1", name: "Mug", imageUrl: null, priceMinor: 15000, availableQuantity: 12 },
+    ]);
+    expect(h.repo.listForWarehouse).toHaveBeenCalledWith(COMPANY, "w1");
   });
 });

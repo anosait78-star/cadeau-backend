@@ -20,6 +20,7 @@ import { OnboardingStartPage } from "@/pages/onboarding/onboarding-start-page";
 import { VendorDashboardPage } from "@/pages/vendor/vendor-dashboard-page";
 import { VendorOrderDetailPage } from "@/pages/vendor/vendor-order-detail-page";
 import { VendorOrdersPage } from "@/pages/vendor/vendor-orders-page";
+import { VendorProductsPage } from "@/pages/vendor/vendor-products-page";
 import { NotificationsPage } from "@/pages/settings/notifications-page";
 import { RolesPage } from "@/pages/settings/roles-page";
 import { SettingsPage } from "@/pages/settings/settings-page";
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
           { path: "vendor", element: <VendorDashboardPage /> },
           { path: "vendor/orders", element: <VendorOrdersPage /> },
           { path: "vendor/orders/:groupId", element: <VendorOrderDetailPage /> },
+          { path: "vendor/products", element: <VendorProductsPage /> },
           { path: "orders", element: <OrdersPage /> },
           { path: "customers", element: <CustomersPage /> },
           { path: "products", element: <ProductsPage /> },

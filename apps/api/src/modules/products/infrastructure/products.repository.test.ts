@@ -58,6 +58,7 @@ function makeRepo() {
     productVariant: delegate(),
     productCategory: delegate(),
     unit: delegate(),
+    companyMember: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -387,5 +388,60 @@ describe("ProductsRepository — findVariantBySku", () => {
     const { repo, models } = makeRepo();
     models.productVariant.findFirst.mockResolvedValueOnce(null);
     expect(await repo.findVariantBySku(COMPANY, "NOPE")).toBeNull();
+  });
+});
+
+describe("ProductsRepository — findVendorWarehouseId", () => {
+  it("returns the warehouse of an active vendor membership", async () => {
+    const { repo, models } = makeRepo();
+    models.companyMember.findFirst.mockResolvedValueOnce({ warehouseId: "w1" });
+    expect(await repo.findVendorWarehouseId(COMPANY, ACTOR)).toBe("w1");
+    expect(models.companyMember.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { companyId: COMPANY, userId: ACTOR, role: "vendor", status: "active" },
+      }),
+    );
+  });
+
+  it("returns null when the caller has no active vendor membership", async () => {
+    const { repo, models } = makeRepo();
+    models.companyMember.findFirst.mockResolvedValueOnce(null);
+    expect(await repo.findVendorWarehouseId(COMPANY, ACTOR)).toBeNull();
+  });
+});
+
+describe("ProductsRepository — listForWarehouse", () => {
+  it("sums available stock and picks the lowest price across the warehouse's variants", async () => {
+    const { repo, models } = makeRepo();
+    models.product.findMany.mockResolvedValueOnce([
+      {
+        id: "p1",
+        name: "Mug",
+        imageUrl: null,
+        variants: [
+          { sellingPriceMinor: 2500n, stock: [{ available: 5n }] },
+          { sellingPriceMinor: 1800n, stock: [{ available: 3n }] },
+        ],
+      },
+    ]);
+    const products = await repo.listForWarehouse(COMPANY, "w1");
+    expect(products).toEqual([
+      { id: "p1", name: "Mug", imageUrl: null, priceMinor: 1800, availableQuantity: 8 },
+    ]);
+    expect(models.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          companyId: COMPANY,
+          isActive: true,
+          variants: { some: { stock: { some: { warehouseId: "w1" } } } },
+        }),
+      }),
+    );
+  });
+
+  it("returns an empty list when nothing is stocked in the warehouse", async () => {
+    const { repo, models } = makeRepo();
+    models.product.findMany.mockResolvedValueOnce([]);
+    expect(await repo.listForWarehouse(COMPANY, "w1")).toEqual([]);
   });
 });

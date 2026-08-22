@@ -19,6 +19,7 @@ import type {
   ProductVariantView,
   ProductView,
   ProductWithVariants,
+  VendorProductView,
 } from "../../domain/product.entity";
 
 // ---- Request DTOs ----------------------------------------------------------
@@ -403,6 +404,49 @@ export class ProductImportResultDto {
   static from(results: readonly ImportResult[]): ProductImportResultDto {
     const dto = new ProductImportResultDto();
     dto.results = results.map((r) => ProductImportResultItemDto.from(r));
+    return dto;
+  }
+}
+
+/** A product as seen by a vendor (Vendor Accounts) — their own warehouse only, read-only. */
+export class VendorProductDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+
+  @ApiProperty({ example: "Classic Mug" })
+  name!: string;
+
+  @ApiProperty({ nullable: true, description: "Display image URL." })
+  imageUrl!: string | null;
+
+  @ApiProperty({
+    example: 15000,
+    description: "Lowest sellable price among this product's variants, integer minor units.",
+  })
+  priceMinor!: number;
+
+  @ApiProperty({ example: 12, description: "Available stock in the vendor's own warehouse." })
+  availableQuantity!: number;
+
+  static from(view: VendorProductView): VendorProductDto {
+    const dto = new VendorProductDto();
+    dto.id = view.id;
+    dto.name = view.name;
+    dto.imageUrl = view.imageUrl;
+    dto.priceMinor = view.priceMinor;
+    dto.availableQuantity = view.availableQuantity;
+    return dto;
+  }
+}
+
+/** Envelope for a vendor's own product list. */
+export class VendorProductListDto {
+  @ApiProperty({ type: [VendorProductDto] })
+  data!: VendorProductDto[];
+
+  static from(products: readonly VendorProductView[]): VendorProductListDto {
+    const dto = new VendorProductListDto();
+    dto.data = products.map((p) => VendorProductDto.from(p));
     return dto;
   }
 }

@@ -77,4 +77,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
 export const VENDOR_NAV_ITEMS: readonly NavItem[] = [
   { to: "/vendor", labelKey: "vendor.nav.home", icon: Home, end: true },
   { to: "/vendor/orders", labelKey: "vendor.nav.orders", icon: ShoppingBag },
+  { to: "/vendor/products", labelKey: "vendor.nav.products", icon: Package },
 ];

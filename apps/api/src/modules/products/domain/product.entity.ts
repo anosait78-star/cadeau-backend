@@ -48,3 +48,18 @@ export interface ProductVariantView {
 export interface ProductWithVariants extends ProductView {
   readonly variants: readonly ProductVariantView[];
 }
+
+/**
+ * A catalog item as seen by a vendor (Vendor Accounts): read-only, scoped to
+ * their own warehouse. `availableQuantity` sums `InventoryStock.available`
+ * across this product's variants, restricted to stock rows in that one
+ * warehouse — never the company-wide total.
+ */
+export interface VendorProductView {
+  readonly id: string;
+  readonly name: string;
+  readonly imageUrl: string | null;
+  /** Lowest `sellingPriceMinor` among this product's variants stocked in the warehouse. */
+  readonly priceMinor: number;
+  readonly availableQuantity: number;
+}
