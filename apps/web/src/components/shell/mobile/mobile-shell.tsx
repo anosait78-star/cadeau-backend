@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Outlet } from "react-router";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { CompanySwitcher } from "@/components/shell/company-switcher";
+import { InstallAppButton } from "@/components/shell/install-app-button";
 import { NotificationBell } from "@/components/shell/notification-bell";
 import { useI18n } from "@/i18n/i18n-provider";
 import { MobileBottomNav } from "./mobile-bottom-nav";
@@ -24,6 +25,7 @@ export function MobileShell(): ReactNode {
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-border bg-background px-4">
         <span className="text-lg font-semibold text-primary">{t("app.name")}</span>
         <div className="flex items-center gap-2">
+          <InstallAppButton compact />
           <FeatureGate feature="notifications">
             <NotificationBell />
           </FeatureGate>

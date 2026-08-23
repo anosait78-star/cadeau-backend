@@ -62,6 +62,15 @@ export default tseslint.config(
       "no-restricted-properties": "off",
     },
   },
+  // The web app's service worker runs in the ServiceWorkerGlobalScope, not the
+  // window: it needs the worker globals (`self`, `caches`, `fetch`), and it is a
+  // plain asset served from public/, not part of the bundled TypeScript sources.
+  {
+    files: ["apps/web/public/*.js"],
+    languageOptions: {
+      globals: { ...globals.serviceworker },
+    },
+  },
   // The configuration package is the single, authorized reader of process.env.
   {
     files: ["packages/config/src/**/*.ts"],
