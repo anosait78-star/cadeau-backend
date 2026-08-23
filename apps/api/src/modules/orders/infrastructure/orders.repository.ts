@@ -1077,12 +1077,18 @@ export class OrdersRepository implements OrdersRepositoryPort {
       const qty = Number(res.quantity);
       const level = await this.lockLevel(tx, actor, res.warehouseId, res.variantId);
       const release = Math.min(qty, level.committed);
+      // Shipping never fails on stock: the on-hand decrement is clamped to what
+      // the level actually holds, so a level that is short (or already at zero)
+      // simply lands on zero instead of tripping the `on_hand >= 0` CHECK and
+      // aborting the whole transition. Stock is a record of what left the
+      // shelf, not a gate on marking an order shipped.
+      const shipped = Math.min(release, level.onHand);
       await tx.inventoryStock.updateMany({
         where: { id: level.id },
         data: stampForUpdate(actor, {
           committed: { increment: BigInt(-release) },
           // `ship` also removes the units from on-hand; `release` leaves on-hand.
-          ...(effect === "ship" ? { onHand: { increment: BigInt(-release) } } : {}),
+          ...(effect === "ship" ? { onHand: { increment: BigInt(-shipped) } } : {}),
         }) as Prisma.InventoryStockUncheckedUpdateManyInput,
       });
       await tx.stockReservation.updateMany({

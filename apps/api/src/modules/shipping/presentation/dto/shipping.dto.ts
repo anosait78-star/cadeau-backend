@@ -73,6 +73,21 @@ export class CreateShipmentDto {
   @MaxLength(100)
   bostaDistrictId?: string;
 
+  @ApiPropertyOptional({
+    description:
+      "Street address to deliver to, entered in the carrier-select step (replaces relying on the customer's saved address).",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  addressLine?: string;
+
+  @ApiPropertyOptional({ description: "Optional landmark / second address line." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  landmark?: string;
+
   @ApiPropertyOptional({ description: "Free-text note for the courier (e.g. package contents)." })
   @IsOptional()
   @IsString()

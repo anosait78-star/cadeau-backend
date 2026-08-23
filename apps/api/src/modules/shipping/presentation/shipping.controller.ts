@@ -151,6 +151,8 @@ export class ShippingController {
       ...(body.bostaCityId === undefined ? {} : { bostaCityId: body.bostaCityId }),
       ...(body.bostaCityName === undefined ? {} : { bostaCityName: body.bostaCityName }),
       ...(body.bostaDistrictId === undefined ? {} : { bostaDistrictId: body.bostaDistrictId }),
+      ...(body.addressLine === undefined ? {} : { addressLine: body.addressLine }),
+      ...(body.landmark === undefined ? {} : { landmark: body.landmark }),
       ...(body.notes === undefined ? {} : { notes: body.notes }),
       ...(body.goodsValue === undefined ? {} : { goodsValue: body.goodsValue }),
       ...(body.recipientFirstName === undefined

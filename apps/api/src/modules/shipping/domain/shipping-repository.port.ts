@@ -28,6 +28,8 @@ export interface CreateShipmentInput {
   readonly bostaCityId?: string;
   readonly bostaCityName?: string;
   readonly bostaDistrictId?: string;
+  readonly addressLine?: string;
+  readonly landmark?: string;
   readonly notes?: string;
   readonly goodsValue?: number;
   readonly recipientFirstName?: string;

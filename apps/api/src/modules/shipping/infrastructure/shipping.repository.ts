@@ -150,6 +150,8 @@ export class ShippingRepository implements ShippingRepositoryPort {
       ...(data.bostaCityId !== undefined ? { bostaCityId: data.bostaCityId } : {}),
       ...(data.bostaCityName !== undefined ? { bostaCityName: data.bostaCityName } : {}),
       ...(data.bostaDistrictId !== undefined ? { bostaDistrictId: data.bostaDistrictId } : {}),
+      ...(data.addressLine !== undefined ? { addressLine: data.addressLine } : {}),
+      ...(data.landmark !== undefined ? { landmark: data.landmark } : {}),
       ...(data.notes !== undefined ? { notes: data.notes } : {}),
       ...(data.goodsValue !== undefined ? { goodsValue: data.goodsValue } : {}),
       ...(data.recipientFirstName !== undefined

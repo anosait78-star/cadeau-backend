@@ -15,6 +15,14 @@ export interface CarrierCreateShipmentInput {
   readonly bostaCityId?: string;
   readonly bostaCityName?: string;
   readonly bostaDistrictId?: string;
+  /**
+   * The street address (and optional landmark) to deliver to, entered in the
+   * "select a carrier" step alongside the city/district. Takes precedence over
+   * the customer's saved default address, which is only a prefill source — a
+   * shipment can be created for a customer who has no saved address at all.
+   */
+  readonly addressLine?: string;
+  readonly landmark?: string;
   /** Free-text note for the courier (e.g. package contents). Best-effort passthrough — not persisted on our side. */
   readonly notes?: string;
   /** Declared goods value, integer minor units — folded into the note sent to the carrier (no dedicated field in our schema or confirmed in Bosta's own payload shape). */

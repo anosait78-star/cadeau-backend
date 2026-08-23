@@ -155,11 +155,59 @@ describe("BostaCarrierAdapter.createShipment", () => {
     ).rejects.toBeInstanceOf(ReferenceNotFoundError);
   });
 
-  it("rejects when the customer has no default address", async () => {
+  it("rejects when neither the shipment form nor a saved address supplies a street line", async () => {
     const { adapter } = makeAdapter({ address: null });
     await expect(
-      adapter.createShipment({ companyId: COMPANY, orderId: ORDER }),
+      adapter.createShipment({
+        companyId: COMPANY,
+        orderId: ORDER,
+        bostaCityId: "cityId9",
+        bostaCityName: "Giza",
+        bostaDistrictId: "districtId9",
+      }),
     ).rejects.toBeInstanceOf(CustomerAddressMissingError);
+  });
+
+  it("ships to a customer with no saved address when the form carries the whole destination", async () => {
+    const { adapter } = makeAdapter({ address: null });
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108003" } }));
+
+    const handle = await adapter.createShipment({
+      companyId: COMPANY,
+      orderId: ORDER,
+      bostaCityId: "cityId9",
+      bostaCityName: "Giza",
+      bostaDistrictId: "districtId9",
+      addressLine: "12 Nile street",
+      landmark: "Opposite the bank",
+    });
+
+    expect(handle).toEqual({ trackingNumber: "5108003", carrier: "bosta" });
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(JSON.parse(init.body as string).dropOffAddress).toMatchObject({
+      city: "Giza",
+      districtId: "districtId9",
+      firstLine: "12 Nile street",
+      secondLine: "Opposite the bank",
+    });
+  });
+
+  it("prefers the form's address over the customer's saved one", async () => {
+    const { adapter } = makeAdapter();
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108004" } }));
+
+    await adapter.createShipment({
+      companyId: COMPANY,
+      orderId: ORDER,
+      addressLine: "9 Tahrir street",
+      landmark: "Above the pharmacy",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(JSON.parse(init.body as string).dropOffAddress).toMatchObject({
+      firstLine: "9 Tahrir street",
+      secondLine: "Above the pharmacy",
+    });
   });
 
   it("refuses to guess when the address is not mapped to a Bosta city/district", async () => {

@@ -95,6 +95,10 @@ export class BostaCarrierAdapter implements CarrierPort {
       });
       if (customer === null) throw new ReferenceNotFoundError("customerId");
 
+      // The saved default address is optional: it is only a fallback for the
+      // fields the "select a carrier" step did not supply. A customer with no
+      // address at all can still be shipped to, as long as the shipment form
+      // carried the destination itself.
       const address = await tx.customerAddress.findFirst({
         where: {
           customerId: order.customerId,
@@ -110,21 +114,35 @@ export class BostaCarrierAdapter implements CarrierPort {
           bostaCityName: true,
         },
       });
-      if (address === null) throw new CustomerAddressMissingError();
       return { order, customer, address };
     });
 
-    // City/district chosen in the client's "select a carrier" step (M12.x
-    // follow-up, single-order flow only — no bulk shipment creation) take
-    // precedence over whatever's saved on the customer's address. Entered
+    // Destination chosen in the client's "select a carrier" step (M12.x
+    // follow-up, single-order flow only — no bulk shipment creation) takes
+    // precedence over whatever is saved on the customer's address. Entered
     // fresh every time by design — nothing gets written back onto the
     // address, so this never gets "remembered" for a future shipment.
-    const bostaCityId = input.bostaCityId ?? address.bostaCityId ?? undefined;
-    const bostaDistrictId = input.bostaDistrictId ?? address.bostaDistrictId ?? undefined;
-    const bostaCityName = input.bostaCityName ?? address.bostaCityName ?? undefined;
+    const bostaCityId = input.bostaCityId ?? address?.bostaCityId ?? undefined;
+    const bostaDistrictId = input.bostaDistrictId ?? address?.bostaDistrictId ?? undefined;
+    const bostaCityName = input.bostaCityName ?? address?.bostaCityName ?? undefined;
     if (bostaCityId === undefined || bostaDistrictId === undefined || bostaCityName === undefined) {
       throw new CustomerAddressNotMappedError(CARRIER);
     }
+
+    const typedLine = input.addressLine?.trim();
+    const line =
+      typedLine !== undefined && typedLine.length > 0
+        ? typedLine
+        : address === null
+          ? undefined
+          : decrypt(address.lineEncrypted, this.config.encryption.key);
+    if (line === undefined || line.length === 0) throw new CustomerAddressMissingError();
+
+    const typedLandmark = input.landmark?.trim();
+    const landmark =
+      typedLandmark !== undefined && typedLandmark.length > 0
+        ? typedLandmark
+        : (address?.landmark ?? null);
 
     const codMinor = Math.max(0, Number(order.total) - Number(order.collectedAmount));
     if (codMinor > BOSTA_MAX_COD_MINOR) {
@@ -132,7 +150,6 @@ export class BostaCarrierAdapter implements CarrierPort {
     }
 
     const phone = decrypt(customer.phoneEncrypted, this.config.encryption.key);
-    const line = decrypt(address.lineEncrypted, this.config.encryption.key);
     const [derivedFirstName, ...derivedRest] = customer.name.trim().split(/\s+/);
     // Recipient name is entered fresh per shipment (never persisted) and
     // defaults to a split of the customer's own name when left blank.
@@ -168,7 +185,7 @@ export class BostaCarrierAdapter implements CarrierPort {
           city: bostaCityName,
           districtId: bostaDistrictId,
           firstLine: line,
-          ...(address.landmark !== null ? { secondLine: address.landmark } : {}),
+          ...(landmark !== null ? { secondLine: landmark } : {}),
         },
         businessReference: input.orderId,
         uniqueBusinessReference: input.orderId,
