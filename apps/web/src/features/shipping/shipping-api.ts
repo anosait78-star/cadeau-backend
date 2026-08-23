@@ -110,6 +110,10 @@ export interface CreateShipmentBostaFields {
   readonly bostaCityId?: string;
   readonly bostaCityName?: string;
   readonly bostaDistrictId?: string;
+  /** Street address to deliver to — entered here, not read from the customer's saved address. */
+  readonly addressLine?: string;
+  /** Optional landmark / second address line. */
+  readonly landmark?: string;
   readonly notes?: string;
   /** Declared goods value, integer minor units. */
   readonly goodsValue?: number;
@@ -141,6 +145,8 @@ export function createShipment(
       ...(bosta?.bostaCityId !== undefined ? { bostaCityId: bosta.bostaCityId } : {}),
       ...(bosta?.bostaCityName !== undefined ? { bostaCityName: bosta.bostaCityName } : {}),
       ...(bosta?.bostaDistrictId !== undefined ? { bostaDistrictId: bosta.bostaDistrictId } : {}),
+      ...(bosta?.addressLine !== undefined ? { addressLine: bosta.addressLine } : {}),
+      ...(bosta?.landmark !== undefined ? { landmark: bosta.landmark } : {}),
       ...(bosta?.notes !== undefined ? { notes: bosta.notes } : {}),
       ...(bosta?.goodsValue !== undefined ? { goodsValue: bosta.goodsValue } : {}),
       ...(bosta?.recipientFirstName !== undefined

@@ -65,6 +65,8 @@ export function SelectCarrierDialog({
   const [bostaCityId, setBostaCityId] = useState("");
   const [bostaZoneId, setBostaZoneId] = useState("");
   const [bostaDistrictId, setBostaDistrictId] = useState("");
+  const [addressLine, setAddressLine] = useState("");
+  const [landmark, setLandmark] = useState("");
   const [notes, setNotes] = useState("");
   const [goodsValue, setGoodsValue] = useState("");
   const [recipientFirstName, setRecipientFirstName] = useState("");
@@ -80,6 +82,8 @@ export function SelectCarrierDialog({
     setBostaCityId("");
     setBostaZoneId("");
     setBostaDistrictId("");
+    setAddressLine("");
+    setLandmark("");
     setNotes("");
     setGoodsValue("");
     setRecipientFirstName("");
@@ -94,13 +98,22 @@ export function SelectCarrierDialog({
       })
       .catch(() => setCarriers([]))
       .finally(() => setCarriersLoaded(true));
-    // The recipient name defaults to a split of the customer's own name — a
-    // convenience prefill, not something read back from any "saved mapping".
+    // The recipient name defaults to a split of the customer's own name, and
+    // the address to whatever the customer happens to have saved — both are
+    // convenience prefills the user is free to overwrite, not values the
+    // shipment is bound to. A customer with no saved address just starts blank.
     void getCustomer(customerId)
       .then((customer) => {
         const [first, ...rest] = customer.name.trim().split(/\s+/);
         setRecipientFirstName(first ?? "");
         setRecipientLastName(rest.join(" "));
+        const saved =
+          customer.addresses.find((a) => a.isDefault && a.active) ??
+          customer.addresses.find((a) => a.active);
+        if (saved !== undefined) {
+          setAddressLine(saved.line);
+          setLandmark(saved.landmark ?? "");
+        }
       })
       .catch(() => undefined);
   }, [open, customerId]);
@@ -147,6 +160,8 @@ export function SelectCarrierDialog({
               ...(bostaCityId !== "" ? { bostaCityId } : {}),
               ...(selectedCity !== undefined ? { bostaCityName: selectedCity.name } : {}),
               ...(bostaDistrictId !== "" ? { bostaDistrictId } : {}),
+              ...(addressLine.trim().length > 0 ? { addressLine: addressLine.trim() } : {}),
+              ...(landmark.trim().length > 0 ? { landmark: landmark.trim() } : {}),
               ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}),
               ...(goodsValue.trim().length > 0
                 ? { goodsValue: Math.max(0, Math.round(Number(goodsValue) * 100)) }
@@ -277,6 +292,33 @@ export function SelectCarrierDialog({
               </FormField>
             </div>
 
+            <FormField
+              label={t("shipping.selectCarrier.addressLine")}
+              htmlFor="select-carrier-address-line"
+              required
+            >
+              <Input
+                id="select-carrier-address-line"
+                value={addressLine}
+                onChange={(e) => setAddressLine(e.target.value)}
+                placeholder={t("shipping.selectCarrier.addressLine.placeholder")}
+                aria-label={t("shipping.selectCarrier.addressLine")}
+              />
+            </FormField>
+            <FormField
+              label={t("shipping.selectCarrier.landmark")}
+              htmlFor="select-carrier-landmark"
+              optional
+            >
+              <Input
+                id="select-carrier-landmark"
+                value={landmark}
+                onChange={(e) => setLandmark(e.target.value)}
+                placeholder={t("shipping.selectCarrier.landmark.placeholder")}
+                aria-label={t("shipping.selectCarrier.landmark")}
+              />
+            </FormField>
+
             <p className="text-sm font-medium">{t("shipping.selectCarrier.recipient")}</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <FormField
@@ -351,19 +393,12 @@ export function SelectCarrierDialog({
           </div>
         ) : null}
 
+        {/* The address is entered in this dialog now, so a missing-address
+            error is fixed right here — no detour through the customer's
+            edit screen. */}
         {addressError ? (
-          <div className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            <p>{t("shipping.addressMissing.message")}</p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                onOpenChange(false);
-                navigate(`/customers?edit=${customerId}`);
-              }}
-            >
-              {t("shipping.addressMissing.editCustomer")}
-            </Button>
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {t("shipping.addressMissing.message")}
           </div>
         ) : null}
 
@@ -383,6 +418,7 @@ export function SelectCarrierDialog({
             (selected === "bosta" &&
               (bostaCityId === "" ||
                 bostaDistrictId === "" ||
+                addressLine.trim().length === 0 ||
                 recipientFirstName.trim().length === 0))
           }
           onClick={() => void proceed()}

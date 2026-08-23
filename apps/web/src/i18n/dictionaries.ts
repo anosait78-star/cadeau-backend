@@ -778,6 +778,10 @@ export const en = {
   "shipping.selectCarrier.cancel": "Cancel",
   "shipping.selectCarrier.goodsValue": "Goods value (optional)",
   "shipping.selectCarrier.zone": "Zone",
+  "shipping.selectCarrier.addressLine": "Address",
+  "shipping.selectCarrier.addressLine.placeholder": "Street, building, floor, apartment",
+  "shipping.selectCarrier.landmark": "Landmark",
+  "shipping.selectCarrier.landmark.placeholder": "A nearby well-known spot",
   "shipping.selectCarrier.recipient": "Recipient",
   "shipping.selectCarrier.recipientFirstName": "First name",
   "shipping.selectCarrier.recipientLastName": "Last name",
@@ -785,7 +789,7 @@ export const en = {
   "shipping.selectCarrier.allowOpenPackage":
     "Allow the customer to open the package before accepting it",
   "shipping.addressMissing.message":
-    "You must select a Bosta city and district for the customer before creating a shipment.",
+    "Fill in the delivery address above before creating the shipment.",
   "shipping.addressMissing.editCustomer": "Edit customer details",
   "customers.shippingInfo.title": "Shipping information",
 
@@ -1848,12 +1852,16 @@ export const ar: Record<TranslationKey, string> = {
   "shipping.selectCarrier.cancel": "إلغاء",
   "shipping.selectCarrier.goodsValue": "قيمة البضاعة (اختياري)",
   "shipping.selectCarrier.zone": "المنطقة",
+  "shipping.selectCarrier.addressLine": "العنوان",
+  "shipping.selectCarrier.addressLine.placeholder": "الشارع والعمارة والدور والشقة",
+  "shipping.selectCarrier.landmark": "علامة مميزة",
+  "shipping.selectCarrier.landmark.placeholder": "أقرب مكان معروف",
   "shipping.selectCarrier.recipient": "المستلم",
   "shipping.selectCarrier.recipientFirstName": "الاسم الأول",
   "shipping.selectCarrier.recipientLastName": "اسم العائلة",
   "shipping.selectCarrier.recipientPhone2": "هاتف ثانٍ (اختياري)",
   "shipping.selectCarrier.allowOpenPackage": "السماح للعميل بفتح الطرد قبل استلامه",
-  "shipping.addressMissing.message": "يجب اختيار مدينة ومنطقة بوسطة للعميل قبل إنشاء الشحنة.",
+  "shipping.addressMissing.message": "أدخل عنوان التسليم بالأعلى قبل إنشاء الشحنة.",
   "shipping.addressMissing.editCustomer": "تعديل بيانات العميل",
   "customers.shippingInfo.title": "معلومات الشحن",
 

@@ -30,10 +30,13 @@ function renderDialog(onCreated: (shipment: unknown) => void) {
 
 describe("SelectCarrierDialog — Bosta fields (moved from the customer/order forms)", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
+  /** What `GET /customers/cust-1` reports — a test sets this to cover the prefill. */
+  let customerAddresses: unknown[];
 
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("cadeau.locale", "en");
+    customerAddresses = [];
     fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
@@ -83,7 +86,7 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
             ordersCount: 0,
             totalSpent: 0,
             lastOrderAt: null,
-            addresses: [],
+            addresses: customerAddresses,
           }),
         );
       }
@@ -135,7 +138,7 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
     expect(await screen.findByRole("option", { name: "1st Settlement" })).toBeInTheDocument();
   });
 
-  it("keeps Continue disabled for Bosta until both city and district are picked", async () => {
+  it("keeps Continue disabled for Bosta until city, district and address are all filled", async () => {
     const user = userEvent.setup();
     renderDialog(() => {});
 
@@ -156,7 +159,41 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
     // The recipient's first name is prefilled from the customer (async) and
     // is required for Bosta, same as city/district.
     await waitFor(() => expect(screen.getByLabelText("First name")).toHaveValue("Naruto"));
+
+    // This customer has no saved address, so the address field stays empty and
+    // still gates Continue — the destination now lives on this form, not on
+    // the customer record.
+    expect(continueButton).toBeDisabled();
+    await user.type(screen.getByLabelText("Address"), "12 Nile street");
     expect(continueButton).not.toBeDisabled();
+  });
+
+  it("prefills the address from the customer's saved default address", async () => {
+    customerAddresses = [
+      {
+        id: "addr-1",
+        customerId: "cust-1",
+        line: "5 Tahrir street",
+        landmark: "Above the pharmacy",
+        notes: null,
+        governorateId: null,
+        bostaCityId: null,
+        bostaDistrictId: null,
+        bostaCityName: null,
+        isDefault: true,
+        active: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const user = userEvent.setup();
+    renderDialog(() => {});
+
+    await user.click(screen.getByLabelText("Shipping company"));
+    await user.click(await screen.findByRole("option", { name: "bosta" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Address")).toHaveValue("5 Tahrir street"));
+    expect(screen.getByLabelText("Landmark")).toHaveValue("Above the pharmacy");
   });
 
   it("prefills the recipient name from the customer, and lets the zone narrow the district list", async () => {
@@ -178,7 +215,7 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
     expect(await screen.findByRole("option", { name: "New Cairo" })).toBeInTheDocument();
   });
 
-  it("sends city/district/notes/goodsValue/recipient/phone2/allowToOpenPackage to POST /shipping/shipments", async () => {
+  it("sends city/district/address/notes/goodsValue/recipient/phone2/allowToOpenPackage to POST /shipping/shipments", async () => {
     const user = userEvent.setup();
     const onCreated = vi.fn();
     renderDialog(onCreated);
@@ -194,6 +231,8 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
     await user.click(districtSelect);
     await user.click(await screen.findByRole("option", { name: "1st Settlement" }));
 
+    await user.type(screen.getByLabelText("Address"), "12 Nile street");
+    await user.type(screen.getByLabelText("Landmark"), "Next to the mosque");
     await user.clear(screen.getByLabelText("Last name"));
     await user.type(screen.getByLabelText("Last name"), "Namikaze");
     await user.type(screen.getByLabelText("Second phone (optional)"), "01099998888");
@@ -217,6 +256,8 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
       bostaCityId: "c1",
       bostaCityName: "Cairo",
       bostaDistrictId: "d1",
+      addressLine: "12 Nile street",
+      landmark: "Next to the mosque",
       notes: "Ring the bell",
       goodsValue: 12345,
       recipientFirstName: "Naruto",
