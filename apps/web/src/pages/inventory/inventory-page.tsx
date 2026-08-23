@@ -6,6 +6,7 @@ import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { FilterBar } from "@/components/filter-bar/filter-bar";
+import { ProductThumb } from "@/components/product-thumb/product-thumb";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { useToast } from "@/components/toast/toast";
@@ -19,6 +20,7 @@ import {
   createAdjustment,
   createTransfer,
   createWarehouse,
+  listAllStock,
   listStock,
   listWarehouses,
   setReorderPoint,
@@ -29,7 +31,6 @@ import {
   type WarehouseInput,
 } from "@/features/inventory/inventory-api";
 import { WarehouseJoinCodeDialog } from "@/features/inventory/warehouse-join-code-dialog";
-import { listProducts, listVariants } from "@/features/products/products-api";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
 import { buildStockColumns } from "./inventory-stock-columns";
@@ -82,7 +83,6 @@ function InventoryScreen(): ReactNode {
   const toast = useToast();
   const [tab, setTab] = useState<Tab>("stock");
   const [warehouses, setWarehouses] = useState<WarehouseState>({ kind: "loading" });
-  const [variants, setVariants] = useState<Option[]>([]);
 
   const flash = useCallback((text: string): void => toast.show(text), [toast]);
 
@@ -100,29 +100,6 @@ function InventoryScreen(): ReactNode {
     void loadWarehouses();
   }, [loadWarehouses]);
 
-  // Resolve variant ids to readable "Product — Variant" labels (best-effort:
-  // the screen still works with raw ids if the catalog call fails).
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const products = await listProducts({ active: true });
-        const lists = await Promise.all(
-          products.data.map(async (product) => {
-            const res = await listVariants(product.id);
-            return res.data.map((v) => ({ id: v.id, name: `${product.name} — ${v.name}` }));
-          }),
-        );
-        if (!cancelled) setVariants(lists.flat());
-      } catch {
-        if (!cancelled) setVariants([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const warehouseOptions: Option[] =
     warehouses.kind === "ready"
       ? warehouses.items.filter((w) => w.active).map((w) => ({ id: w.id, name: w.name }))
@@ -130,7 +107,6 @@ function InventoryScreen(): ReactNode {
   const warehouseNames = new Map(
     warehouses.kind === "ready" ? warehouses.items.map((w) => [w.id, w.name]) : [],
   );
-  const variantNames = new Map(variants.map((v) => [v.id, v.name]));
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
@@ -159,13 +135,7 @@ function InventoryScreen(): ReactNode {
       </div>
 
       {tab === "stock" ? (
-        <StockTab
-          warehouses={warehouseOptions}
-          variants={variants}
-          warehouseNames={warehouseNames}
-          variantNames={variantNames}
-          onNotify={flash}
-        />
+        <StockTab warehouses={warehouseOptions} warehouseNames={warehouseNames} onNotify={flash} />
       ) : (
         <WarehousesTab state={warehouses} onReload={loadWarehouses} onNotify={flash} />
       )}
@@ -177,15 +147,11 @@ function InventoryScreen(): ReactNode {
 
 function StockTab({
   warehouses,
-  variants,
   warehouseNames,
-  variantNames,
   onNotify,
 }: {
   warehouses: readonly Option[];
-  variants: readonly Option[];
   warehouseNames: ReadonlyMap<string, string>;
-  variantNames: ReadonlyMap<string, string>;
   onNotify: (text: string) => void;
 }): ReactNode {
   const { t } = useI18n();
@@ -242,16 +208,12 @@ function StockTab({
     setLowOnly(false);
   };
 
-  const columns = useMemo(
-    () => buildStockColumns({ t, warehouseNames, variantNames }),
-    [t, warehouseNames, variantNames],
-  );
+  const columns = useMemo(() => buildStockColumns({ t, warehouseNames }), [t, warehouseNames]);
 
   const renderStockDetail = (level: StockLevel): ReactNode => (
     <StockCard
       level={level}
       warehouseName={warehouseNames.get(level.warehouseId) ?? level.warehouseId}
-      variantName={variantNames.get(level.variantId) ?? level.variantId}
       onSaved={() => void afterWrite(t("inventory.saved"))}
       onFail={() => onNotify(t("inventory.saveFailed"))}
     />
@@ -295,7 +257,6 @@ function StockTab({
         <PermissionGate permission="inventory.manage">
           <AdjustForm
             warehouses={warehouses}
-            variants={variants}
             onDone={afterWrite}
             onFail={() => onNotify(t("inventory.saveFailed"))}
             onCancel={() => setForm(null)}
@@ -307,7 +268,6 @@ function StockTab({
         <PermissionGate permission="inventory.manage">
           <TransferForm
             warehouses={warehouses}
-            variants={variants}
             onDone={afterWrite}
             onFail={() => onNotify(t("inventory.saveFailed"))}
             onCancel={() => setForm(null)}
@@ -348,11 +308,7 @@ function StockTab({
         onOpenChange={(open) => {
           if (!open) setSelectedLevel(null);
         }}
-        title={
-          selectedLevel === null
-            ? ""
-            : (variantNames.get(selectedLevel.variantId) ?? selectedLevel.variantId)
-        }
+        title={selectedLevel === null ? "" : selectedLevel.productName}
         sections={
           selectedLevel === null
             ? []
@@ -373,13 +329,11 @@ function StockTab({
 function StockCard({
   level,
   warehouseName,
-  variantName,
   onSaved,
   onFail,
 }: {
   level: StockLevel;
   warehouseName: string;
-  variantName: string;
   onSaved: () => void;
   onFail: () => void;
 }): ReactNode {
@@ -410,7 +364,11 @@ function StockCard({
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-          <span>{variantName}</span>
+          <ProductThumb imageUrl={level.imageUrl} size="sm" />
+          <span>{level.productName}</span>
+          {level.variantName !== level.productName ? (
+            <span className="text-sm font-normal text-muted-foreground">{level.variantName}</span>
+          ) : null}
           <span className="text-sm font-normal text-muted-foreground">{warehouseName}</span>
           {low ? (
             <span
@@ -473,16 +431,118 @@ function Figure({ label, value }: { label: string; value: number }): ReactNode {
   );
 }
 
+/** What the variant picker knows about the warehouse it is scoped to. */
+type VariantOptionsState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "loading" }
+  | { readonly kind: "error" }
+  | { readonly kind: "ready"; readonly options: Option[] };
+
+/**
+ * The variants that actually sit in one warehouse, for the adjust/transfer
+ * pickers. Both writes are about stock *already in* a location — offering the
+ * whole company's catalog is how the pickers used to list variants that live
+ * somewhere else entirely. Scoping the query to the warehouse also means the
+ * options come back named, in one paginated walk, with no catalog join.
+ *
+ * Assigning a variant to a new warehouse is a separate flow (the products
+ * page's warehouse picker), so nothing is lost by narrowing this.
+ */
+function useWarehouseVariants(warehouseId: string): VariantOptionsState {
+  const [state, setState] = useState<VariantOptionsState>({ kind: "idle" });
+
+  useEffect(() => {
+    if (warehouseId.length === 0) {
+      setState({ kind: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      try {
+        const levels = await listAllStock({ warehouseId, sort: "-updatedAt" });
+        if (cancelled) return;
+        const options = levels
+          .map((level) => ({ id: level.variantId, name: variantLabel(level) }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setState({ kind: "ready", options });
+      } catch {
+        if (!cancelled) setState({ kind: "error" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId]);
+
+  return state;
+}
+
+/**
+ * A stock row's picker label. Single-variant products name the variant after
+ * the product, so the variant half is dropped when it would only repeat.
+ */
+function variantLabel(level: StockLevel): string {
+  const base =
+    level.variantName === level.productName
+      ? level.productName
+      : `${level.productName} — ${level.variantName}`;
+  return level.sku === null || level.sku.length === 0 ? base : `${base} (${level.sku})`;
+}
+
+/**
+ * A variant `<select>` scoped to one warehouse, with the reason it is empty
+ * spelled out rather than rendering a silently blank list.
+ */
+function VariantPicker({
+  id,
+  state,
+  value,
+  onChange,
+}: {
+  id: string;
+  state: VariantOptionsState;
+  value: string;
+  onChange: (value: string) => void;
+}): ReactNode {
+  const { t } = useI18n();
+  const hint =
+    state.kind === "idle"
+      ? t("inventory.variantPicker.selectWarehouse")
+      : state.kind === "loading"
+        ? t("inventory.variantPicker.loading")
+        : state.kind === "error"
+          ? t("inventory.variantPicker.error")
+          : state.options.length === 0
+            ? t("inventory.variantPicker.empty")
+            : null;
+
+  return (
+    <>
+      <OptionSelect
+        id={id}
+        value={value}
+        options={state.kind === "ready" ? state.options : []}
+        onChange={onChange}
+        ariaLabel={t("inventory.field.variant")}
+      />
+      {hint === null ? null : (
+        <span className="text-xs text-muted-foreground" data-testid={`${id}-hint`}>
+          {hint}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** Adjust on-hand stock with a reason code. */
 function AdjustForm({
   warehouses,
-  variants,
   onDone,
   onFail,
   onCancel,
 }: {
   warehouses: readonly Option[];
-  variants: readonly Option[];
   onDone: (message: string) => void | Promise<void>;
   onFail: () => void;
   onCancel: () => void;
@@ -490,6 +550,7 @@ function AdjustForm({
   const { t } = useI18n();
   const [warehouseId, setWarehouseId] = useState("");
   const [variantId, setVariantId] = useState("");
+  const variantOptions = useWarehouseVariants(warehouseId);
   const [delta, setDelta] = useState("");
   const [reason, setReason] = useState<AdjustmentReason>("count");
   const [note, setNote] = useState("");
@@ -529,17 +590,21 @@ function AdjustForm({
               id="adjust-warehouse"
               value={warehouseId}
               options={warehouses}
-              onChange={setWarehouseId}
+              // Changing location invalidates the pick: the old variant may
+              // hold no stock here at all.
+              onChange={(next) => {
+                setWarehouseId(next);
+                setVariantId("");
+              }}
               ariaLabel={t("inventory.field.warehouse")}
             />
           </Field>
           <Field id="adjust-variant" label={t("inventory.field.variant")}>
-            <OptionSelect
+            <VariantPicker
               id="adjust-variant"
+              state={variantOptions}
               value={variantId}
-              options={variants}
               onChange={setVariantId}
-              ariaLabel={t("inventory.field.variant")}
             />
           </Field>
           <Field id="adjust-delta" label={t("inventory.field.quantityDelta")}>
@@ -588,13 +653,11 @@ function AdjustForm({
 /** Move stock between two warehouses. */
 function TransferForm({
   warehouses,
-  variants,
   onDone,
   onFail,
   onCancel,
 }: {
   warehouses: readonly Option[];
-  variants: readonly Option[];
   onDone: (message: string) => void | Promise<void>;
   onFail: () => void;
   onCancel: () => void;
@@ -603,6 +666,8 @@ function TransferForm({
   const [fromWarehouseId, setFrom] = useState("");
   const [toWarehouseId, setTo] = useState("");
   const [variantId, setVariantId] = useState("");
+  // Scoped to the source: you can only move stock that is already there.
+  const variantOptions = useWarehouseVariants(fromWarehouseId);
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -643,7 +708,10 @@ function TransferForm({
               id="transfer-from"
               value={fromWarehouseId}
               options={warehouses}
-              onChange={setFrom}
+              onChange={(next) => {
+                setFrom(next);
+                setVariantId("");
+              }}
               ariaLabel={t("inventory.field.fromWarehouse")}
             />
           </Field>
@@ -657,12 +725,11 @@ function TransferForm({
             />
           </Field>
           <Field id="transfer-variant" label={t("inventory.field.variant")}>
-            <OptionSelect
+            <VariantPicker
               id="transfer-variant"
+              state={variantOptions}
               value={variantId}
-              options={variants}
               onChange={setVariantId}
-              ariaLabel={t("inventory.field.variant")}
             />
           </Field>
           <Field id="transfer-quantity" label={t("inventory.field.quantity")}>

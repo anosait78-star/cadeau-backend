@@ -16,7 +16,7 @@ import {
 } from "@/features/notifications/notifications-api";
 import { listOrders, orderStatusCounts, type OrderListItem } from "@/features/orders/orders-api";
 import { fetchOrdersKpis, sumCounts, type OrdersKpis } from "@/features/orders/orders-kpis";
-import { listProducts, listVariants } from "@/features/products/products-api";
+import { listProducts } from "@/features/products/products-api";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
@@ -41,7 +41,6 @@ interface Counted {
 interface LowStock {
   readonly rows: readonly StockLevel[];
   readonly hasMore: boolean;
-  readonly labelFor: (variantId: string) => string;
 }
 
 /**
@@ -100,37 +99,15 @@ export function DashboardPage(): ReactNode {
     if (!canInventory) return;
     void (async () => {
       try {
+        // Stock rows carry their own product name, so this widget needs no
+        // catalog call — and cannot fall back to uuids when one fails.
         const page = await listStock({ belowReorder: true, sort: "available" });
-        let labelFor = (variantId: string): string => variantId;
-        if (canProducts) {
-          try {
-            const productPage = await listProducts({ active: true });
-            const entries = (
-              await Promise.all(
-                productPage.data.map(async (product) => {
-                  const variants = await listVariants(product.id);
-                  return variants.data.map((v): [string, string] => [
-                    v.id,
-                    `${product.name} — ${v.name}`,
-                  ]);
-                }),
-              )
-            ).flat();
-            const byId = new Map(entries);
-            labelFor = (variantId: string): string => byId.get(variantId) ?? variantId;
-          } catch {
-            // Best-effort naming only — the alert list still works with raw ids.
-          }
-        }
-        setLowStock({
-          kind: "ready",
-          data: { rows: page.data, hasMore: page.page.hasMore, labelFor },
-        });
+        setLowStock({ kind: "ready", data: { rows: page.data, hasMore: page.page.hasMore } });
       } catch {
         setLowStock({ kind: "error" });
       }
     })();
-  }, [canInventory, canProducts]);
+  }, [canInventory]);
 
   useEffect(() => {
     if (!canCustomers) return;
@@ -530,7 +507,7 @@ function LowStockCard({
           {lowStock.data.rows.slice(0, LOW_STOCK_LIMIT).map((row) => (
             <li key={row.id} className="flex items-center justify-between gap-2 py-2 text-sm">
               <Link to="/inventory" className="flex-1 truncate hover:underline">
-                {lowStock.data.labelFor(row.variantId)}
+                {row.productName}
               </Link>
               <StatusBadge
                 tone={row.available <= 0 ? "destructive" : "warning"}

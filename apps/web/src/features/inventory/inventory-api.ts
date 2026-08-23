@@ -13,11 +13,22 @@ export interface Warehouse {
   readonly updatedAt: string;
 }
 
-/** A stock level for one (warehouse, variant) pair. `available` is read-only. */
+/**
+ * A stock level for one (warehouse, variant) pair. `available` is read-only.
+ *
+ * The catalog identity (`productName`, `variantName`, `sku`, `imageUrl`) comes
+ * denormalized from the API, so a stock row renders on its own — no catalog
+ * lookup, and no raw uuids when the catalog outgrows one page.
+ */
 export interface StockLevel {
   readonly id: string;
   readonly warehouseId: string;
   readonly variantId: string;
+  readonly variantName: string;
+  readonly productId: string;
+  readonly productName: string;
+  readonly sku: string | null;
+  readonly imageUrl: string | null;
   readonly onHand: number;
   readonly committed: number;
   readonly available: number;
@@ -74,6 +85,8 @@ export interface WarehouseListOptions {
 /** Query options for the stock list. */
 export interface StockListOptions {
   readonly cursor?: string;
+  /** Page size; the API clamps this to 100. */
+  readonly limit?: number;
   readonly warehouseId?: string;
   readonly variantId?: string;
   /** Only levels at or below their reorder point. */
@@ -167,12 +180,39 @@ export function listStock(options: StockListOptions = {}): Promise<Page<StockLev
   return apiFetch<Page<StockLevel>>(
     `/inventory/stock${buildQuery({
       cursor: options.cursor,
+      limit: options.limit === undefined ? undefined : String(options.limit),
       warehouseId: options.warehouseId,
       variantId: options.variantId,
       belowReorder: options.belowReorder === true ? "true" : undefined,
       sort: options.sort,
     })}`,
   );
+}
+
+/** The API's page-size ceiling; asking for more is clamped down to it. */
+const MAX_PAGE = 100;
+
+/** A defensive stop so a runaway cursor can never loop forever. */
+const MAX_PAGES = 50;
+
+/**
+ * Every stock level matching `options`, walked across keyset pages — the
+ * variant pickers need a warehouse's *complete* set, not the first page of it
+ * (which is what made them offer variants from other warehouses).
+ *
+ * Callers must scope this: it is for one warehouse or one variant, never the
+ * whole company. Stops at {@link MAX_PAGES} pages so a bad cursor cannot spin.
+ */
+export async function listAllStock(options: StockListOptions = {}): Promise<StockLevel[]> {
+  const all: StockLevel[] = [];
+  let cursor = options.cursor;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const result = await listStock({ ...options, limit: MAX_PAGE, ...(cursor ? { cursor } : {}) });
+    all.push(...result.data);
+    if (!result.page.hasMore || result.page.nextCursor === null) break;
+    cursor = result.page.nextCursor;
+  }
+  return all;
 }
 
 /** `PUT /v1/inventory/reorder-points` — set a level's low-stock threshold. */

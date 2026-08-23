@@ -75,6 +75,11 @@ const STOCK_ROW = {
   id: "s1",
   warehouseId: "w1",
   variantId: "v1",
+  variantName: "Red",
+  productId: "p1",
+  productName: "Shirt",
+  sku: "SKU-1",
+  imageUrl: null,
   onHand: 2,
   committed: 0,
   available: 2,
@@ -165,8 +170,8 @@ describe("DashboardPage", () => {
     expect(screen.getByText("#101")).toBeInTheDocument();
     expect(screen.getByText(/Order #101/)).toBeInTheDocument();
 
-    // Low stock alert resolved to a product/variant name
-    expect(await screen.findByText("Shirt — Red")).toBeInTheDocument();
+    // Low stock alert names the product from the stock row itself
+    expect(await screen.findByRole("link", { name: "Shirt" })).toBeInTheDocument();
 
     // Quick actions render as navigable links
     expect(screen.getByRole("link", { name: "New order" })).toHaveAttribute("href", "/orders");

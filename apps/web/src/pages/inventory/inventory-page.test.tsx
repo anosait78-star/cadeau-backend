@@ -79,6 +79,11 @@ const STOCK = {
       id: "s1",
       warehouseId: WAREHOUSE,
       variantId: VARIANT,
+      variantName: "Small",
+      productId: "p1",
+      productName: "Mug",
+      sku: "SKU-1",
+      imageUrl: "https://cdn.example.com/mug.png",
       onHand: 10,
       committed: 2,
       available: 8,
@@ -94,37 +99,8 @@ const LOW_STOCK = {
   page: { limit: 25, nextCursor: null, hasMore: false },
 };
 
-const PRODUCTS = {
-  data: [
-    {
-      id: "p1",
-      name: "Mug",
-      description: null,
-      categoryId: null,
-      unitId: null,
-      active: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-  ],
-  page: { limit: 25, nextCursor: null, hasMore: false },
-};
-
-const VARIANTS = {
-  data: [
-    {
-      id: VARIANT,
-      productId: "p1",
-      name: "Small",
-      sku: "SKU-1",
-      barcode: null,
-      averageCost: 0,
-      active: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-  ],
-};
+/** The label the variant pickers build from a stock row. */
+const VARIANT_LABEL = "Mug — Small (SKU-1)";
 
 describe("InventoryPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -134,8 +110,6 @@ describe("InventoryPage", () => {
     fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      if (url.includes("/products/p1/variants")) return Promise.resolve(json(200, VARIANTS));
-      if (url.includes("/products")) return Promise.resolve(json(200, PRODUCTS));
       if (url.includes("/inventory/stock")) {
         return Promise.resolve(json(200, url.includes("belowReorder") ? LOW_STOCK : STOCK));
       }
@@ -191,17 +165,21 @@ describe("InventoryPage", () => {
     expect(screen.getByText("You do not have access to inventory.")).toBeInTheDocument();
   });
 
-  it("lists stock levels and resolves warehouse and variant names", async () => {
+  it("names stock levels from the row itself, without a catalog call", async () => {
     renderPage();
-    expect(await screen.findByText("Mug — Small")).toBeInTheDocument();
+    expect(await screen.findByText("Mug")).toBeInTheDocument();
+    expect(screen.getByText("Small")).toBeInTheDocument();
     // "Main" appears on the card and in the warehouse filter's options.
     await waitFor(() => expect(screen.getAllByText("Main").length).toBeGreaterThan(1));
     expect(screen.getByText("8")).toBeInTheDocument(); // available
+    // The uuid must never surface, and the catalog is never paged for names.
+    expect(screen.queryByText(VARIANT)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/products"))).toBe(false);
   });
 
   it("hides every write action without the manage permission", async () => {
     renderPage(["inventory"], ["inventory.read"]);
-    await screen.findByText("Mug — Small");
+    await screen.findByText("Mug");
     expect(screen.queryByRole("button", { name: "Adjust stock" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Transfer stock" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set reorder point" })).not.toBeInTheDocument();
@@ -209,7 +187,7 @@ describe("InventoryPage", () => {
 
   it("flags a level that is at or below its reorder point", async () => {
     renderPage();
-    await screen.findByText("Mug — Small");
+    await screen.findByText("Mug");
     await userEvent.click(screen.getByLabelText("Low stock only"));
     expect(await screen.findByTestId("low-badge")).toBeInTheDocument();
     await waitFor(() => {
@@ -219,14 +197,53 @@ describe("InventoryPage", () => {
     });
   });
 
+  it("offers no variants until a warehouse is chosen, then scopes them to it", async () => {
+    renderPage();
+    await screen.findByText("Mug");
+    await userEvent.click(screen.getByRole("button", { name: "Adjust stock" }));
+
+    // Nothing to choose from, and the picker says why rather than sitting blank.
+    expect(screen.getByLabelText("Variant")).not.toHaveValue(VARIANT);
+    expect(screen.getByTestId("adjust-variant-hint")).toHaveTextContent("Choose a warehouse first");
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Warehouse", { selector: "#adjust-warehouse" }),
+      WAREHOUSE,
+    );
+    expect(await screen.findByRole("option", { name: VARIANT_LABEL })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((c) => {
+          const url = String(c[0]);
+          return url.includes("/inventory/stock") && url.includes(`warehouseId=${WAREHOUSE}`);
+        }),
+      ).toBe(true);
+    });
+  });
+
+  it("clears a chosen variant when the warehouse changes under it", async () => {
+    renderPage();
+    await screen.findByText("Mug");
+    await userEvent.click(screen.getByRole("button", { name: "Adjust stock" }));
+    const warehouse = screen.getByLabelText("Warehouse", { selector: "#adjust-warehouse" });
+    await userEvent.selectOptions(warehouse, WAREHOUSE);
+    await screen.findByRole("option", { name: VARIANT_LABEL });
+    await userEvent.selectOptions(screen.getByLabelText("Variant"), VARIANT);
+    expect(screen.getByLabelText("Variant")).toHaveValue(VARIANT);
+
+    await userEvent.selectOptions(warehouse, OTHER);
+    expect(screen.getByLabelText("Variant")).not.toHaveValue(VARIANT);
+  });
+
   it("adjusts stock with a reason", async () => {
     renderPage();
-    await screen.findByText("Mug — Small");
+    await screen.findByText("Mug");
     await userEvent.click(screen.getByRole("button", { name: "Adjust stock" }));
     await userEvent.selectOptions(
       screen.getByLabelText("Warehouse", { selector: "#adjust-warehouse" }),
       WAREHOUSE,
     );
+    await screen.findByRole("option", { name: VARIANT_LABEL });
     await userEvent.selectOptions(screen.getByLabelText("Variant"), VARIANT);
     await userEvent.type(screen.getByLabelText("Change (+/−)"), "-3");
     await userEvent.selectOptions(screen.getByLabelText("Reason"), "damage");
@@ -247,20 +264,35 @@ describe("InventoryPage", () => {
 
   it("refuses a transfer between the same two warehouses", async () => {
     renderPage();
-    await screen.findByText("Mug — Small");
+    await screen.findByText("Mug");
     await userEvent.click(screen.getByRole("button", { name: "Transfer stock" }));
     await userEvent.selectOptions(screen.getByLabelText("From warehouse"), WAREHOUSE);
+    await screen.findByRole("option", { name: VARIANT_LABEL });
     await userEvent.selectOptions(screen.getByLabelText("To warehouse"), WAREHOUSE);
     await userEvent.selectOptions(screen.getByLabelText("Variant"), VARIANT);
     await userEvent.type(screen.getByLabelText("Quantity"), "3");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
+  it("scopes the transfer's variants to the source warehouse", async () => {
+    renderPage();
+    await screen.findByText("Mug");
+    await userEvent.click(screen.getByRole("button", { name: "Transfer stock" }));
+    // The destination alone must not populate the picker — only the source holds stock.
+    await userEvent.selectOptions(screen.getByLabelText("To warehouse"), OTHER);
+    expect(screen.getByTestId("transfer-variant-hint")).toHaveTextContent(
+      "Choose a warehouse first",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("From warehouse"), WAREHOUSE);
+    expect(await screen.findByRole("option", { name: VARIANT_LABEL })).toBeInTheDocument();
+  });
+
   it("transfers stock between two warehouses", async () => {
     renderPage();
-    await screen.findByText("Mug — Small");
+    await screen.findByText("Mug");
     await userEvent.click(screen.getByRole("button", { name: "Transfer stock" }));
     await userEvent.selectOptions(screen.getByLabelText("From warehouse"), WAREHOUSE);
+    await screen.findByRole("option", { name: VARIANT_LABEL });
     await userEvent.selectOptions(screen.getByLabelText("To warehouse"), OTHER);
     await userEvent.selectOptions(screen.getByLabelText("Variant"), VARIANT);
     await userEvent.type(screen.getByLabelText("Quantity"), "3");
@@ -277,7 +309,7 @@ describe("InventoryPage", () => {
 
   it("sets a reorder point on a level", async () => {
     renderPage();
-    await screen.findByText("Mug — Small");
+    await screen.findByText("Mug");
     await userEvent.click(screen.getByRole("button", { name: "Set reorder point" }));
     const input = screen.getByLabelText("Reorder point");
     await userEvent.clear(input);

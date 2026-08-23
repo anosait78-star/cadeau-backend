@@ -8,6 +8,11 @@ const STOCK: StockLevel = {
   id: "st1",
   warehouseId: "w1",
   variantId: "v1",
+  variantName: "Blue / M",
+  productId: "p1",
+  productName: "Satin bouquet",
+  sku: "SKU-1",
+  imageUrl: "https://cdn.example.com/a.png",
   onHand: 100,
   committed: 20,
   available: 80,
@@ -19,8 +24,7 @@ const t = (key: TranslationKey): string => key;
 
 describe("buildStockColumns", () => {
   const warehouseNames = new Map<string, string>([["w1", "Main WH"]]);
-  const variantNames = new Map<string, string>([["v1", "Blue / M"]]);
-  const columns = buildStockColumns({ t, warehouseNames, variantNames });
+  const columns = buildStockColumns({ t, warehouseNames });
 
   it("renders every column without throwing", () => {
     for (const column of columns) {
@@ -28,14 +32,39 @@ describe("buildStockColumns", () => {
     }
   });
 
-  it("resolves the variant and warehouse names, falling back to the id when unknown", () => {
-    const variant = columns.find((c) => c.key === "variant");
+  it("names the product from the row itself, never a uuid", () => {
+    const product = columns.find((c) => c.key === "product");
+    render(<div>{product?.render(STOCK)}</div>);
+    expect(screen.getByText("Satin bouquet")).toBeInTheDocument();
+    expect(screen.queryByText("v1")).not.toBeInTheDocument();
+  });
+
+  it("shows the variant and sku as secondary detail", () => {
+    const product = columns.find((c) => c.key === "product");
+    render(<div>{product?.render(STOCK)}</div>);
+    expect(screen.getByText("Blue / M · SKU-1")).toBeInTheDocument();
+  });
+
+  it("drops the variant name when it only repeats the product name", () => {
+    const product = columns.find((c) => c.key === "product");
+    render(<div>{product?.render({ ...STOCK, variantName: "Satin bouquet", sku: null })}</div>);
+    expect(screen.getByText("Satin bouquet")).toBeInTheDocument();
+    expect(screen.queryByText("Satin bouquet · Satin bouquet")).not.toBeInTheDocument();
+  });
+
+  it("renders the product image, and a placeholder when there is none", () => {
+    const image = columns.find((c) => c.key === "image");
+    const { container } = render(<div>{image?.render(STOCK)}</div>);
+    expect(container.querySelector("img")).toHaveAttribute("src", "https://cdn.example.com/a.png");
+    render(<div>{image?.render({ ...STOCK, imageUrl: null })}</div>);
+    expect(screen.getByTestId("product-thumb-placeholder")).toBeInTheDocument();
+  });
+
+  it("resolves the warehouse name, falling back to the id when unknown", () => {
     const warehouse = columns.find((c) => c.key === "warehouse");
-    render(<div>{variant?.render(STOCK)}</div>);
-    expect(screen.getByText("Blue / M")).toBeInTheDocument();
     render(<div>{warehouse?.render(STOCK)}</div>);
     expect(screen.getByText("Main WH")).toBeInTheDocument();
-    render(<div>{variant?.render({ ...STOCK, variantId: "unknown" })}</div>);
+    render(<div>{warehouse?.render({ ...STOCK, warehouseId: "unknown" })}</div>);
     expect(screen.getByText("unknown")).toBeInTheDocument();
   });
 
