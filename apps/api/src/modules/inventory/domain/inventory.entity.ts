@@ -19,11 +19,29 @@ export interface WarehouseView {
   readonly updatedAt: string;
 }
 
-/** A stock level for one (warehouse, variant) pair. */
+/**
+ * A stock level for one (warehouse, variant) pair.
+ *
+ * The variant's catalog identity (`productName`, `variantName`, `sku`,
+ * `imageUrl`) is denormalized onto every row on purpose. A stock row is
+ * meaningless to a human without it, and resolving it client-side means
+ * paging the whole catalog just to label one page of stock — which silently
+ * degrades to raw uuids as soon as the catalog outgrows a single page.
+ * Reading it here costs one join the database already indexes.
+ */
 export interface StockLevelView {
   readonly id: string;
   readonly warehouseId: string;
   readonly variantId: string;
+  /** The variant's own name (e.g. a size or colour). */
+  readonly variantName: string;
+  /** The variant's parent product. */
+  readonly productId: string;
+  readonly productName: string;
+  /** The variant's stock-keeping unit, when it has one. */
+  readonly sku: string | null;
+  /** The parent product's display image; hosted elsewhere, never file bytes. */
+  readonly imageUrl: string | null;
   /** Physical stock on the shelf. */
   readonly onHand: number;
   /** Reserved but not yet shipped. */

@@ -13,11 +13,19 @@ transfers, reason-coded adjustments, and numbered low-stock alerts. Stock is
 - `Warehouse` — a stock location. Tenant-editable, archived via `active`. `code`
   is optional but unique per company; at most one warehouse per company carries
   `isDefault`.
-- `InventoryStock` — `{ id, warehouseId, variantId, onHand, committed, available,
-reorderPoint, updatedAt }`. One row per (warehouse, variant); created on
+- `InventoryStock` — `{ id, warehouseId, variantId, variantName, productId,
+productName, sku, imageUrl, onHand, committed, available, reorderPoint,
+updatedAt }`. One row per (warehouse, variant); created on
   first use. **`available` is derived** (`onHand - committed`) and maintained by
   the `app.sync_stock_available()` trigger, so it can be filtered, sorted, and
   indexed — it is never client-writable.
+  **The catalog fields (`variantName`, `productId`, `productName`, `sku`,
+  `imageUrl`) are denormalized onto every stock row** and are read-only here;
+  they change only through the products API. They ride along because a stock
+  row is unreadable without them, and resolving them client-side means paging
+  the whole catalog to label one page of stock — which degrades to raw uuids
+  the moment the catalog outgrows a single page. Clients must render these
+  fields rather than joining `/v1/products` themselves.
 - `StockReservation` — an outstanding commitment (`active` → `released`).
 - `StockTransfer` — an atomic move between warehouses (a durable log).
 - `StockAdjustment` — a counted correction (reason-coded, a durable log).

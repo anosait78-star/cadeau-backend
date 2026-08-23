@@ -16,6 +16,7 @@ import { WarehousesController } from "./warehouses.controller";
 const WAREHOUSE = "33333333-3333-3333-3333-333333333333";
 const OTHER = "44444444-4444-4444-4444-444444444444";
 const VARIANT = "55555555-5555-5555-5555-555555555555";
+const PRODUCT = "66666666-6666-6666-6666-666666666666";
 
 const principal: RequestPrincipal = {
   userId: "22222222-2222-2222-2222-222222222222",
@@ -41,6 +42,11 @@ function level(): StockLevelView {
     id: "s1",
     warehouseId: WAREHOUSE,
     variantId: VARIANT,
+    variantName: "Red / L",
+    productId: PRODUCT,
+    productName: "Satin bouquet",
+    sku: "SKU-1",
+    imageUrl: "https://cdn.example.com/a.png",
     onHand: 10,
     committed: 2,
     available: 8,

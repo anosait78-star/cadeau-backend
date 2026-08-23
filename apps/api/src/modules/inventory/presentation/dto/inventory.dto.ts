@@ -290,6 +290,25 @@ export class StockLevelDto {
   @ApiProperty({ format: "uuid" })
   variantId!: string;
 
+  @ApiProperty({ example: "أحمر / مقاس L", description: "The variant's own name." })
+  variantName!: string;
+
+  @ApiProperty({ format: "uuid", description: "The variant's parent product." })
+  productId!: string;
+
+  @ApiProperty({ example: "بوكيه ورد الستان" })
+  productName!: string;
+
+  @ApiProperty({ nullable: true, example: "SKU-1042" })
+  sku!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    format: "uri",
+    description: "The parent product's display image; hosted elsewhere.",
+  })
+  imageUrl!: string | null;
+
   @ApiProperty({ example: 40 })
   onHand!: number;
 
@@ -310,6 +329,11 @@ export class StockLevelDto {
     dto.id = view.id;
     dto.warehouseId = view.warehouseId;
     dto.variantId = view.variantId;
+    dto.variantName = view.variantName;
+    dto.productId = view.productId;
+    dto.productName = view.productName;
+    dto.sku = view.sku;
+    dto.imageUrl = view.imageUrl;
     dto.onHand = view.onHand;
     dto.committed = view.committed;
     dto.available = view.available;

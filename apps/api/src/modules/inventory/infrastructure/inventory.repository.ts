@@ -74,6 +74,12 @@ const WAREHOUSE_SELECT = {
   updatedAt: true,
 } as const;
 
+/**
+ * Every stock read carries the variant's catalog identity with it (see
+ * {@link StockLevelView}). The nested select stays narrow — name, sku, and the
+ * parent product's name/image — so the join never drags a full product row
+ * into a list query.
+ */
 const STOCK_SELECT = {
   id: true,
   warehouseId: true,
@@ -83,6 +89,13 @@ const STOCK_SELECT = {
   available: true,
   reorderPoint: true,
   updatedAt: true,
+  variant: {
+    select: {
+      name: true,
+      sku: true,
+      product: { select: { id: true, name: true, imageUrl: true } },
+    },
+  },
 } as const;
 
 const RESERVATION_SELECT = {
@@ -879,11 +892,21 @@ export class InventoryRepository implements InventoryRepositoryPort {
     available: bigint;
     reorderPoint: bigint;
     updatedAt: Date;
+    variant: {
+      name: string;
+      sku: string | null;
+      product: { id: string; name: string; imageUrl: string | null };
+    };
   }): StockLevelView {
     return {
       id: row.id,
       warehouseId: row.warehouseId,
       variantId: row.variantId,
+      variantName: row.variant.name,
+      productId: row.variant.product.id,
+      productName: row.variant.product.name,
+      sku: row.variant.sku,
+      imageUrl: row.variant.product.imageUrl,
       onHand: Number(row.onHand),
       committed: Number(row.committed),
       available: Number(row.available),

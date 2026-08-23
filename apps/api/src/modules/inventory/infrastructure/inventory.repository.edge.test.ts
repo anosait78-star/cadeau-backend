@@ -13,6 +13,8 @@ const ACTOR = "22222222-2222-2222-2222-222222222222";
 const WAREHOUSE = "33333333-3333-3333-3333-333333333333";
 const OTHER = "44444444-4444-4444-4444-444444444444";
 const VARIANT = "55555555-5555-5555-5555-555555555555";
+const PRODUCT = "66666666-6666-6666-6666-666666666666";
+const IMAGE = "https://cdn.example.com/a.png";
 const ACTOR_CTX = { companyId: COMPANY, actorId: ACTOR };
 const CREATED = new Date("2026-01-02T03:04:05.000Z");
 const UPDATED = new Date("2026-01-03T03:04:05.000Z");
@@ -41,6 +43,11 @@ function stockRow(extra: Record<string, unknown> = {}) {
     available: 8n,
     reorderPoint: 0n,
     updatedAt: UPDATED,
+    variant: {
+      name: "Red / L",
+      sku: "SKU-1",
+      product: { id: PRODUCT, name: "Satin bouquet", imageUrl: IMAGE },
+    },
     ...extra,
   };
 }

@@ -13,6 +13,8 @@ const ACTOR = "22222222-2222-2222-2222-222222222222";
 const WAREHOUSE = "33333333-3333-3333-3333-333333333333";
 const OTHER = "44444444-4444-4444-4444-444444444444";
 const VARIANT = "55555555-5555-5555-5555-555555555555";
+const PRODUCT = "66666666-6666-6666-6666-666666666666";
+const IMAGE = "https://cdn.example.com/a.png";
 const ACTOR_CTX = { companyId: COMPANY, actorId: ACTOR };
 const CREATED = new Date("2026-01-02T03:04:05.000Z");
 const UPDATED = new Date("2026-01-03T03:04:05.000Z");
@@ -41,6 +43,11 @@ function stockRow(extra: Record<string, unknown> = {}) {
     available: 8n,
     reorderPoint: 0n,
     updatedAt: UPDATED,
+    variant: {
+      name: "Red / L",
+      sku: "SKU-1",
+      product: { id: PRODUCT, name: "Satin bouquet", imageUrl: IMAGE },
+    },
     ...extra,
   };
 }
@@ -317,11 +324,38 @@ describe("InventoryRepository — stock levels", () => {
       id: "s1",
       warehouseId: WAREHOUSE,
       variantId: VARIANT,
+      variantName: "Red / L",
+      productId: PRODUCT,
+      productName: "Satin bouquet",
+      sku: "SKU-1",
+      imageUrl: IMAGE,
       onHand: 10,
       committed: 2,
       available: 8,
       reorderPoint: 5,
       updatedAt: UPDATED.toISOString(),
+    });
+  });
+
+  it("reads the variant's catalog identity in the same query, not a second one", async () => {
+    const { repo, models } = makeRepo();
+    models.inventoryStock.findMany.mockResolvedValue([stockRow()]);
+    await repo.listStock(COMPANY, {
+      sort: { field: "updatedAt", dir: "desc" },
+      belowReorder: false,
+    });
+    const args = models.inventoryStock.findMany.mock.calls[0]?.[0] as {
+      select: {
+        variant?: {
+          select: { name: boolean; sku: boolean; product: { select: Record<string, boolean> } };
+        };
+      };
+    };
+    expect(args.select.variant?.select).toMatchObject({ name: true, sku: true });
+    expect(args.select.variant?.select.product.select).toMatchObject({
+      id: true,
+      name: true,
+      imageUrl: true,
     });
   });
 
