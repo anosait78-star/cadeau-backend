@@ -7,9 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PermissionGate } from "@/components/access/permission-gate";
 import { StatusBadge } from "@/components/status-badge/status-badge";
+import { ProgressRing } from "@/components/ui/progress-ring";
+import { StatusStepper } from "@/components/ui/status-stepper";
+import { CheckCircle2 } from "lucide-react";
 import { getCustomer } from "@/features/customers/customers-api";
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
-import type { VendorGroupStatus } from "@/features/vendor/vendor-api";
+import { VENDOR_GROUP_STATUSES, type VendorGroupStatus } from "@/features/vendor/vendor-api";
 import {
   assignOrder,
   getOrder,
@@ -284,6 +287,116 @@ function ItemsSection({ detail, locale }: { detail: OrderDetail; locale: string 
   );
 }
 
+/** Local widening of `t` for the vendor-tracking subtree, which needs `{{vars}}` interpolation. */
+type Translate = (key: TranslationKey, vars?: Record<string, string | number>) => string;
+
+/** "All vendors delivered" banner, shown only once every vendor group has reached the last stage. */
+function VendorTrackingAllDeliveredBanner({ t }: { t: Translate }): ReactNode {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-4 text-center">
+      <CheckCircle2 className="h-9 w-9 text-success" aria-hidden />
+      <p className="font-semibold text-success">
+        {t("orders.detail.vendorTracking.allDelivered.title")}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        {t("orders.detail.vendorTracking.allDelivered.description")}
+      </p>
+    </div>
+  );
+}
+
+/** Order-wide "N of M vendors delivered" card with a progress ring, plus the overall status badge. */
+function VendorTrackingOverallCard({
+  deliveredCount,
+  total,
+  aggregateStatus,
+  t,
+}: {
+  deliveredCount: number;
+  total: number;
+  aggregateStatus: VendorGroupStatus;
+  t: Translate;
+}): ReactNode {
+  const progress = total > 0 ? (deliveredCount / total) * 100 : 0;
+  return (
+    <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/40 p-4">
+      <ProgressRing value={progress} size={72} strokeWidth={7}>
+        <span className="text-sm font-semibold">{Math.round(progress)}%</span>
+      </ProgressRing>
+      <div className="flex flex-1 flex-col gap-1.5">
+        <p className="text-sm font-medium">
+          {t("orders.detail.vendorTracking.progress", { delivered: deliveredCount, total })}
+        </p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{t("orders.detail.vendorTracking.overallStatus")}</span>
+          <StatusBadge
+            testId="vendor-overall-status"
+            tone={VENDOR_GROUP_STATUS_TONE[aggregateStatus]}
+            label={t(`vendor.group.status.${aggregateStatus}` as TranslationKey)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One vendor's card: identity, current status, and its 4-stage progress stepper. */
+function VendorGroupCard({
+  group,
+  locale,
+  t,
+}: {
+  group: OrderVendorGroup;
+  locale: string;
+  t: Translate;
+}): ReactNode {
+  const currentIndex = VENDOR_GROUP_STATUSES.indexOf(group.status as VendorGroupStatus);
+  const steps = VENDOR_GROUP_STATUSES.map((status) => ({
+    key: status,
+    label: t(`vendor.group.status.${status}` as TranslationKey),
+  }));
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-col">
+          <span className="font-medium">{group.warehouseName}</span>
+          <span className="text-xs text-muted-foreground">
+            {group.vendorName ?? t("orders.detail.vendorTracking.noVendor")}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+            {t("orders.detail.vendorTracking.itemsCount", { count: group.items.length })}
+          </span>
+          <StatusBadge
+            testId={`vendor-group-status-${group.id}`}
+            tone={VENDOR_GROUP_STATUS_TONE[group.status as VendorGroupStatus] ?? "neutral"}
+            label={t(`vendor.group.status.${group.status}` as TranslationKey)}
+          />
+        </div>
+      </div>
+
+      <StatusStepper steps={steps} currentIndex={currentIndex} />
+
+      <div className="flex justify-end text-xs text-muted-foreground" dir="ltr">
+        {t("orders.detail.vendorTracking.updatedAt")} {formatDateTime(group.updatedAt, locale)}
+      </div>
+
+      <ul className="flex flex-col gap-1 border-t border-border pt-2">
+        {group.items.map((item) => (
+          <li key={item.id} className="flex justify-between gap-2">
+            <span>
+              {item.nameSnapshot} × {item.quantity}
+            </span>
+            <span dir="ltr">{formatMoney(item.price * item.quantity, locale)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /**
  * "تتبع الطلب" (Vendor Accounts, Phase 4): per-vendor breakdown of a
  * multi-vendor order, read from the same endpoint the vendor's own status
@@ -300,47 +413,29 @@ function VendorTrackingSection({
   groups: OrderVendorGroup[];
   aggregateStatus: VendorGroupStatus | null;
   locale: string;
-  t: (k: TranslationKey) => string;
+  t: Translate;
 }): ReactNode {
+  const deliveredCount = groups.filter((g) => g.status === "delivered").length;
+
   return (
     <div className="flex flex-col gap-3">
       {aggregateStatus !== null ? (
-        <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
-          <span className="font-medium">{t("orders.detail.vendorTracking.overallStatus")}</span>
-          <StatusBadge
-            tone={VENDOR_GROUP_STATUS_TONE[aggregateStatus]}
-            label={t(`vendor.group.status.${aggregateStatus}` as TranslationKey)}
+        aggregateStatus === "delivered" ? (
+          <VendorTrackingAllDeliveredBanner t={t} />
+        ) : (
+          <VendorTrackingOverallCard
+            deliveredCount={deliveredCount}
+            total={groups.length}
+            aggregateStatus={aggregateStatus}
+            t={t}
           />
-        </div>
+        )
       ) : null}
-      {groups.map((group) => (
-        <div key={group.id} className="rounded-md border border-border p-3 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium">{group.warehouseName}</span>
-            <StatusBadge
-              tone={VENDOR_GROUP_STATUS_TONE[group.status as VendorGroupStatus] ?? "neutral"}
-              label={t(`vendor.group.status.${group.status}` as TranslationKey)}
-            />
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>{group.vendorName ?? t("orders.detail.vendorTracking.noVendor")}</span>
-            <span dir="ltr">
-              {t("orders.detail.vendorTracking.updatedAt")}{" "}
-              {formatDateTime(group.updatedAt, locale)}
-            </span>
-          </div>
-          <ul className="mt-2 flex flex-col gap-1">
-            {group.items.map((item) => (
-              <li key={item.id} className="flex justify-between gap-2">
-                <span>
-                  {item.nameSnapshot} × {item.quantity}
-                </span>
-                <span dir="ltr">{formatMoney(item.price * item.quantity, locale)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+      <div className="flex flex-col gap-3">
+        {groups.map((group) => (
+          <VendorGroupCard key={group.id} group={group} locale={locale} t={t} />
+        ))}
+      </div>
     </div>
   );
 }

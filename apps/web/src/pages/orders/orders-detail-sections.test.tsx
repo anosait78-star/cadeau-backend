@@ -271,9 +271,17 @@ describe("buildOrderDetailSections", () => {
     expect(screen.getByText("Vendor A")).toBeInTheDocument();
     expect(screen.getByText("Store B")).toBeInTheDocument();
     expect(screen.getByText("orders.detail.vendorTracking.noVendor")).toBeInTheDocument();
-    // Two "new" badges now: the per-group one for Store B and the overall one.
-    expect(screen.getAllByText("vendor.group.status.new")).toHaveLength(2);
-    expect(screen.getByText("vendor.group.status.delivered")).toBeInTheDocument();
+    // The overall badge reflects the bottleneck ("new", Store B), independent
+    // of each vendor's own current-status badge.
+    expect(screen.getByTestId("vendor-overall-status")).toHaveTextContent(
+      "vendor.group.status.new",
+    );
+    expect(screen.getByTestId("vendor-group-status-g1")).toHaveTextContent(
+      "vendor.group.status.delivered",
+    );
+    expect(screen.getByTestId("vendor-group-status-g2")).toHaveTextContent(
+      "vendor.group.status.new",
+    );
   });
 
   it("omits the overall-status summary when there is no aggregate (defensive)", () => {

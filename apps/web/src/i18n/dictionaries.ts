@@ -665,6 +665,11 @@ export const en = {
   "orders.detail.vendorTracking.noVendor": "No vendor has joined this warehouse yet",
   "orders.detail.vendorTracking.updatedAt": "Updated",
   "orders.detail.vendorTracking.overallStatus": "Overall status",
+  "orders.detail.vendorTracking.progress": "{{delivered}} of {{total}} vendors delivered",
+  "orders.detail.vendorTracking.itemsCount": "{{count}} item(s)",
+  "orders.detail.vendorTracking.allDelivered.title": "All vendors delivered",
+  "orders.detail.vendorTracking.allDelivered.description":
+    "Every product is ready for the customer to receive from all vendors",
   "orders.detail.loadingPhone": "Loading phone…",
   "orders.detail.call": "Call",
   "orders.detail.whatsapp": "WhatsApp",
@@ -1752,6 +1757,11 @@ export const ar: Record<TranslationKey, string> = {
   "orders.detail.vendorTracking.noVendor": "لم ينضم أي تاجر لهذا المستودع بعد",
   "orders.detail.vendorTracking.updatedAt": "آخر تحديث",
   "orders.detail.vendorTracking.overallStatus": "الحالة العامة",
+  "orders.detail.vendorTracking.progress": "{{delivered}} من {{total}} تجار تم التسليم",
+  "orders.detail.vendorTracking.itemsCount": "{{count}} منتج",
+  "orders.detail.vendorTracking.allDelivered.title": "كل التجار تم التسليم",
+  "orders.detail.vendorTracking.allDelivered.description":
+    "كل المنتجات أصبحت جاهزة للاستلام من جميع التجار",
   "orders.detail.loadingPhone": "جاري تحميل رقم الهاتف…",
   "orders.detail.call": "اتصال",
   "orders.detail.whatsapp": "واتساب",
