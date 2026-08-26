@@ -243,10 +243,11 @@ describe("BostaCarrierAdapter.createShipment", () => {
     const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     const body = JSON.parse(init.body as string);
     expect(body.dropOffAddress).toMatchObject({ city: "Nasr City", districtId: "districtId2" });
-    expect(body.notes).toBe("Goods value: 123.45 — Ring the bell twice");
+    expect(body.notes).toBe("Ring the bell twice");
+    expect(body.goodsInfo).toMatchObject({ amount: 123.45 });
   });
 
-  it("overrides the receiver name/phone2/allowToOpenPackage when given, defaulting to the customer's own name otherwise", async () => {
+  it("overrides the receiver name/secondPhone/allowToOpenPackage when given, defaulting to the customer's own name otherwise", async () => {
     const { adapter } = makeAdapter();
     fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "5108002" } }));
 
@@ -265,7 +266,7 @@ describe("BostaCarrierAdapter.createShipment", () => {
       firstName: "Naruto",
       lastName: "Uzumaki",
       phone: "01065685435",
-      phone2: "01099998888",
+      secondPhone: "01099998888",
     });
     expect(body.allowToOpenPackage).toBe(true);
   });
@@ -279,7 +280,7 @@ describe("BostaCarrierAdapter.createShipment", () => {
     const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     const body = JSON.parse(init.body as string);
     expect(body.receiver).toMatchObject({ firstName: "Sasuke", lastName: "Uchiha" });
-    expect(body.receiver.phone2).toBeUndefined();
+    expect(body.receiver.secondPhone).toBeUndefined();
     expect(body.allowToOpenPackage).toBeUndefined();
   });
 

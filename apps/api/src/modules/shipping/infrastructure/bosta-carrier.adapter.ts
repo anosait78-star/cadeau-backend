@@ -157,15 +157,8 @@ export class BostaCarrierAdapter implements CarrierPort {
       input.recipientFirstName?.trim() || (derivedFirstName ?? customer.name);
     const receiverLastName = input.recipientLastName?.trim() || derivedRest.join(" ");
 
-    // Best-effort passthrough to Bosta's own "notes" field (not persisted on
-    // our side, not confirmed against Bosta's exact payload shape beyond
-    // their public docs) — folds the optional declared goods value in too,
-    // since our schema has no dedicated column for it.
-    const noteParts = [
-      input.goodsValue !== undefined ? `Goods value: ${(input.goodsValue / 100).toFixed(2)}` : null,
-      input.notes !== undefined && input.notes.trim().length > 0 ? input.notes.trim() : null,
-    ].filter((part): part is string => part !== null);
-    const notes = noteParts.length > 0 ? noteParts.join(" — ") : undefined;
+    const notes =
+      input.notes !== undefined && input.notes.trim().length > 0 ? input.notes.trim() : undefined;
 
     const client = new BostaHttpClient(this.config.shipping.bostaBaseUrl);
     const response = await client.request<BostaDeliveryResponse>(
@@ -176,8 +169,9 @@ export class BostaCarrierAdapter implements CarrierPort {
         type: DELIVERY_TYPE,
         cod: codMinor / 100,
         ...(notes !== undefined ? { notes } : {}),
-        // Best-effort field name (not confirmed against a live Bosta
-        // sandbox) — lets the receiver open the package before accepting it.
+        ...(input.goodsValue !== undefined
+          ? { goodsInfo: { amount: input.goodsValue / 100 } }
+          : {}),
         ...(input.allowToOpenPackage !== undefined
           ? { allowToOpenPackage: input.allowToOpenPackage }
           : {}),
@@ -193,10 +187,8 @@ export class BostaCarrierAdapter implements CarrierPort {
           firstName: receiverFirstName,
           ...(receiverLastName.length > 0 ? { lastName: receiverLastName } : {}),
           phone,
-          // Best-effort field name (not confirmed against a live Bosta
-          // sandbox) for a second contact number.
           ...(input.recipientPhone2 !== undefined && input.recipientPhone2.trim().length > 0
-            ? { phone2: input.recipientPhone2.trim() }
+            ? { secondPhone: input.recipientPhone2.trim() }
             : {}),
         },
       },
