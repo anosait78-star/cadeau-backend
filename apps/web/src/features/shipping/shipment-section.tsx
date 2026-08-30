@@ -1,3 +1,4 @@
+import { Truck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
@@ -155,8 +156,10 @@ export function ShipmentSection({
 
   return (
     <FeatureGate feature="shipping">
-      <div className="flex flex-col gap-2 border-t pt-3">
-        <h3 className="text-sm font-medium">{t("shipping.section.title")}</h3>
+      <div className="flex flex-col gap-3">
+        <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+          {t("shipping.section.title")}
+        </h3>
 
         {state.kind === "loading" ? <LoadingState className="p-4" /> : null}
         {state.kind === "error" ? <ErrorState onRetry={() => void load()} className="p-4" /> : null}
@@ -166,7 +169,13 @@ export function ShipmentSection({
             cancelling doesn't strand the order with no way to re-ship. */}
         {(state.kind === "none" || (state.kind === "ready" && isTerminalShipment)) &&
         isShippable ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-4 py-6 text-center">
+            <span
+              aria-hidden
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-muted text-muted-foreground"
+            >
+              <Truck className="h-5 w-5" />
+            </span>
             <p className="text-sm text-muted-foreground">
               {state.kind === "none" ? t("shipping.none") : t("shipping.lastCancelled")}
             </p>
@@ -179,7 +188,7 @@ export function ShipmentSection({
         ) : null}
 
         {state.kind === "none" && !isShippable ? (
-          <div className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="flex flex-col gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             <p>
               {t("shipping.orderNotReady", {
                 status: t(`orders.status.${orderStatus}` as TranslationKey),
@@ -258,8 +267,8 @@ function ShipmentDetail({
   const isDeadEnd = shipment.status === "cancelled" || shipment.status === "returned";
 
   return (
-    <div className="flex flex-col gap-2">
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
+    <div className="flex flex-col gap-3">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-border p-3 text-sm sm:grid-cols-4">
         <Field label={t("shipping.field.carrier")}>{shipment.carrier}</Field>
         <Field label={t("shipping.field.tracking")}>
           <span dir="ltr">{shipment.trackingNumber}</span>
@@ -317,9 +326,11 @@ function ShipmentDetail({
 
 function Field({ label, children }: { label: string; children: ReactNode }): ReactNode {
   return (
-    <div className="flex flex-col">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd>{children}</dd>
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="truncate font-medium tabular-nums">{children}</dd>
     </div>
   );
 }

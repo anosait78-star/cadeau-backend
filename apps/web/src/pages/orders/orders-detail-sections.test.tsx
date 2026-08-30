@@ -143,7 +143,7 @@ describe("buildOrderDetailSections", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("builds all 10 sections", () => {
+  it("builds all 8 sections, with the customer folded into the summary", () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,
       activity: [],
@@ -156,14 +156,12 @@ describe("buildOrderDetailSections", () => {
     });
     expect(sections.map((s) => s.key)).toEqual([
       "summary",
-      "assignee",
-      "customer",
       "items",
+      "assignee",
       "shipping",
       "review",
       "payments",
       "activities",
-      "timeline",
       "notes",
     ]);
   });
@@ -184,7 +182,7 @@ describe("buildOrderDetailSections", () => {
     expect(screen.getByText("Handle with care")).toBeInTheDocument();
   });
 
-  it("customer section lazily reveals the real phone once fetched", async () => {
+  it("summary lazily reveals the real phone once fetched, with both contact actions", async () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,
       activity: [],
@@ -195,10 +193,60 @@ describe("buildOrderDetailSections", () => {
       onNotify: () => {},
       onPatch: () => {},
     });
-    const customer = sections.find((s) => s.key === "customer");
-    render(<div>{customer?.content}</div>);
+    const summary = sections.find((s) => s.key === "summary");
+    render(<div>{summary?.content}</div>);
     expect(screen.getByText("orders.detail.loadingPhone")).toBeInTheDocument();
     expect(await screen.findByText("+201001234567")).toBeInTheDocument();
+    // The call/WhatsApp targets are the ones the customer tab used to render.
+    expect(screen.getByText("orders.detail.call").closest("a")).toHaveAttribute(
+      "href",
+      "tel:+201001234567",
+    );
+    expect(screen.getByText("orders.detail.whatsapp").closest("a")).toHaveAttribute(
+      "href",
+      "https://wa.me/201001234567",
+    );
+  });
+
+  it("summary shows the real product image when the order is vendor-routed", async () => {
+    const sections = buildOrderDetailSections({
+      detail: ORDER_DETAIL,
+      activity: [],
+      vendorGroups: [
+        {
+          id: "g1",
+          orderId: "o1",
+          orderNumber: 1042,
+          warehouseId: "w1",
+          warehouseName: "Store A",
+          warehouseCode: null,
+          vendorMemberId: null,
+          vendorName: null,
+          status: "new",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          items: [
+            {
+              id: "gi1",
+              variantId: "v1",
+              nameSnapshot: "T — L",
+              quantity: 1,
+              price: 15000,
+              imageUrl: "https://cdn.example.test/v1.jpg",
+            },
+          ],
+        },
+      ],
+      t,
+      locale: "en",
+      companyId: "co1",
+      onNotify: () => {},
+      onPatch: () => {},
+    });
+    const summary = sections.find((s) => s.key === "summary");
+    const { container } = render(<div>{summary?.content}</div>);
+    await waitFor(() =>
+      expect(container.querySelector('img[src="https://cdn.example.test/v1.jpg"]')).not.toBeNull(),
+    );
   });
 
   it("omits the vendor tracking tab for a non-multi-vendor order (backward compatible)", () => {

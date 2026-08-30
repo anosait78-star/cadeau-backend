@@ -335,7 +335,7 @@ describe("OrdersPage", () => {
     await screen.findByText("#1042");
     await user.click(screen.getByText("Sara"));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "#1042" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Order no. 1042" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Items" }));
     expect(await screen.findByText(/T — L × 2/)).toBeInTheDocument();

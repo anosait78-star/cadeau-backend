@@ -154,7 +154,12 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   font-family:
-    system-ui, -apple-system, "Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif;
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Tahoma,
+    "Noto Sans Arabic",
+    sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -244,4 +249,93 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 2px;
+}
+
+/* Side sheet entrance/exit motion (§4.2) — slides in from the logical end
+   edge (right in LTR, left in RTL) and fades its overlay, 180ms. */
+@keyframes sheet-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sheet-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes sheet-content-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--sheet-offset, 100%));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes sheet-content-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(var(--sheet-offset, 100%));
+  }
+}
+.sheet-overlay-motion[data-state="open"] {
+  animation: sheet-overlay-in var(--motion-dialog) var(--ease-standard);
+}
+.sheet-overlay-motion[data-state="closed"] {
+  animation: sheet-overlay-out var(--motion-dialog) var(--ease-standard);
+}
+.sheet-content-motion {
+  --sheet-offset: 100%;
+}
+[dir="rtl"] .sheet-content-motion {
+  --sheet-offset: -100%;
+}
+.sheet-content-motion[data-state="open"] {
+  animation: sheet-content-in var(--motion-dialog) var(--ease-standard);
+}
+.sheet-content-motion[data-state="closed"] {
+  animation: sheet-content-out var(--motion-dialog) var(--ease-standard);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-overlay-motion[data-state="open"],
+  .sheet-overlay-motion[data-state="closed"],
+  .sheet-content-motion[data-state="open"],
+  .sheet-content-motion[data-state="closed"] {
+    animation: none;
+  }
+}
+
+/* Horizontal tab strips scroll on narrow panels; the scrollbar itself is
+   chrome the user never needs to see there. */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Overflowing tab strip: a soft fade at the inline-end edge so the scroll
+   reads as "more tabs this way" instead of a tab sliced off by the panel. */
+.tabs-edge-fade {
+  pointer-events: none;
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 2rem;
+  background: linear-gradient(to left, var(--color-card), transparent);
+}
+[dir="rtl"] .tabs-edge-fade {
+  background: linear-gradient(to right, var(--color-card), transparent);
 }

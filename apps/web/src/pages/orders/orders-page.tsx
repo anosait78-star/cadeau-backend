@@ -62,7 +62,11 @@ import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
 import { buildOrderColumns, PaymentBadge, StatusBadge, type OrderLabel } from "./orders-columns";
 import { OrderForm } from "./orders-create-form";
-import { buildOrderDetailSections, useOrderDetailData } from "./orders-detail-sections";
+import {
+  buildOrderDetailHeader,
+  buildOrderDetailSections,
+  useOrderDetailData,
+} from "./orders-detail-sections";
 import { downloadCsv, ordersToCsv } from "./orders-export";
 import { OrdersFilterBar } from "./orders-filter-bar";
 import { fetchOrdersListKpis, type OrdersListKpis } from "./orders-list-kpis";
@@ -335,6 +339,13 @@ function OrdersScreen(): ReactNode {
           },
         })
       : [];
+
+  // Presentation-only drawer header (status chip, customer + date, total),
+  // built from the order that is already loaded — no extra fetch.
+  const detailHeader =
+    detailData.detail !== null
+      ? buildOrderDetailHeader({ detail: detailData.detail, locale, t })
+      : null;
 
   const columns = useMemo(
     () => buildOrderColumns({ t, locale, labelsById }),
@@ -619,11 +630,16 @@ function OrdersScreen(): ReactNode {
         onOpenChange={(open) => {
           if (!open) setSelectedOrder(null);
         }}
-        title={selectedOrder !== null ? `#${selectedOrder.orderNumber}` : ""}
+        title={
+          selectedOrder !== null
+            ? t("orders.detail.title", { number: selectedOrder.orderNumber })
+            : ""
+        }
         sections={detailSections}
         loading={detailData.loading}
         error={detailData.error}
         onRetry={detailData.reload}
+        {...(detailHeader ?? {})}
       />
 
       {shippingOrder !== null ? (
