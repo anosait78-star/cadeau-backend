@@ -4,7 +4,7 @@ import { FeatureGate } from "@/components/access/feature-gate";
 import { EmptyState } from "@/components/states/empty-state";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { PageTitle } from "@/components/layout/page-title";
 import {
   exportAnalytics,
@@ -89,21 +89,19 @@ function AnalyticsScreen(): ReactNode {
 
       <div className="flex flex-wrap items-end gap-3">
         <Field id="analytics-from" label={t("analytics.window.from")}>
-          <Input
+          <DatePicker
             id="analytics-from"
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            aria-label={t("analytics.window.from")}
+            value={from.length > 0 ? from : null}
+            onChange={(next) => setFrom(next ?? "")}
+            ariaLabel={t("analytics.window.from")}
           />
         </Field>
         <Field id="analytics-to" label={t("analytics.window.to")}>
-          <Input
+          <DatePicker
             id="analytics-to"
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            aria-label={t("analytics.window.to")}
+            value={to.length > 0 ? to : null}
+            onChange={(next) => setTo(next ?? "")}
+            ariaLabel={t("analytics.window.to")}
           />
         </Field>
         <Field id="analytics-granularity" label={t("analytics.window.granularity")}>

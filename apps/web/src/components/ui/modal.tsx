@@ -53,7 +53,11 @@ export function Modal({
           <Dialog.Content
             className={cn(
               "flex h-[100dvh] w-screen flex-col rounded-none border-0 border-border bg-card text-card-foreground shadow-lg",
-              "sm:rounded-lg sm:border",
+              // Full-bleed on a phone, so the chrome has to clear the notch, and
+              // the body has to end above the keyboard rather than behind it —
+              // both reset once the dialog floats from `sm:` up.
+              "pt-[var(--safe-top)] pb-[var(--keyboard-inset,0px)]",
+              "sm:rounded-lg sm:border sm:pt-0 sm:pb-0",
               "modal-content-motion",
               sizeClassName[size],
               className,

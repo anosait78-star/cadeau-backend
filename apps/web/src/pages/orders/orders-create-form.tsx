@@ -318,6 +318,10 @@ export function OrderForm({
                 >
                   <Input
                     id="new-customer-phone"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    enterKeyHint="next"
                     value={newPhone}
                     onChange={(e) => setNewPhone(e.target.value)}
                     aria-label={t("orders.form.customerPhone")}
@@ -330,6 +334,9 @@ export function OrderForm({
                 >
                   <Input
                     id="new-customer-secondary-phone"
+                    type="tel"
+                    inputMode="tel"
+                    enterKeyHint="next"
                     value={newSecondaryPhone}
                     onChange={(e) => setNewSecondaryPhone(e.target.value)}
                     aria-label={t("orders.form.customerSecondaryPhone")}

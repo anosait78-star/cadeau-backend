@@ -86,6 +86,8 @@ export function VendorOrdersPage(): ReactNode {
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
+          type="search"
+          enterKeyHint="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("vendor.orders.search.placeholder")}

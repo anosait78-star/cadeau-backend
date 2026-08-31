@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DatePicker } from "@/components/ui/date-picker";
 import { ORDER_STATUSES, type OrderStatus, type PaymentStatus } from "@/features/orders/orders-api";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { cn } from "@/lib/cn";
@@ -68,6 +69,8 @@ export function OrdersFilterBar({
           />
           <Input
             id="orders-filter-search"
+            type="search"
+            enterKeyHint="search"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("orders.search.placeholder")}
@@ -99,12 +102,11 @@ export function OrdersFilterBar({
         <Label htmlFor="orders-filter-from" className="sr-only">
           {t("orders.filters.dateFrom")}
         </Label>
-        <Input
+        <DatePicker
           id="orders-filter-from"
-          type="date"
-          value={dateFrom}
-          onChange={(e) => onDateFromChange(e.target.value)}
-          title={t("orders.filters.dateFrom")}
+          value={dateFrom.length > 0 ? dateFrom : null}
+          onChange={(next) => onDateFromChange(next ?? "")}
+          ariaLabel={t("orders.filters.dateFrom")}
         />
       </div>
 
@@ -112,12 +114,11 @@ export function OrdersFilterBar({
         <Label htmlFor="orders-filter-to" className="sr-only">
           {t("orders.filters.dateTo")}
         </Label>
-        <Input
+        <DatePicker
           id="orders-filter-to"
-          type="date"
-          value={dateTo}
-          onChange={(e) => onDateToChange(e.target.value)}
-          title={t("orders.filters.dateTo")}
+          value={dateTo.length > 0 ? dateTo : null}
+          onChange={(next) => onDateToChange(next ?? "")}
+          ariaLabel={t("orders.filters.dateTo")}
         />
       </div>
 

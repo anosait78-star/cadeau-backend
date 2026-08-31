@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { haptic } from "@/lib/haptics";
 
 export type ToastVariant = "default" | "success" | "error";
 
@@ -51,6 +52,10 @@ export function ToastProvider({ children }: { children: ReactNode }): ReactNode 
       const id = crypto.randomUUID();
       const variant = options?.variant ?? "default";
       const durationMs = options?.durationMs ?? 2500;
+      // A rejected action is felt as well as read: on a phone the toast can
+      // appear outside where the user is looking, and the buzz is what tells
+      // them the thing they just tapped did not happen.
+      if (variant === "error") haptic("error");
       setToasts((prev) => [...prev, { id, message, variant }]);
       timers.current.set(
         id,

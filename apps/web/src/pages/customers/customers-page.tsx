@@ -683,6 +683,10 @@ function CustomerForm({
           >
             <Input
               id="customer-phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              enterKeyHint="next"
               dir="ltr"
               value={phone}
               placeholder="+201001234567"
@@ -693,6 +697,10 @@ function CustomerForm({
           <FormField label={t("customers.field.email")} htmlFor="customer-email" optional>
             <Input
               id="customer-email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              enterKeyHint="next"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               aria-label={t("customers.field.email")}

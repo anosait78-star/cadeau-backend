@@ -258,6 +258,31 @@ Not done, and why:
 5. **Validation behavior** — scroll to the first invalid field, error haptic,
    message anchored under the field.
 
+**Status: done, with two items resolved differently than planned.**
+
+- **Full-screen forms** were already there: `Modal` drops to `h-[100dvh] w-screen`
+  below `sm:`. What it lacked was the notch — it now pads by `--safe-top` on a
+  phone and resets from `sm:` up.
+- **Keyboard inset.** `useKeyboardInset` publishes the covered height as
+  `--keyboard-inset` from the `visualViewport` API; `Modal` and `BottomSheet`
+  consume it, so a form's footer ends above the keyboard instead of behind it.
+  It is published globally because the surfaces that need it are portaled out of
+  the tree that owns the form. **Not verifiable in an emulator** — no desktop
+  browser raises a real keyboard — so this one needs a pass on a physical device.
+- **Input semantics.** Phone fields became `type="tel"` with `inputMode`/
+  `autoComplete`, email likewise, and the search fields `type="search"` with
+  `enterKeyHint="search"`. The auth screens already carried theirs.
+- **Pickers.** The eight remaining native `input[type=date]` controls (orders
+  filter, analytics window, finance reports) now use the project's own
+  `DatePicker` — which is what was rendering `mm/dd/yyyy`, US-ordered and LTR,
+  inside an RTL screen. Status filters stay a native `<select>` **on purpose**: a
+  phone already renders that as the OS picker, so replacing it with a custom
+  sheet would trade a native control for an imitation of one.
+- **Validation.** These forms disable submit while invalid, so there is no
+  failed-submit moment to scroll to a field from — the planned behavior has
+  nothing to attach to. The error haptic went where errors actually surface
+  instead: any error toast now buzzes.
+
 ---
 
 ## Phase 5 — Installed-App Feel (PWA)

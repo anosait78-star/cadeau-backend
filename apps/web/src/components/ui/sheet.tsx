@@ -59,7 +59,9 @@ export function BottomSheet({
           className={cn(
             // `overscroll-contain` keeps a scroll inside the sheet from chaining
             // to the page behind it; the bottom padding clears the home indicator.
-            "fixed inset-x-0 bottom-0 z-50 overflow-auto overscroll-contain rounded-t-2xl border-t border-border bg-card p-4 pb-[calc(1.5rem+var(--safe-bottom))] text-card-foreground shadow-lg",
+            // The bottom padding clears the home indicator, and grows to clear
+            // the keyboard whenever a field inside the sheet has focus.
+            "fixed inset-x-0 bottom-0 z-50 overflow-auto overscroll-contain rounded-t-2xl border-t border-border bg-card p-4 pb-[calc(1.5rem+var(--safe-bottom)+var(--keyboard-inset,0px))] text-card-foreground shadow-lg",
             "touch-pan-y transition-transform duration-200 ease-[var(--ease-standard)] motion-reduce:transition-none",
             DETENT_CLASS[detent],
             className,
