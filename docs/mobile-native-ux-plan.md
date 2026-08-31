@@ -297,6 +297,33 @@ Not done, and why:
    `bottom: calc(var(--mobile-nav-height) + var(--safe-bottom) + 0.5rem)`.
 5. Expanded `manifest.shortcuts` and order sharing through `navigator.share`.
 
+**Status: 1, 3 (partly) and 4–5 done; 2 and the offline queue not done.**
+
+- The manifest declares `display_override`, portrait orientation, and a splash
+  background matching the app's light default — which is what `index.html` boots
+  with, so a cold start no longer flashes the wrong color.
+- `sw.js` precaches the shell **on install** (the previous version only cached
+  after one successful online navigation, so the first offline launch failed)
+  and now caches Vite's fingerprinted `/assets/` output. Without that second
+  part the offline shell rendered an empty page: it referenced a bundle that was
+  not in the cache. Hashed URLs are what make this safe to cache — a new build
+  produces new URLs, so an entry can never go stale.
+- `OfflineBanner` states the condition for as long as it lasts, in both shells.
+  A toast would be wrong here: the condition outlives the message.
+- The shortcut list gained "New order", and `?new=1` is now handled by the
+  Orders screen (consumed on arrival so a reload does not reopen the form) —
+  a shortcut that pointed at unimplemented behavior would just be a dead link.
+
+Not done:
+
+- **Splash screens** need generated PNGs per device size; that is a design-asset
+  task, not a code one, and shipping `apple-touch-startup-image` tags pointing at
+  files that do not exist would be worse than the default.
+- **The offline action queue** is a feature, not a polish item: it means queuing
+  mutations, replaying them on reconnect, and resolving conflicts against a
+  server that stays authoritative (ADR-001). It needs its own design.
+- **`navigator.share`** — deferred with the rest of the order-detail work.
+
 ---
 
 ## Phase 6 — Gates and Measurement
@@ -308,6 +335,30 @@ Not done, and why:
 - Unit coverage for safe-area layout, the back gesture, sheet detents, and
   infinite scroll.
 - Manual RTL review of every motion added — all horizontal movement must mirror.
+
+**Status: done, with one metric substituted.**
+
+- The mobile Lighthouse budget now asserts CLS ≤ 0.05, LCP ≤ 2500ms and
+  **TBT ≤ 200ms**. INP was in the plan, but it is a _field_ metric — a Lighthouse
+  lab run does not produce one, so asserting it would have meant asserting an
+  audit that never appears. Total Blocking Time is the lab proxy for the same
+  property (a main thread that stays free to answer the finger).
+- Playwright runs the Mobile shell on three device profiles instead of one:
+  Pixel 8, iPhone SE (the smallest screen everything must survive) and iPhone 15
+  Pro (the only one where the safe-area insets are actually non-zero).
+- Unit coverage landed for the back gesture, the sheet drag (distance, velocity,
+  rubber-banding, and the scrolled-content case), the sheet's detents, infinite
+  scroll (including re-entrancy and the no-`IntersectionObserver` fallback),
+  pull-to-refresh, and the offline banner.
+- **Safe-area layout is not unit-tested** and cannot usefully be: jsdom has no
+  CSS engine, so a test there would assert class names rather than geometry. It
+  is verified in a real browser instead — the insets forced to iPhone values and
+  the resulting bar heights measured — and the `mobile-notched` Playwright
+  project is what keeps it honest going forward.
+- Every motion added is direction-driven by CSS custom properties that flip
+  under `[dir="rtl"]`, and each was checked in the running RTL app rather than
+  reasoned about: route transitions resolve `--route-offset: -100%` forward in
+  RTL, and the back gesture starts at the right edge and translates negatively.
 
 ---
 

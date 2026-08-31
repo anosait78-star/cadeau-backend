@@ -8,13 +8,26 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "any",
+  "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#e11931",
-  "categories": ["business", "productivity"],
+  "theme_color": "#ffffff",
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icons/icon-maskable-512.png",
       "sizes": "512x512",
@@ -23,8 +36,29 @@
     }
   ],
   "shortcuts": [
-    { "name": "الطلبات", "short_name": "الطلبات", "url": "/orders" },
-    { "name": "العملاء", "short_name": "العملاء", "url": "/customers" },
-    { "name": "المخزون", "short_name": "المخزون", "url": "/inventory" }
+    {
+      "name": "الطلبات",
+      "short_name": "الطلبات",
+      "url": "/orders"
+    },
+    {
+      "name": "طلب جديد",
+      "short_name": "طلب جديد",
+      "url": "/orders?new=1"
+    },
+    {
+      "name": "العملاء",
+      "short_name": "العملاء",
+      "url": "/customers"
+    },
+    {
+      "name": "المخزون",
+      "short_name": "المخزون",
+      "url": "/inventory"
+    }
+  ],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
   ]
 }

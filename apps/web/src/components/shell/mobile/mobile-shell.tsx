@@ -5,6 +5,7 @@ import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { usePullToRefresh } from "@/hooks/use-pull-to-refresh";
 import { useScrollCollapse } from "@/hooks/use-scroll-collapse";
 import { haptic } from "@/lib/haptics";
+import { OfflineBanner } from "@/components/shell/offline-banner";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { MobileFab } from "./mobile-fab";
 import { MobileHeaderProvider, useMobileRefresh } from "./mobile-header-context";
@@ -83,6 +84,7 @@ function MobileShellFrame(): ReactNode {
 
   return (
     <div className="flex min-h-full flex-col">
+      <OfflineBanner />
       <MobilePageHeader title={title} isRoot={isRoot} collapsed={collapsed} />
 
       <main

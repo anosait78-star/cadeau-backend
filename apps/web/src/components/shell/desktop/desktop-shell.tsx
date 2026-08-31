@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Outlet } from "react-router";
+import { OfflineBanner } from "@/components/shell/offline-banner";
 import { DesktopSidebar } from "./desktop-sidebar";
 import { DesktopTopbar } from "./desktop-topbar";
 
@@ -13,6 +14,7 @@ export function DesktopShell(): ReactNode {
     <div className="flex h-full bg-muted/40">
       <DesktopSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
+        <OfflineBanner />
         <DesktopTopbar />
         <main className="flex-1 overflow-auto p-6">
           <Outlet />

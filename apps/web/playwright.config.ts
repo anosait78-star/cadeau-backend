@@ -27,10 +27,25 @@ export default defineConfig({
       testMatch: /(smoke|desktop)\.spec\.ts$/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
     },
+    // The Mobile shell runs on three real device profiles, not one: the small
+    // screen that everything has to survive (iPhone SE), the notched profile
+    // where the safe-area insets are actually non-zero (iPhone 15 Pro), and
+    // Android (Pixel 8). A layout that only ever sees one viewport is a layout
+    // whose safe-area handling is untested.
     {
       name: "mobile",
       testMatch: /(smoke|mobile)\.spec\.ts$/,
-      use: { ...devices["Pixel 5"] },
+      use: { ...devices["Pixel 8"] },
+    },
+    {
+      name: "mobile-small",
+      testMatch: /(smoke|mobile)\.spec\.ts$/,
+      use: { ...devices["iPhone SE"] },
+    },
+    {
+      name: "mobile-notched",
+      testMatch: /(smoke|mobile)\.spec\.ts$/,
+      use: { ...devices["iPhone 15 Pro"] },
     },
   ],
   webServer: {

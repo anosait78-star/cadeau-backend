@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useSearchParams } from "react-router";
 import { AuthContext } from "@/auth/auth-context";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
@@ -111,6 +112,7 @@ function OrdersScreen(): ReactNode {
   const { t, locale } = useI18n();
   const isDesktop = useIsDesktop();
   const capabilities = useCapabilities();
+  const [searchParams, setSearchParams] = useSearchParams();
   const auth = useContext(AuthContext);
   const currentUserId = auth?.user?.id ?? null;
   const companyId = auth?.user?.activeCompanyId ?? null;
@@ -138,6 +140,16 @@ function OrdersScreen(): ReactNode {
   });
   // Pull down at the top of the list to reload it (Mobile shell).
   useRegisterMobileRefresh(() => load());
+
+  // The installed app's "New order" shortcut launches straight into the create
+  // form. The parameter is consumed on arrival so a reload does not reopen it.
+  useEffect(() => {
+    if (searchParams.get("new") === null) return;
+    if (capabilities.has({ permission: "orders.manage" })) setCreating(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, capabilities]);
   const [labelsById, setLabelsById] = useState<Map<string, OrderLabel>>(new Map());
   const [selectedOrder, setSelectedOrder] = useState<OrderListItem | null>(null);
   const [kpis, setKpis] = useState<OrdersListKpis | null>(null);
