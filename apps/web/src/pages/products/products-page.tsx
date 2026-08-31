@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/layout/page-title";
 import {
   createTransfer,
   listStock,
@@ -69,7 +70,7 @@ export function ProductsPage(): ReactNode {
     <FeatureGate
       feature="products"
       fallback={
-        <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-5xl lg:p-6">
           <EmptyState title={t("products.forbidden")} />
         </div>
       }
@@ -230,11 +231,8 @@ function ProductsScreen(): ReactNode {
     );
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("products.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("products.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("products.title")} description={t("products.subtitle")} />
 
       <TableToolbar
         search={{

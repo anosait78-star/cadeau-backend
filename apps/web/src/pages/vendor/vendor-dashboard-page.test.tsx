@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeTokens } from "@/auth/auth-storage";
 import { AppProviders } from "@/providers/app-providers";
+import { setViewport } from "@/test/setup";
 import { VendorDashboardPage } from "./vendor-dashboard-page";
 
 function json(status: number, body: unknown): Response {
@@ -89,6 +90,8 @@ describe("VendorDashboardPage (Vendor Accounts, Phase 7)", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("renders", async () => {
+    // The page title is a Desktop-shell concern; on mobile the shell renders it.
+    setViewport(true);
     renderPage(routedFetch({}));
     expect(await screen.findByText("Overview")).toBeInTheDocument();
   });

@@ -4,6 +4,7 @@ import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { useRegisterMobileRefresh } from "@/components/shell/mobile/mobile-header-context";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { FilterBar } from "@/components/filter-bar/filter-bar";
 import { ProductThumb } from "@/components/product-thumb/product-thumb";
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageTitle } from "@/components/layout/page-title";
 import {
   ADJUSTMENT_REASONS,
   archiveWarehouse,
@@ -68,7 +70,7 @@ export function InventoryPage(): ReactNode {
     <FeatureGate
       feature="inventory"
       fallback={
-        <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-5xl lg:p-6">
           <EmptyState title={t("inventory.forbidden")} />
         </div>
       }
@@ -109,11 +111,8 @@ function InventoryScreen(): ReactNode {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("inventory.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("inventory.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("inventory.title")} description={t("inventory.subtitle")} />
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("inventory.title")}>
         <Button
@@ -175,6 +174,9 @@ function StockTab({
       setState({ kind: "error" });
     }
   }, [warehouseId, lowOnly]);
+
+  // Pull down at the top of the list to reload it (Mobile shell).
+  useRegisterMobileRefresh(() => load());
 
   useEffect(() => {
     void load();

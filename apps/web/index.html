@@ -2,12 +2,21 @@
 <html lang="ar" dir="rtl" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `viewport-fit=cover` lets the app paint edge to edge and makes
+         `env(safe-area-inset-*)` resolve to real values; the Mobile shell pads
+         itself with those insets (see .mobile-* classes in globals.css).
+         `maximum-scale` is deliberately NOT set — pinch zoom stays available. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Cadeau CRM</title>
 
     <!-- Installable web app (PWA): manifest + icons drive the install prompt. -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#e11931" />
+    <!-- Status-bar / browser-chrome color. Two scheme-scoped tags cover the
+         first paint before JS; ThemeProvider then rewrites both to the color of
+         the theme the user actually chose (the in-app toggle is authoritative
+         over the OS preference), so the status bar never mismatches the app. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0b0c" />
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

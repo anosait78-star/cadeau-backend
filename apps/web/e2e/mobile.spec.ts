@@ -3,7 +3,8 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Mobile shell (Pixel 5, touch) — runs only on the `mobile` project. Exercises
- * the bottom nav, the FAB → command palette, the More sheet, and accessibility.
+ * the bottom nav, the header search → command palette, the More sheet, and
+ * accessibility.
  */
 test.describe("Mobile shell", () => {
   test.beforeEach(async ({ page }) => {
@@ -17,7 +18,7 @@ test.describe("Mobile shell", () => {
     await expect(page).toHaveURL(/\/orders$/);
   });
 
-  test("opens the command palette from the FAB", async ({ page }) => {
+  test("opens the command palette from the header search control", async ({ page }) => {
     await page.getByRole("button", { name: "بحث…" }).click();
     await expect(page.getByPlaceholder("اكتب أمرًا أو ابحث…")).toBeVisible();
   });

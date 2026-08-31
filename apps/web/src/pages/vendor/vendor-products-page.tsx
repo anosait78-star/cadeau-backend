@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { ProductThumb } from "@/components/product-thumb/product-thumb";
+import { PageTitle } from "@/components/layout/page-title";
 import { useMyVendorProducts } from "@/features/vendor/use-my-vendor-products";
 import type { VendorProduct } from "@/features/vendor/vendor-products-api";
 import { useI18n } from "@/i18n/i18n-provider";
@@ -23,10 +24,7 @@ export function VendorProductsPage(): ReactNode {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("vendor.products.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("vendor.products.subtitle")}</p>
-      </header>
+      <PageTitle title={t("vendor.products.title")} description={t("vendor.products.subtitle")} />
 
       {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={reload} /> : null}

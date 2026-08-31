@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/status-badge/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/layout/page-title";
 import { useMyVendorGroups } from "@/features/vendor/use-my-vendor-groups";
 import {
   VENDOR_GROUP_STATUSES,
@@ -78,10 +79,10 @@ export function VendorOrdersPage(): ReactNode {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("vendor.dashboard.myOrders")}</h1>
-        <p className="text-sm text-muted-foreground">{t("vendor.dashboard.subtitle")}</p>
-      </header>
+      <PageTitle
+        title={t("vendor.dashboard.myOrders")}
+        description={t("vendor.dashboard.subtitle")}
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         <Input

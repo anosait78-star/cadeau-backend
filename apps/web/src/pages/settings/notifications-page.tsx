@@ -7,6 +7,7 @@ import { LoadingState } from "@/components/states/loading-state";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageTitle } from "@/components/layout/page-title";
 import {
   getNotificationPreferences,
   updateNotificationPreferences,
@@ -37,7 +38,7 @@ export function NotificationsPage(): ReactNode {
     <FeatureGate
       feature="notifications"
       fallback={
-        <div className="mx-auto w-full max-w-2xl p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-2xl lg:p-6">
           <EmptyState title={t("notifications.title")} />
         </div>
       }
@@ -98,11 +99,11 @@ function NotificationsPreferencesScreen(): ReactNode {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("notifications.preferences.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("notifications.preferences.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 lg:p-6">
+      <PageTitle
+        title={t("notifications.preferences.title")}
+        description={t("notifications.preferences.subtitle")}
+      />
 
       {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}

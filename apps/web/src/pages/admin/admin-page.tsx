@@ -5,6 +5,7 @@ import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageTitle } from "@/components/layout/page-title";
 import type { FeatureView } from "@/features/access/access-api";
 import {
   listCompanies,
@@ -101,11 +102,8 @@ export function AdminPage(): ReactNode {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("admin.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("admin.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("admin.title")} description={t("admin.subtitle")} />
 
       {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void loadFirst()} /> : null}

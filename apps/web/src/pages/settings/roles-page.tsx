@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageTitle } from "@/components/layout/page-title";
 import { getPermissionTemplates, type PermissionTemplateView } from "@/features/access/access-api";
 import { useI18n } from "@/i18n/i18n-provider";
 
@@ -39,11 +40,8 @@ export function RolesPage(): ReactNode {
   }, []);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("roles.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("roles.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("roles.title")} description={t("roles.subtitle")} />
 
       {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => setState({ kind: "loading" })} /> : null}

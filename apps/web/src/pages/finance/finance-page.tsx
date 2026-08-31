@@ -4,6 +4,7 @@ import { FeatureGate } from "@/components/access/feature-gate";
 import { EmptyState } from "@/components/states/empty-state";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
+import { PageTitle } from "@/components/layout/page-title";
 import { listSuppliers } from "@/features/finance/finance-api";
 import { listProducts, listVariants } from "@/features/products/products-api";
 import { listWarehouses } from "@/features/inventory/inventory-api";
@@ -55,7 +56,7 @@ export function FinancePage(): ReactNode {
     <FeatureGate
       feature="finance"
       fallback={
-        <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-5xl lg:p-6">
           <EmptyState title={t("finance.forbidden")} />
         </div>
       }
@@ -126,11 +127,8 @@ function FinanceScreen(): ReactNode {
   }, []);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("finance.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("finance.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("finance.title")} description={t("finance.subtitle")} />
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("finance.title")}>
         {TABS.map((key) => (

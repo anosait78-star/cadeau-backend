@@ -44,16 +44,77 @@
   --motion-press: 100ms;
   --motion-dialog: 180ms;
   --motion-toast: 200ms;
+  /* Screen-to-screen motion. The curve is the one native shells use for pushes:
+     almost all of the travel happens up front, then it settles — which is what
+     makes a transition feel driven rather than timed. */
+  --motion-route: 300ms;
+  --ease-route: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Typography scale values. Declared as their own variables (rather than
+     inline in @theme) so the scale can shift per breakpoint — @theme inline
+     bakes literal values into the utilities, but forwards a var() reference.
+     Mobile-first: these are the Mobile shell sizes; the desktop breakpoint
+     below tightens body/caption back to the denser power-user scale. */
+  --fs-display: 1.75rem;
+  --lh-display: 2.25rem;
+  --fs-h1: 1.5rem;
+  --lh-h1: 2rem;
+  --fs-h2: 1.25rem;
+  --lh-h2: 1.75rem;
+  --fs-h3: 1rem;
+  --lh-h3: 1.5rem;
+  --fs-body: 1.0625rem; /* 17px — the native mobile reading size */
+  --lh-body: 1.5rem;
+  --fs-caption: 0.8125rem; /* 13px */
+  --lh-caption: 1.125rem;
+
+  /* Device safe areas (notch, home indicator, rounded corners). These resolve
+     to real values only because index.html declares `viewport-fit=cover`.
+     `start`/`end` are *logical*: they follow the writing direction, so mobile
+     chrome padded with them stays correct in RTL (the default here) and LTR. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-start: env(safe-area-inset-left, 0px);
+  --safe-end: env(safe-area-inset-right, 0px);
+
+  /* Mobile chrome geometry — the single source of truth for the header and
+     bottom-nav heights, so content padding, the FAB and toasts can offset
+     themselves without re-guessing a hardcoded height. */
+  --mobile-header-height: 3.5rem;
+  --mobile-nav-height: 3.25rem;
+  --mobile-header-total: calc(var(--mobile-header-height) + var(--safe-top));
+  --mobile-nav-total: calc(var(--mobile-nav-height) + var(--safe-bottom));
+
+  /* Minimum comfortable touch target (Apple HIG 44pt / Material 48dp). */
+  --touch-target: 2.75rem;
+}
+
+[dir="rtl"] {
+  --safe-start: env(safe-area-inset-right, 0px);
+  --safe-end: env(safe-area-inset-left, 0px);
+}
+
+/* Desktop keeps the denser type scale it was designed against. */
+@media (min-width: 1024px) {
+  :root {
+    --fs-body: 0.875rem;
+    --lh-body: 1.375rem;
+    --fs-caption: 0.75rem;
+    --lh-caption: 1rem;
+  }
 }
 
 [data-theme="dark"] {
   --background: #0b0b0c;
   --foreground: #f4f4f5;
-  --card: #161618;
+  /* Card sits a step above the page and the border is visible against it —
+     dark UI separates surfaces by elevation, and at #161618 on #0b0b0c the
+     cards read as part of the background on a phone screen. */
+  --card: #1b1b1f;
   --card-foreground: #f4f4f5;
-  --muted: #1f1f23;
+  --muted: #232328;
   --muted-foreground: #a1a1aa;
-  --border: #2a2a2e;
+  --border: #33333a;
   --input: #2a2a2e;
   --ring: #e11931;
 
@@ -107,18 +168,18 @@
   /* Typography scale (§5) — generates text-display/h1/h2/h3/body/caption
      utilities paired with their line-height. Weight is applied separately
      via the matching font-weight utility (see .text-* helpers below). */
-  --text-display: 1.75rem;
-  --text-display--line-height: 2.25rem;
-  --text-h1: 1.5rem;
-  --text-h1--line-height: 2rem;
-  --text-h2: 1.25rem;
-  --text-h2--line-height: 1.75rem;
-  --text-h3: 1rem;
-  --text-h3--line-height: 1.5rem;
-  --text-body: 0.875rem;
-  --text-body--line-height: 1.375rem;
-  --text-caption: 0.75rem;
-  --text-caption--line-height: 1rem;
+  --text-display: var(--fs-display);
+  --text-display--line-height: var(--lh-display);
+  --text-h1: var(--fs-h1);
+  --text-h1--line-height: var(--lh-h1);
+  --text-h2: var(--fs-h2);
+  --text-h2--line-height: var(--lh-h2);
+  --text-h3: var(--fs-h3);
+  --text-h3--line-height: var(--lh-h3);
+  --text-body: var(--fs-body);
+  --text-body--line-height: var(--lh-body);
+  --text-caption: var(--fs-caption);
+  --text-caption--line-height: var(--lh-caption);
 }
 
 /* Typography scale weights — paired with the text-* size utilities above
@@ -153,6 +214,12 @@ body {
   margin: 0;
   background-color: var(--color-background);
   color: var(--color-foreground);
+  /* Touch physics (§Mobile Phase 0): no rubber-band past the document edges
+     (which reads as "this is a web page"), no blue tap flash, and no 300ms
+     click delay — `manipulation` opts out of double-tap-to-zoom. */
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   font-family:
     system-ui,
     -apple-system,
@@ -338,4 +405,181 @@ body {
 }
 [dir="rtl"] .tabs-edge-fade {
   background: linear-gradient(to right, var(--color-card), transparent);
+}
+
+/* ── Mobile shell geometry (Phase 0) ────────────────────────────────────────
+   The Mobile shell is a fixed header + scrolling document + fixed bottom nav.
+   These classes own that geometry so no component re-guesses a height, and so
+   every edge respects the device safe areas (notch, home indicator, rounded
+   corners) and the writing direction. */
+
+/* Fixed/sticky top bar: content sits below the status bar, never under it. */
+.mobile-header {
+  height: var(--mobile-header-total);
+  padding-top: var(--safe-top);
+  padding-inline-start: calc(var(--space-gutter-mobile) + var(--safe-start));
+  padding-inline-end: calc(var(--space-gutter-mobile) + var(--safe-end));
+}
+
+/* Fixed bottom navigation: tappable row above the home indicator, with the
+   inset area painted in the bar color rather than left as a bare strip. */
+.mobile-nav {
+  height: var(--mobile-nav-total);
+  padding-bottom: var(--safe-bottom);
+  padding-inline-start: var(--safe-start);
+  padding-inline-end: var(--safe-end);
+}
+
+/* Scrollable content: gutters follow the safe area, and the trailing padding
+   clears the bottom nav so the last row is never trapped behind it. */
+.mobile-main {
+  padding-block-start: var(--space-gutter-mobile);
+  padding-block-end: calc(var(--mobile-nav-total) + var(--space-gutter-mobile));
+  padding-inline-start: calc(var(--space-gutter-mobile) + var(--safe-start));
+  padding-inline-end: calc(var(--space-gutter-mobile) + var(--safe-end));
+}
+
+/* Floating elements anchored above the bottom nav (FAB, toasts, snackbars). */
+.mobile-above-nav {
+  inset-block-end: calc(var(--mobile-nav-total) + 1rem);
+  inset-inline-end: calc(1rem + var(--safe-end));
+}
+
+/* iOS zooms the page when a focused field is under 16px. Guaranteeing the
+   floor below the desktop breakpoint removes that zoom entirely, while
+   `max()` leaves any deliberately larger field size alone. */
+@media (max-width: 1023.98px) {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Minimum comfortable hit area for controls that are visually smaller than a
+   fingertip (icon buttons, nav items, chips). */
+.touch-target {
+  min-height: var(--touch-target);
+  min-inline-size: var(--touch-target);
+}
+
+/* Press feedback: the control reacts under the finger instead of waiting for
+   navigation. Hover states cannot carry this on touch (ADR-002). */
+.pressable {
+  transition: transform var(--motion-press) var(--ease-standard);
+}
+.pressable:active {
+  transform: scale(0.97);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pressable,
+  .pressable:active {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Translucent app chrome (Phase 1). The bars float over the content instead of
+   sitting on an opaque slab: content stays faintly visible as it scrolls under
+   them, which is what makes a bar read as chrome rather than as a block of
+   page. Falls back to the solid surface where backdrop-filter is unsupported. */
+.chrome-blur {
+  background-color: var(--color-card);
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .chrome-blur {
+    background-color: color-mix(in srgb, var(--card) 78%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+  }
+}
+
+/* ── Screen motion (Phase 2) ────────────────────────────────────────────────
+   A screen enters from the edge it conceptually comes from: forward from the
+   inline-end edge, back from the inline-start edge. The offset is a custom
+   property so the same keyframe serves both directions in both writing
+   directions — nothing here hardcodes "left" or "right". */
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateX(var(--route-offset));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.route-motion {
+  animation: route-enter var(--motion-route) var(--ease-route);
+}
+.route-forward {
+  --route-offset: 100%;
+}
+.route-back {
+  --route-offset: -100%;
+}
+[dir="rtl"] .route-forward {
+  --route-offset: -100%;
+}
+[dir="rtl"] .route-back {
+  --route-offset: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-motion {
+    animation: none;
+  }
+}
+
+/* The entering screen is translated a full width away before it settles, which
+   would otherwise widen the page for the duration of the animation. `clip`
+   (unlike `hidden`) contains it without turning the element into a scroll
+   container, so the page keeps scrolling normally. */
+.mobile-main {
+  overflow-x: clip;
+}
+
+/* The screen follows the finger during the back gesture; only the glide back to
+   rest is animated. The direction lives here, not in the component: travel is
+   measured toward the inline-end edge, which is leftwards in RTL. */
+.swipe-follow {
+  transform: translateX(var(--swipe-travel, 0px));
+  transition: transform var(--motion-dialog) var(--ease-route);
+}
+[dir="rtl"] .swipe-follow {
+  transform: translateX(calc(-1 * var(--swipe-travel, 0px)));
+}
+.swipe-follow[data-dragging="true"] {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .swipe-follow {
+    transition: none;
+  }
+}
+
+/* ── Grouped list separators (Phase 3) ──────────────────────────────────────
+   Drawn as a pseudo-element rather than a border so the inset does not move
+   the row's own content. `inset` starts the line after the leading column
+   (padding + a 2.5rem leading element + the gap); `flush` spans the width, for
+   groups whose rows have no leading element. */
+.list-inset-separators > * + *,
+.list-flush-separators > * + * {
+  position: relative;
+}
+.list-inset-separators > * + *::before,
+.list-flush-separators > * + *::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  block-size: 1px;
+  background-color: var(--color-border);
+}
+.list-inset-separators > * + *::before {
+  inset-inline-start: 4.25rem;
+}
+.list-flush-separators > * + *::before {
+  inset-inline-start: 0;
 }

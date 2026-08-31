@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/states/empty-state";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/layout/page-title";
 import {
   exportAnalytics,
   type AnalyticsAxis,
@@ -47,7 +48,7 @@ export function AnalyticsPage(): ReactNode {
     <FeatureGate
       feature="analytics"
       fallback={
-        <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-5xl lg:p-6">
           <EmptyState title={t("analytics.forbidden")} />
         </div>
       }
@@ -83,11 +84,8 @@ function AnalyticsScreen(): ReactNode {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("analytics.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("analytics.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("analytics.title")} description={t("analytics.subtitle")} />
 
       <div className="flex flex-wrap items-end gap-3">
         <Field id="analytics-from" label={t("analytics.window.from")}>

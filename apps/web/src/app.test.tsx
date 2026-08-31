@@ -67,7 +67,10 @@ describe("App", () => {
 
   it("renders the dashboard without any granted capabilities (no widgets, no crash)", async () => {
     render(<App />);
-    expect(await screen.findByText("نظرة سريعة على أعمال اليوم.")).toBeInTheDocument();
+    // On the Mobile shell the screen title comes from the shell, not the page.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "لوحة التحكم" }),
+    ).toBeInTheDocument();
     // Every widget is feature/permission-gated — none render without capabilities.
     expect(screen.queryByText("ملخص أعمال اليوم")).not.toBeInTheDocument();
   });

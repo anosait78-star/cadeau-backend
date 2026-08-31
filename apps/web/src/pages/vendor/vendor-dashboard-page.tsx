@@ -7,6 +7,7 @@ import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { ProductThumb } from "@/components/product-thumb/product-thumb";
 import { StatusBadge } from "@/components/status-badge/status-badge";
+import { PageTitle } from "@/components/layout/page-title";
 import { useMyVendorGroups } from "@/features/vendor/use-my-vendor-groups";
 import type { VendorGroup, VendorGroupStatus } from "@/features/vendor/vendor-api";
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
@@ -73,10 +74,10 @@ export function VendorDashboardPage(): ReactNode {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("vendor.dashboard.overview.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("vendor.dashboard.subtitle")}</p>
-      </header>
+      <PageTitle
+        title={t("vendor.dashboard.overview.title")}
+        description={t("vendor.dashboard.subtitle")}
+      />
 
       {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={reload} /> : null}

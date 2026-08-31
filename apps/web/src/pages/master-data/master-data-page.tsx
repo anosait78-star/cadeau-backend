@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageTitle } from "@/components/layout/page-title";
 import {
   createItem,
   deactivateItem,
@@ -49,16 +50,13 @@ export function MasterDataPage(): ReactNode {
     <FeatureGate
       feature="master-data"
       fallback={
-        <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-5xl lg:p-6">
           <EmptyState title={t("md.forbidden")} />
         </div>
       }
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-        <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">{t("md.title")}</h1>
-          <p className="text-sm text-muted-foreground">{t("md.subtitle")}</p>
-        </header>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+        <PageTitle title={t("md.title")} description={t("md.subtitle")} />
 
         <nav aria-label={t("md.resources")} className="flex flex-wrap gap-2">
           {MD_RESOURCES.map((r) => (

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "@/auth/use-auth";
 import { AppActions } from "@/components/shell/app-actions";
+import { InstallAppButton } from "@/components/shell/install-app-button";
 import { BottomSheet } from "@/components/ui/sheet";
 import { useNavItems } from "@/features/access/use-nav-items";
 import { useI18n } from "@/i18n/i18n-provider";
@@ -42,7 +43,7 @@ export function MobileMoreSheet({
             key={to}
             type="button"
             onClick={() => go(to)}
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
+            className="pressable touch-target flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
           >
             <Icon className="h-4 w-4" aria-hidden="true" />
             <span>{t(labelKey)}</span>
@@ -50,12 +51,15 @@ export function MobileMoreSheet({
         ))}
       </div>
       <div className="my-3 h-px bg-border" />
-      <AppActions />
+      <div className="flex items-center gap-2">
+        <AppActions />
+        <InstallAppButton compact />
+      </div>
       <div className="my-3 h-px bg-border" />
       <button
         type="button"
         onClick={onSignOut}
-        className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-muted"
+        className="pressable touch-target flex items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-muted"
       >
         <LogOut className="h-4 w-4" aria-hidden="true" />
         <span>{t("user.signOut")}</span>

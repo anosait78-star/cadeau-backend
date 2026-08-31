@@ -1,26 +1,29 @@
-import { Search } from "lucide-react";
 import type { ReactNode } from "react";
-import { useI18n } from "@/i18n/i18n-provider";
-import { useCommandPalette } from "@/providers/command-palette-provider";
+import { useMobilePrimaryAction } from "./mobile-header-context";
 
 /**
- * Floating action button (Mobile). Opens the command palette — the mobile entry
- * point to search + navigation + quick actions (the ⌘K equivalent, since mobile
- * has no keyboard). Positioned with logical `end-4` so it mirrors in RTL. Domain
- * screens may add their own primary-create FAB on top of this foundation.
+ * Floating action button (Mobile). It carries the **create** action of the
+ * screen on display — the iOS/Material convention — which screens register with
+ * `useRegisterMobilePrimaryAction`. A screen with nothing to create renders no
+ * FAB rather than a button with no purpose; search lives in the header, which is
+ * where a phone user looks for it.
+ *
+ * Anchored above the bottom nav by `.mobile-above-nav`, which is safe-area aware
+ * and logical, so it mirrors in RTL.
  */
 export function MobileFab(): ReactNode {
-  const { t } = useI18n();
-  const { toggle } = useCommandPalette();
+  const action = useMobilePrimaryAction();
+  if (action === null) return null;
 
+  const Icon = action.icon;
   return (
     <button
       type="button"
-      onClick={toggle}
-      aria-label={t("command.trigger")}
-      className="fixed bottom-20 end-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg"
+      onClick={action.onAction}
+      aria-label={action.label}
+      className="pressable mobile-above-nav fixed z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg"
     >
-      <Search className="h-6 w-6" aria-hidden="true" />
+      <Icon className="h-6 w-6" aria-hidden="true" />
     </button>
   );
 }

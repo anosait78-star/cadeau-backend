@@ -19,6 +19,7 @@ import { PermissionGate } from "@/components/access/permission-gate";
 import { BulkActionsBar } from "@/components/bulk-actions/bulk-actions-bar";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { MobileListRow } from "@/components/data-grid/mobile-list-row";
 import { useDataGridSelection } from "@/components/data-grid/use-data-grid-selection";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import type { Translate } from "@/components/i18n/translate-type";
@@ -27,7 +28,6 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -54,6 +54,11 @@ import {
   type PaymentStatus,
 } from "@/features/orders/orders-api";
 import { SelectCarrierDialog } from "@/features/shipping/select-carrier-dialog";
+import {
+  useRegisterMobilePrimaryAction,
+  useRegisterMobileRefresh,
+} from "@/components/shell/mobile/mobile-header-context";
+import { useCapabilities } from "@/features/access/use-capabilities";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
@@ -105,6 +110,7 @@ export function OrdersPage(): ReactNode {
 function OrdersScreen(): ReactNode {
   const { t, locale } = useI18n();
   const isDesktop = useIsDesktop();
+  const capabilities = useCapabilities();
   const auth = useContext(AuthContext);
   const currentUserId = auth?.user?.id ?? null;
   const companyId = auth?.user?.activeCompanyId ?? null;
@@ -121,6 +127,17 @@ function OrdersScreen(): ReactNode {
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | "all">("all");
   const [sortDesc, setSortDesc] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  // On mobile, "new order" is the shell's floating action button rather than a
+  // toolbar button competing with the page title (ADR-002).
+  useRegisterMobilePrimaryAction({
+    label: t("orders.actions.create"),
+    icon: Plus,
+    onAction: () => setCreating(true),
+    enabled: capabilities.has({ permission: "orders.manage" }),
+  });
+  // Pull down at the top of the list to reload it (Mobile shell).
+  useRegisterMobileRefresh(() => load());
   const [labelsById, setLabelsById] = useState<Map<string, OrderLabel>>(new Map());
   const [selectedOrder, setSelectedOrder] = useState<OrderListItem | null>(null);
   const [kpis, setKpis] = useState<OrdersListKpis | null>(null);
@@ -378,18 +395,24 @@ function OrdersScreen(): ReactNode {
   }, [state, selection.selectedIds]);
 
   return (
-    <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-6 p-4 sm:p-6">
-      {/* Header: actions at the start, title/subtitle at the end (matches the app's RTL reading order). */}
+    // The page gutter on mobile belongs to the shell (`.mobile-main`); adding
+    // one here too would double it.
+    <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-6 lg:p-6">
+      {/* Header: actions at the start, title/subtitle at the end (matches the app's RTL reading order).
+          On mobile the shell owns the title and the FAB owns "create", so only
+          the secondary actions remain. */}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <PermissionGate permission="orders.manage">
-            {creating ? null : (
-              <Button onClick={() => setCreating(true)}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                {t("orders.actions.create")}
-              </Button>
-            )}
-          </PermissionGate>
+          {isDesktop ? (
+            <PermissionGate permission="orders.manage">
+              {creating ? null : (
+                <Button onClick={() => setCreating(true)}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  {t("orders.actions.create")}
+                </Button>
+              )}
+            </PermissionGate>
+          ) : null}
           <Button variant="outline" onClick={onExport}>
             <Download className="h-4 w-4" aria-hidden="true" />
             {t("orders.actions.export")}
@@ -429,10 +452,12 @@ function OrdersScreen(): ReactNode {
           </DropdownMenu>
         </div>
 
-        <div className="text-end">
-          <h1 className="text-display text-foreground">{t("orders.title")}</h1>
-          <p className="text-body text-muted-foreground">{t("orders.subtitle")}</p>
-        </div>
+        {isDesktop ? (
+          <div className="text-end">
+            <h1 className="text-display text-foreground">{t("orders.title")}</h1>
+            <p className="text-body text-muted-foreground">{t("orders.subtitle")}</p>
+          </div>
+        ) : null}
       </header>
 
       {kpis !== null ? <OrdersKpiRow kpis={kpis} t={t} locale={locale} /> : null}
@@ -930,50 +955,53 @@ function OrderCard({
   onOpenDetail: (order: OrderListItem) => void;
   onSendWhatsapp: () => void;
 }): ReactNode {
+  // A list row, not a stacked table: the order number leads, the customer is the
+  // title, the money is the trailing value, and the rest is one secondary line.
   return (
-    <Card
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpenDetail(order)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onOpenDetail(order);
-      }}
-      className="cursor-pointer"
-    >
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-          <span>#{order.orderNumber}</span>
-          <span className="text-muted-foreground">·</span>
-          <span>{order.customerName}</span>
-          <StatusBadge
-            status={order.status}
-            label={t(`orders.status.${order.status}` as TranslationKey)}
-          />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
-          <Field label={t("orders.field.items")}>{order.itemCount}</Field>
-          <Field label={t("orders.field.total")}>{formatMoney(order.total, locale)}</Field>
-          <Field label={t("orders.field.collected")}>
-            {formatMoney(order.collectedAmount, locale)}
-          </Field>
-          <Field label={t("orders.field.payment")}>
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <MobileListRow
+        onPress={() => onOpenDetail(order)}
+        leading={
+          <span
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-caption font-semibold text-muted-foreground"
+            dir="ltr"
+          >
+            #{order.orderNumber}
+          </span>
+        }
+        title={order.customerName}
+        // Status and size only: the money already reads down the trailing edge,
+        // and a secondary line that has to be truncated tells the user nothing.
+        secondary={
+          <span className="flex items-center gap-2">
+            <StatusBadge
+              status={order.status}
+              label={t(`orders.status.${order.status}` as TranslationKey)}
+            />
+            <span>
+              {t("orders.field.items")}: {order.itemCount}
+            </span>
+          </span>
+        }
+        trailing={
+          <span className="flex flex-col items-end gap-1">
+            <span className="text-body font-semibold text-foreground">
+              {formatMoney(order.total, locale)}
+            </span>
             <PaymentBadge
               status={order.paymentStatus}
               label={t(`orders.payment.${order.paymentStatus}` as TranslationKey)}
             />
-          </Field>
-        </dl>
-        {isWhatsappStatus(order.status) ? (
+          </span>
+        }
+      />
+      {isWhatsappStatus(order.status) ? (
+        <div className="border-t border-border px-4 py-2">
           <Button
             size="sm"
-            className="self-start bg-[#25D366] text-white hover:bg-[#1ebe57]"
+            className="bg-[#25D366] text-white hover:bg-[#1ebe57]"
             disabled={sendingWhatsapp}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSendWhatsapp();
-            }}
+            onClick={onSendWhatsapp}
           >
             {sendingWhatsapp ? (
               <Spinner className="h-4 w-4 text-white" />
@@ -982,17 +1010,8 @@ function OrderCard({
             )}
             {t("orders.whatsapp.rowButtonLabel")}
           </Button>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }): ReactNode {
-  return (
-    <div className="flex flex-col">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd>{children}</dd>
+        </div>
+      ) : null}
     </div>
   );
 }

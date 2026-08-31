@@ -6,6 +6,7 @@ import { PermissionGate } from "@/components/access/permission-gate";
 import { StatusBadge } from "@/components/status-badge/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageTitle } from "@/components/layout/page-title";
 import { useCapabilities } from "@/features/access/use-capabilities";
 import { getBusinessAnalytics, type BusinessSummary } from "@/features/analytics/analytics-api";
 import { listCustomers } from "@/features/customers/customers-api";
@@ -141,11 +142,8 @@ export function DashboardPage(): ReactNode {
   }, [canNotifications]);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("dashboard.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("dashboard.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("dashboard.title")} description={t("dashboard.subtitle")} />
 
       <KpiCards
         t={t}

@@ -5,6 +5,7 @@ import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { useRegisterMobileRefresh } from "@/components/shell/mobile/mobile-header-context";
 import { DetailPanel as SharedDetailPanel } from "@/components/detail-panel/detail-panel";
 import type { Translate } from "@/components/i18n/translate-type";
 import { EmptyState } from "@/components/states/empty-state";
@@ -18,6 +19,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { StarRatingDisplay } from "@/components/ui/star-rating";
+import { PageTitle } from "@/components/layout/page-title";
 import {
   archiveCustomer,
   createAddress,
@@ -75,7 +77,7 @@ export function CustomersPage(): ReactNode {
     <FeatureGate
       feature="customers"
       fallback={
-        <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-5xl lg:p-6">
           <EmptyState title={t("customers.forbidden")} />
         </div>
       }
@@ -118,6 +120,9 @@ function CustomersScreen(): ReactNode {
       setState({ kind: "error" });
     }
   }, []);
+
+  // Pull down at the top of the list to reload it (Mobile shell).
+  useRegisterMobileRefresh(() => load(search));
 
   // Governorates are best-effort reference data: the address form still works
   // without them (the field is optional), so a failure must not break the page.
@@ -227,11 +232,8 @@ function CustomersScreen(): ReactNode {
     );
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("customers.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("customers.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("customers.title")} description={t("customers.subtitle")} />
 
       <TableToolbar
         search={{

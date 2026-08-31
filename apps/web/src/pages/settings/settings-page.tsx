@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { EmptyState } from "@/components/states/empty-state";
+import { PageTitle } from "@/components/layout/page-title";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/i18n/i18n-provider";
 import type { TranslationKey } from "@/i18n/dictionaries";
@@ -41,11 +42,8 @@ export function SettingsPage(): ReactNode {
   const activeTab = TABS.find((tb) => tb.key === rawTab) ?? TABS[0]!;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">{t("nav.settings")}</h1>
-        <p className="text-sm text-muted-foreground">{t("settings.subtitle")}</p>
-      </header>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:p-6">
+      <PageTitle title={t("nav.settings")} description={t("settings.subtitle")} />
 
       <nav aria-label={t("nav.settings")} className="flex flex-wrap gap-2 border-b border-border">
         {TABS.map((tb) => (
