@@ -31,9 +31,22 @@ apps/web/src/
 ## Mobile shell
 
 A native-feeling tree ([`MobileShell`](../apps/web/src/components/shell/mobile/mobile-shell.tsx)):
-a top brand bar, scrollable content, a **fixed bottom nav** (four primary
-destinations + **More**), a **FAB** that opens the command palette (the mobile ⌘K
-equivalent), and a **More bottom sheet** (overflow nav + theme/language actions).
+a **contextual top bar**, scrollable content, a **FAB**, a **fixed bottom nav**
+(four primary destinations + **More**), and a **More bottom sheet** holding the
+overflow navigation alongside the theme, language and install actions.
+
+The top bar is the navigation hierarchy. A root destination shows the brand and a
+**large title** below it that collapses into the bar as it scrolls away
+([`useScrollCollapse`](../apps/web/src/hooks/use-scroll-collapse.ts), an
+`IntersectionObserver` sentinel rather than a scroll listener); a deeper screen
+shows a **back control** and its title. The title comes from `navigation.ts` via
+[`useMobileRouteTitle`](../apps/web/src/components/shell/mobile/use-mobile-route-title.ts),
+so pages do not repeat it — [`PageTitle`](../apps/web/src/components/layout/page-title.tsx)
+renders the heading on Desktop and nothing on Mobile.
+
+Search (the mobile ⌘K equivalent) sits in the bar. The **FAB carries the screen's
+create action**, which screens register with `useRegisterMobilePrimaryAction`; a
+screen with nothing to create renders no FAB.
 The sheet is a [`BottomSheet`](../apps/web/src/components/ui/sheet.tsx) — a Radix
 dialog anchored to the bottom with a grab handle and **swipe-down to dismiss**
 ([`useSwipe`](../apps/web/src/hooks/use-swipe.ts), touch-based, dependency-free).
