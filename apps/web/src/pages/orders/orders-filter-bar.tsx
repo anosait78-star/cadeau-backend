@@ -6,8 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DatePicker } from "@/components/ui/date-picker";
-import { ORDER_STATUSES, type OrderStatus, type PaymentStatus } from "@/features/orders/orders-api";
-import type { TranslationKey } from "@/i18n/dictionaries";
+import type { OrderStatus, PaymentStatus } from "@/features/orders/orders-api";
 import { cn } from "@/lib/cn";
 
 const SELECT_CLASS =
@@ -15,17 +14,21 @@ const SELECT_CLASS =
 
 /**
  * Horizontal filter bar for the Orders list, sitting directly above the
- * table (no more sidebar). Search / status / date stay always visible;
- * everything else (currently just payment status — the API has no
- * "assigned employee" filter param yet, so that one isn't offered) lives
- * behind the "Advanced filters" popover. Every field applies immediately —
- * there's no separate Apply step, only a single Reset.
+ * table (no more sidebar). Search and date stay always visible; everything
+ * else (currently just payment status — the API has no "assigned employee"
+ * filter param yet, so that one isn't offered) lives behind the "Advanced
+ * filters" popover. Every field applies immediately — there's no separate
+ * Apply step, only a single Reset.
+ *
+ * Status is **not** a field here: the status tab strip above the list already
+ * owns it, and offering a second control for the same state left two widgets
+ * to keep in sync and the user guessing which one was in charge. The bar still
+ * reads `status` so Reset knows whether anything is filtered.
  */
 export function OrdersFilterBar({
   search,
   onSearchChange,
   status,
-  onStatusChange,
   dateFrom,
   onDateFromChange,
   dateTo,
@@ -37,8 +40,8 @@ export function OrdersFilterBar({
 }: {
   search: string;
   onSearchChange: (value: string) => void;
+  /** Read-only here — the status tab strip owns it; used only to enable Reset. */
   status: OrderStatus | "all";
-  onStatusChange: (value: OrderStatus | "all") => void;
   dateFrom: string;
   onDateFromChange: (value: string) => void;
   dateTo: string;
@@ -77,25 +80,6 @@ export function OrdersFilterBar({
             className="ps-9"
           />
         </div>
-      </div>
-
-      <div className="flex w-40 flex-col gap-1">
-        <Label htmlFor="orders-filter-status" className="sr-only">
-          {t("orders.status.title")}
-        </Label>
-        <select
-          id="orders-filter-status"
-          value={status}
-          onChange={(e) => onStatusChange(e.target.value as OrderStatus | "all")}
-          className={SELECT_CLASS}
-        >
-          <option value="all">{t("orders.filters.allStatuses")}</option>
-          {ORDER_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {t(`orders.status.${s}` as TranslationKey)}
-            </option>
-          ))}
-        </select>
       </div>
 
       <div className="flex w-36 flex-col gap-1">

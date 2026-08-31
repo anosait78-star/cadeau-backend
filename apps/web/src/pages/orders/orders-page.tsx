@@ -513,7 +513,6 @@ function OrdersScreen(): ReactNode {
         search={search}
         onSearchChange={setSearch}
         status={status}
-        onStatusChange={selectStatus}
         dateFrom={dateFrom}
         onDateFromChange={setDateFrom}
         dateTo={dateTo}
