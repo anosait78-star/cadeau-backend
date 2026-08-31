@@ -68,6 +68,7 @@ function makeHarness() {
     listStock: vi.fn(),
     listWarehouses: vi.fn(),
     adjust: vi.fn(),
+    setVariantWarehouse: vi.fn(),
     createWarehouse: vi.fn(),
   };
   const customers = { list: vi.fn(), create: vi.fn() };
@@ -523,9 +524,10 @@ describe("StorefrontIngestionService.ingestProduct", () => {
     expect(h.products.create).toHaveBeenCalledWith(expect.anything(), { name: "Mug" });
     expect(h.inventory.listStock).not.toHaveBeenCalled();
     expect(h.inventory.adjust).not.toHaveBeenCalled();
+    expect(h.inventory.setVariantWarehouse).not.toHaveBeenCalled();
   });
 
-  it("registers the vendor's mapped warehouse with a zero-delta adjustment when the vendor is known but there's no stock figure", async () => {
+  it("registers the vendor's mapped warehouse by assigning it — never a zero-delta adjustment the database rejects", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },
       enqueued: true,
@@ -547,15 +549,13 @@ describe("StorefrontIngestionService.ingestProduct", () => {
       expect.anything(),
       expect.objectContaining({ warehouseId: "wh-vendor-A", variantId: "variant-1" }),
     );
-    expect(h.inventory.adjust).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        warehouseId: "wh-vendor-A",
-        variantId: "variant-1",
-        quantityDelta: 0,
-        reason: "storefront_sync",
-      }),
-    );
+    expect(h.inventory.setVariantWarehouse).toHaveBeenCalledWith(expect.anything(), {
+      warehouseId: "wh-vendor-A",
+      variantId: "variant-1",
+    });
+    // `stock_adjustments` has CHECK (quantity_delta <> 0): registering
+    // presence through `adjust` raises a 23514 and fails the delivery.
+    expect(h.inventory.adjust).not.toHaveBeenCalled();
   });
 
   it("does not register a warehouse when the vendor id has no mapping, and does not throw", async () => {
@@ -577,6 +577,7 @@ describe("StorefrontIngestionService.ingestProduct", () => {
     expect(result).toEqual({ entityId: "product-1", status: "created" });
     expect(h.inventory.listStock).not.toHaveBeenCalled();
     expect(h.inventory.adjust).not.toHaveBeenCalled();
+    expect(h.inventory.setVariantWarehouse).not.toHaveBeenCalled();
   });
 
   it("does not re-register (or spam the adjustment history) when a stock row already exists for that variant+warehouse", async () => {

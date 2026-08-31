@@ -29,6 +29,17 @@ export interface AdjustInput {
   readonly note?: string | null;
 }
 
+/**
+ * Assign a variant to a warehouse without claiming any quantity — the
+ * presence-only counterpart to {@link AdjustInput}. A zero-quantity movement
+ * is not expressible as an adjustment (`stock_adjustments` rejects a delta of
+ * zero by check constraint), so registering presence has its own operation.
+ */
+export interface SetVariantWarehouseCommand {
+  readonly warehouseId: string;
+  readonly variantId: string;
+}
+
 export interface CreateWarehouseCommand {
   readonly name: string;
 }
@@ -55,6 +66,10 @@ export interface InventoryAdjustmentPort {
     query: WarehouseListFilter,
   ): Promise<KeysetPage<WarehouseSummary>>;
   adjust(principal: RequestPrincipal, data: AdjustInput): Promise<unknown>;
+  setVariantWarehouse(
+    principal: RequestPrincipal,
+    data: SetVariantWarehouseCommand,
+  ): Promise<unknown>;
   /** @throws on a duplicate `name` within the tenant — caller retries with a disambiguated name. */
   createWarehouse(
     principal: RequestPrincipal,

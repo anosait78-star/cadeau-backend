@@ -341,11 +341,14 @@ export class StorefrontIngestionService {
   /**
    * No absolute stock figure to sync, but the product carries a vendor id
    * that resolves to a mapped warehouse (multi-vendor routing) — register
-   * presence there with a single zero-delta adjustment. Not a quantity
-   * claim; purely so the product shows its warehouse instead of "none".
-   * Skipped when there's no vendor id, no mapping for it, or a stock row
-   * already exists (idempotent — a resync doesn't spam the adjustment
-   * history with repeated zero-delta entries).
+   * presence there. Not a quantity claim; purely so the product shows its
+   * warehouse instead of "none". Skipped when there's no vendor id, no
+   * mapping for it, or a stock row already exists (idempotent).
+   *
+   * Presence is registered by assigning the warehouse, never by writing a
+   * zero-delta adjustment: `stock_adjustments` rejects a delta of zero by
+   * check constraint, so that spelling failed for every vendor-routed
+   * product and took the whole webhook delivery down with it.
    */
   private async registerKnownVendorWarehouse(
     principal: RequestPrincipal,
@@ -367,15 +370,7 @@ export class StorefrontIngestionService {
       limit: "1",
     });
     if (existing.data.length > 0) return;
-    await this.inventory.adjust(principal, {
-      warehouseId,
-      variantId,
-      quantityDelta: 0,
-      reason: "storefront_sync",
-      note:
-        `Storefront sync (externalId=${normalized.externalId}): vendor known, ` +
-        "no stock figure to sync — registering the warehouse only.",
-    });
+    await this.inventory.setVariantWarehouse(principal, { warehouseId, variantId });
   }
 
   /**
