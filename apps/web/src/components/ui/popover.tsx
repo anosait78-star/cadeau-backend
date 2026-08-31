@@ -16,7 +16,12 @@ export function PopoverContent({
       <PopoverPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          "z-50 max-w-64 rounded-md border border-border bg-card p-2 text-sm text-card-foreground shadow-md",
+          // `pointer-events-auto` is what lets a popover work *inside* a modal
+          // dialog or bottom sheet: a modal Radix dialog sets `pointer-events:
+          // none` on <body> to seal off everything behind it, and this content
+          // is portaled to the body — so without this it renders in the right
+          // place, looking perfectly normal, and ignores every tap.
+          "pointer-events-auto z-50 max-w-64 rounded-md border border-border bg-card p-2 text-sm text-card-foreground shadow-md",
           className,
         )}
         {...props}
