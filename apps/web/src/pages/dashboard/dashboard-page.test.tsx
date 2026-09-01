@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -160,8 +160,11 @@ describe("DashboardPage", () => {
     renderPage();
 
     // KPI cards
-    expect(await screen.findByText("3", { selector: "p" })).toBeInTheDocument(); // orders total
-    expect(screen.getByText("500.00")).toBeInTheDocument(); // revenue KPI
+    // Scoped to the overview tiles: the period KPI row above shows the same
+    // figure for the same data, so an unscoped query is ambiguous.
+    const overview = await screen.findByTestId("dashboard-overview-kpis");
+    expect(within(overview).getByText("3", { selector: "p" })).toBeInTheDocument(); // orders total
+    expect(within(overview).getByText("500.00")).toBeInTheDocument(); // revenue KPI
 
     // Today's business summary reuses orders-kpis
     expect(screen.getByText("Today's business summary")).toBeInTheDocument();

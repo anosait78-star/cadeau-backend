@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/status-badge/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageTitle } from "@/components/layout/page-title";
+import { DashboardKpiRow } from "./dashboard-kpi-row";
 import { useCapabilities } from "@/features/access/use-capabilities";
 import { getBusinessAnalytics, type BusinessSummary } from "@/features/analytics/analytics-api";
 import { listCustomers } from "@/features/customers/customers-api";
@@ -145,6 +146,11 @@ export function DashboardPage(): ReactNode {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 lg:p-6">
       <PageTitle title={t("dashboard.title")} description={t("dashboard.subtitle")} />
 
+      {/* Period-scoped headline figures. Behind the same gates as their sources:
+          the money and order counts come from analytics, the per-status figures
+          from the orders aggregate, and the API re-checks both (ADR-003). */}
+      {canAnalytics && canOrders ? <DashboardKpiRow /> : null}
+
       <KpiCards
         t={t}
         locale={locale}
@@ -277,7 +283,10 @@ function KpiCards({
   if (tiles.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div
+      className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+      data-testid="dashboard-overview-kpis"
+    >
       {tiles.map((tile) => (
         <KpiTile
           key={tile.key}

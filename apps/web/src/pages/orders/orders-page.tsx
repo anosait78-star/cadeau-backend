@@ -1,6 +1,4 @@
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   CalendarDays,
   Clock,
   Download,
@@ -21,6 +19,7 @@ import { BulkActionsBar } from "@/components/bulk-actions/bulk-actions-bar";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { MobileListRow } from "@/components/data-grid/mobile-list-row";
+import { KpiRow, type KpiTileSpec } from "@/components/kpi/kpi-card";
 import { useDataGridSelection } from "@/components/data-grid/use-data-grid-selection";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import type { Translate } from "@/components/i18n/translate-type";
@@ -77,7 +76,6 @@ import { downloadCsv, ordersToCsv } from "./orders-export";
 import { OrdersFilterBar } from "./orders-filter-bar";
 import { fetchOrdersListKpis, type OrdersListKpis } from "./orders-list-kpis";
 import { OrderRowActions, TRANSITIONS } from "./orders-row-actions";
-import { OrdersSparkline } from "./orders-sparkline";
 import { isWhatsappStatus, openWhatsappForOrder, type WhatsappStatus } from "./orders-whatsapp";
 
 type State =
@@ -772,16 +770,6 @@ function WhatsappPromptCard({
   );
 }
 
-interface KpiTileSpec {
-  readonly label: string;
-  readonly value: string;
-  readonly icon: ReactNode;
-  readonly iconToneClassName: string;
-  readonly trendPct: number | null;
-  readonly series: readonly number[] | null;
-  readonly approximate?: boolean;
-}
-
 function OrdersKpiRow({
   kpis,
   t,
@@ -844,78 +832,7 @@ function OrdersKpiRow({
     },
   ];
 
-  return (
-    <div
-      className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6"
-      data-testid="orders-kpi-row"
-    >
-      {tiles.map((tile) => (
-        <OrdersKpiCard key={tile.label} tile={tile} trendSuffix={t("orders.kpi.vsYesterday")} />
-      ))}
-    </div>
-  );
-}
-
-function OrdersKpiCard({
-  tile,
-  trendSuffix,
-}: {
-  tile: KpiTileSpec;
-  trendSuffix: string;
-}): ReactNode {
-  const trendTone =
-    tile.trendPct === null
-      ? "text-muted-foreground"
-      : tile.trendPct > 0
-        ? "text-success"
-        : tile.trendPct < 0
-          ? "text-destructive"
-          : "text-muted-foreground";
-
-  return (
-    <div className="flex h-[140px] flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-xs">
-      <div className="flex items-start justify-between">
-        <span
-          className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-full",
-            tile.iconToneClassName,
-          )}
-        >
-          {tile.icon}
-        </span>
-        {tile.series !== null ? (
-          <OrdersSparkline
-            values={tile.series}
-            className="h-6 w-16"
-            toneClassName="text-muted-foreground"
-          />
-        ) : null}
-      </div>
-      <div>
-        <p className="truncate text-caption text-muted-foreground">{tile.label}</p>
-        <p className="text-h1 leading-tight text-foreground tabular-nums" dir="ltr">
-          {tile.value}
-        </p>
-      </div>
-      <div className={cn("flex items-center gap-1 text-caption", trendTone)}>
-        {tile.trendPct !== null && tile.trendPct !== 0 ? (
-          tile.trendPct > 0 ? (
-            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <ArrowDownRight className="h-3.5 w-3.5" aria-hidden="true" />
-          )
-        ) : null}
-        <span dir="ltr">
-          {tile.trendPct === null
-            ? "—"
-            : `${tile.trendPct > 0 ? "+" : ""}${tile.trendPct.toFixed(1)}%`}
-        </span>
-        <span className="truncate text-muted-foreground">
-          {tile.approximate === true ? "· ≈" : trendSuffix}
-        </span>
-      </div>
-    </div>
-  );
+  return <KpiRow tiles={tiles} trendSuffix={t("orders.kpi.vsYesterday")} testId="orders-kpi-row" />;
 }
 
 function StatusTab({

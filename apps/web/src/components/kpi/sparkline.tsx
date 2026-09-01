@@ -2,10 +2,10 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 /**
- * Tiny inline SVG trend line for the Orders KPI cards. Pure SVG, no charting
- * library — scoped to this page only, not a shared component.
+ * Tiny inline SVG trend line for a KPI card. Pure SVG, no charting
+ * library — shared by every screen that shows KPI tiles.
  */
-export function OrdersSparkline({
+export function Sparkline({
   values,
   className,
   toneClassName = "text-primary",
