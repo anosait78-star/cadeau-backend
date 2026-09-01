@@ -474,9 +474,15 @@ function OrdersScreen(): ReactNode {
 
       {kpis !== null ? <OrdersKpiRow kpis={kpis} t={t} locale={locale} /> : null}
 
-      {/* Status tabs with live counts. */}
+      {/* Status tabs with live counts. On a phone the twelve statuses stay on
+          one line and scroll sideways — wrapping them turned the strip into a
+          five-row block that pushed the orders themselves off the screen.
+          Desktop has the width to wrap, so it still does. */}
       <div
-        className="flex flex-wrap gap-1.5 overflow-x-auto rounded-2xl border border-border bg-card p-1.5 shadow-xs"
+        className={cn(
+          "flex gap-1.5 rounded-2xl border border-border bg-card p-1.5 shadow-xs",
+          "flex-nowrap overflow-x-auto hide-scrollbar lg:flex-wrap lg:overflow-x-visible",
+        )}
         role="tablist"
         aria-label={t("orders.title")}
       >

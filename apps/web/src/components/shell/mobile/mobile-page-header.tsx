@@ -41,8 +41,12 @@ export function MobilePageHeader({
       {isRoot ? (
         <span
           className={cn(
-            "shrink-0 text-lg font-semibold text-primary transition-opacity duration-200",
-            collapsed ? "opacity-0" : "opacity-100",
+            // Collapsing must free the space, not just hide the ink: faded out
+            // but still laid out, the brand went on squeezing the title it had
+            // just handed over to.
+            "shrink-0 overflow-hidden whitespace-nowrap text-lg font-semibold text-primary",
+            "transition-all duration-200",
+            collapsed ? "w-0 opacity-0" : "opacity-100",
           )}
         >
           {t("app.name")}
@@ -74,7 +78,9 @@ export function MobilePageHeader({
         {title}
       </p>
 
-      <div className="flex shrink-0 items-center gap-1">
+      {/* Capped so a long company name can never crowd the title out of the
+          bar; the switcher truncates its own label within whatever it gets. */}
+      <div className="flex max-w-[55%] shrink items-center justify-end gap-1">
         <button
           type="button"
           onClick={toggle}
