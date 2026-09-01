@@ -169,8 +169,9 @@ describe("InventoryPage", () => {
     renderPage();
     expect(await screen.findByText("Mug")).toBeInTheDocument();
     expect(screen.getByText("Small")).toBeInTheDocument();
-    // "Main" appears on the card and in the warehouse filter's options.
-    await waitFor(() => expect(screen.getAllByText("Main").length).toBeGreaterThan(1));
+    // The warehouse name comes off the row itself. (Its other appearance, in
+    // the warehouse filter's options, is behind the filter sheet on mobile.)
+    await waitFor(() => expect(screen.getAllByText("Main").length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText("8")).toBeInTheDocument(); // available
     // The uuid must never surface, and the catalog is never paged for names.
     expect(screen.queryByText(VARIANT)).not.toBeInTheDocument();
@@ -188,7 +189,9 @@ describe("InventoryPage", () => {
   it("flags a level that is at or below its reorder point", async () => {
     renderPage();
     await screen.findByText("Mug");
-    await userEvent.click(screen.getByLabelText("Low stock only"));
+    // Filters sit behind a sheet at this (mobile) viewport.
+    await userEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    await userEvent.click(await screen.findByLabelText("Low stock only"));
     expect(await screen.findByTestId("low-badge")).toBeInTheDocument();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("belowReorder=true"))).toBe(

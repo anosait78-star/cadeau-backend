@@ -227,6 +227,21 @@ function StockTab({
         activeCount={activeFilterCount}
         onClearAll={clearFilters}
         clearAllLabel={t("inventory.filter.clear")}
+        // Adjust/Transfer act on stock rather than filtering it, so they stay in
+        // the bar instead of being folded into the filter sheet on mobile.
+        actions={
+          <PermissionGate permission="inventory.manage">
+            <Button variant="outline" onClick={() => setForm(form === "adjust" ? null : "adjust")}>
+              {t("inventory.actions.adjust")}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setForm(form === "transfer" ? null : "transfer")}
+            >
+              {t("inventory.actions.transfer")}
+            </Button>
+          </PermissionGate>
+        }
       >
         <div className="flex flex-col gap-1">
           <Label htmlFor="stock-warehouse">{t("inventory.filter.warehouse")}</Label>
@@ -242,17 +257,6 @@ function StockTab({
           <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} />
           {t("inventory.filter.lowOnly")}
         </label>
-        <PermissionGate permission="inventory.manage">
-          <Button variant="outline" onClick={() => setForm(form === "adjust" ? null : "adjust")}>
-            {t("inventory.actions.adjust")}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setForm(form === "transfer" ? null : "transfer")}
-          >
-            {t("inventory.actions.transfer")}
-          </Button>
-        </PermissionGate>
       </FilterBar>
 
       {form === "adjust" ? (

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { FilterBar } from "@/components/filter-bar/filter-bar";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Button } from "@/components/ui/button";
@@ -70,7 +71,13 @@ export function ReportsTab({ onNotify }: { onNotify: (text: string) => void }): 
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-3">
+      {/* Four date pickers stacked ahead of the report is most of a phone
+          screen, so below the desktop breakpoint they fold into a sheet — while
+          "Load", which runs the report rather than narrowing it, stays out. */}
+      <FilterBar
+        activeCount={(compareFrom.length > 0 ? 1 : 0) + (compareTo.length > 0 ? 1 : 0)}
+        actions={<Button onClick={() => void load()}>{t("finance.reports.actions.load")}</Button>}
+      >
         <Field id="report-from" label={t("finance.reports.dateFrom")}>
           <DatePicker
             id="report-from"
@@ -103,8 +110,7 @@ export function ReportsTab({ onNotify }: { onNotify: (text: string) => void }): 
             ariaLabel={t("finance.reports.compareTo")}
           />
         </Field>
-        <Button onClick={() => void load()}>{t("finance.reports.actions.load")}</Button>
-      </div>
+      </FilterBar>
 
       {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}

@@ -6,6 +6,7 @@ import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
+import { FilterBar } from "@/components/filter-bar/filter-bar";
 import { TableToolbar } from "@/components/table-toolbar/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -121,7 +122,14 @@ export function PurchaseOrdersTab({
     <div className="flex flex-col gap-4">
       <TableToolbar
         secondaryActions={
-          <div className="flex flex-wrap items-end gap-3">
+          <FilterBar
+            activeCount={(status.length > 0 ? 1 : 0) + (supplierId.length > 0 ? 1 : 0)}
+            onClearAll={() => {
+              setStatus("");
+              setSupplierId("");
+            }}
+            clearAllLabel={t("finance.po.filter.clear")}
+          >
             <div className="flex flex-col gap-1">
               <label className="text-xs text-muted-foreground" htmlFor="po-status">
                 {t("finance.po.filter.status")}
@@ -153,7 +161,7 @@ export function PurchaseOrdersTab({
                 ariaLabel={t("finance.po.filter.supplier")}
               />
             </div>
-          </div>
+          </FilterBar>
         }
         primaryActions={
           <PermissionGate permission="finance.manage">

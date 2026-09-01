@@ -46,6 +46,10 @@ function renderPage(features = ["finance"], permissions = ["finance.read", "fina
  * as an LTR, US-ordered control inside an RTL screen.
  */
 async function pickAnyDay(fieldLabel: string): Promise<void> {
+  // At the tests' default (mobile) viewport the filters live behind a sheet.
+  if (screen.queryByRole("button", { name: fieldLabel }) === null) {
+    await userEvent.click(screen.getByRole("button", { name: /Filters/ }));
+  }
   await userEvent.click(screen.getByRole("button", { name: fieldLabel }));
   await userEvent.click(await screen.findByRole("button", { name: "15" }));
 }
@@ -888,7 +892,10 @@ describe("FinancePage", () => {
     // days they are is the mocked response's business, not this test's.
     await pickAnyDay("Compare from");
     await pickAnyDay("Compare to");
-    await userEvent.click(screen.getByRole("button", { name: "Load" }));
+    // Load runs the report rather than filtering it, so it lives outside the
+    // sheet — which has to be dismissed to reach it.
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(await screen.findByRole("button", { name: "Load" }));
     expect(await screen.findByText("Previous period")).toBeInTheDocument();
   });
 
