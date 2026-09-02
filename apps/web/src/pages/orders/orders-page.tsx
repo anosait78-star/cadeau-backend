@@ -806,7 +806,7 @@ function OrderCard({
   // A list row, not a stacked table: the order number leads, the customer is the
   // title, the money is the trailing value, and the rest is one secondary line.
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="card-raised overflow-hidden rounded-xl border border-border bg-card">
       <MobileListRow
         onPress={() => onOpenDetail(order)}
         leading={

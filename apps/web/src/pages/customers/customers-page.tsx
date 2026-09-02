@@ -349,7 +349,7 @@ function CustomerRow({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border border-border bg-card",
+        "card-raised overflow-hidden rounded-xl border border-border bg-card",
         // An archived customer reads as archived from across the room, not by
         // reading a chip: the whole row recedes.
         !customer.active && "opacity-60",
