@@ -606,14 +606,20 @@ body {
 
 /* A card that sits above the page rather than being drawn on it. Two layers:
    a tight contact shadow that reads as contact with the surface, and a wider,
-   softer one that reads as height. */
-.card-raised {
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 2px 8px rgba(0, 0, 0, 0.06);
-}
-[data-theme="dark"] .card-raised {
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.5),
-    0 2px 10px rgba(0, 0, 0, 0.35);
+   softer one that reads as height.
+
+   Scoped to the same breakpoint as the grouped background above: elevation is
+   only meaningful against a page that has receded, and the Desktop shell keeps
+   the flat, dense surfaces it was designed with. */
+@media (max-width: 1023.98px) {
+  .card-raised {
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.05),
+      0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+  [data-theme="dark"] .card-raised {
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.5),
+      0 2px 10px rgba(0, 0, 0, 0.35);
+  }
 }

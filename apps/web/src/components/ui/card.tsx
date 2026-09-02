@@ -1,10 +1,19 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
+/**
+ * A content surface. `card-raised` gives it elevation on the Mobile shell,
+ * where the page recedes to a grouped background and a card is meant to float
+ * above it; the class is a no-op from the desktop breakpoint up, so the Desktop
+ * shell keeps the flat, dense surfaces it was designed with.
+ */
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>): ReactNode {
   return (
     <div
-      className={cn("rounded-lg border border-border bg-card text-card-foreground", className)}
+      className={cn(
+        "card-raised rounded-lg border border-border bg-card text-card-foreground",
+        className,
+      )}
       {...props}
     />
   );
