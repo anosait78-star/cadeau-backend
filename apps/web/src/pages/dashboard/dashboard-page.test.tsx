@@ -159,15 +159,9 @@ describe("DashboardPage", () => {
   it("composes every widget from real API data", async () => {
     renderPage();
 
-    // KPI cards
-    // Scoped to the overview tiles: the period KPI row above shows the same
-    // figure for the same data, so an unscoped query is ambiguous.
-    const overview = await screen.findByTestId("dashboard-overview-kpis");
-    expect(within(overview).getByText("3", { selector: "p" })).toBeInTheDocument(); // orders total
-    expect(within(overview).getByText("500.00")).toBeInTheDocument(); // revenue KPI
-
-    // Today's business summary reuses orders-kpis
-    expect(screen.getByText("Today's business summary")).toBeInTheDocument();
+    // The period-scoped KPI row, which replaced the old overview tiles.
+    const kpiRow = await screen.findByTestId("dashboard-kpi-row");
+    expect(within(kpiRow).getByText("500.00")).toBeInTheDocument(); // collected
 
     // Recent orders + activity, both derived from the same /orders call
     expect(screen.getByText("#101")).toBeInTheDocument();
@@ -182,7 +176,7 @@ describe("DashboardPage", () => {
 
   it("omits gated widgets when their feature is unavailable", async () => {
     renderPage(["orders"], []);
-    expect(await screen.findByText("Today's business summary")).toBeInTheDocument();
+    expect(await screen.findByText("Recent orders")).toBeInTheDocument();
     expect(screen.queryByText("Sales")).not.toBeInTheDocument();
     expect(screen.queryByText("Low stock alerts")).not.toBeInTheDocument();
     expect(screen.queryByText("Notifications")).not.toBeInTheDocument();

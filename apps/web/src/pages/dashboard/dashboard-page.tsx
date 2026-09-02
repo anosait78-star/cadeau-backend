@@ -10,15 +10,12 @@ import { PageTitle } from "@/components/layout/page-title";
 import { DashboardKpiRow } from "./dashboard-kpi-row";
 import { useCapabilities } from "@/features/access/use-capabilities";
 import { getBusinessAnalytics, type BusinessSummary } from "@/features/analytics/analytics-api";
-import { listCustomers } from "@/features/customers/customers-api";
 import { listStock, type StockLevel } from "@/features/inventory/inventory-api";
 import {
   listNotifications,
   type NotificationItem,
 } from "@/features/notifications/notifications-api";
 import { listOrders, orderStatusCounts, type OrderListItem } from "@/features/orders/orders-api";
-import { fetchOrdersKpis, sumCounts, type OrdersKpis } from "@/features/orders/orders-kpis";
-import { listProducts } from "@/features/products/products-api";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
@@ -34,12 +31,6 @@ type Section<T> =
   | { readonly kind: "error" }
   | { readonly kind: "ready"; readonly data: T };
 
-interface Counted {
-  readonly count: number;
-  /** True when the true total may be larger — the count is a first-page sample, not exact. */
-  readonly approximate: boolean;
-}
-
 interface LowStock {
   readonly rows: readonly StockLevel[];
   readonly hasMore: boolean;
@@ -49,39 +40,31 @@ interface LowStock {
  * The authenticated landing page ("/"). Every widget reuses its module's own
  * `features/*-api.ts` client and permission model — this page fetches and
  * composes, it never re-derives business logic (order lifecycle, low-stock
- * threshold, KPI math already live in `orders-kpis.ts` / the analytics/
- * inventory APIs). A widget whose feature/permission is unavailable, or whose
+ * threshold, KPI math already live in the analytics / inventory APIs). A
+ * widget whose feature/permission is unavailable, or whose
  * fetch fails, is simply omitted — never backfilled with placeholder data.
  */
 export function DashboardPage(): ReactNode {
   const { t, locale } = useI18n();
   const { has } = useCapabilities();
 
-  const [kpis, setKpis] = useState<Section<OrdersKpis>>({ kind: "loading" });
   const [statusCounts, setStatusCounts] = useState<Section<Record<string, number>>>({
     kind: "loading",
   });
   const [sales, setSales] = useState<Section<BusinessSummary>>({ kind: "loading" });
   const [recentOrders, setRecentOrders] = useState<Section<OrderListItem[]>>({ kind: "loading" });
   const [lowStock, setLowStock] = useState<Section<LowStock>>({ kind: "loading" });
-  const [customers, setCustomers] = useState<Section<Counted>>({ kind: "loading" });
-  const [products, setProducts] = useState<Section<Counted>>({ kind: "loading" });
   const [notifications, setNotifications] = useState<Section<NotificationItem[]>>({
     kind: "loading",
   });
 
   const canOrders = has({ feature: "orders" });
-  const canCustomers = has({ feature: "customers" });
-  const canProducts = has({ feature: "products" });
   const canInventory = has({ feature: "inventory" });
   const canAnalytics = has({ feature: "analytics", permission: "analytics.read" });
   const canNotifications = has({ feature: "notifications" });
 
   useEffect(() => {
     if (!canOrders) return;
-    void fetchOrdersKpis()
-      .then((data) => setKpis({ kind: "ready", data }))
-      .catch(() => setKpis({ kind: "error" }));
     void orderStatusCounts({})
       .then((res) => setStatusCounts({ kind: "ready", data: res.counts }))
       .catch(() => setStatusCounts({ kind: "error" }));
@@ -112,30 +95,6 @@ export function DashboardPage(): ReactNode {
   }, [canInventory]);
 
   useEffect(() => {
-    if (!canCustomers) return;
-    void listCustomers({ active: true })
-      .then((page) =>
-        setCustomers({
-          kind: "ready",
-          data: { count: page.data.length, approximate: page.page.hasMore },
-        }),
-      )
-      .catch(() => setCustomers({ kind: "error" }));
-  }, [canCustomers]);
-
-  useEffect(() => {
-    if (!canProducts) return;
-    void listProducts({ active: true })
-      .then((page) =>
-        setProducts({
-          kind: "ready",
-          data: { count: page.data.length, approximate: page.page.hasMore },
-        }),
-      )
-      .catch(() => setProducts({ kind: "error" }));
-  }, [canProducts]);
-
-  useEffect(() => {
     if (!canNotifications) return;
     void listNotifications({ read: false, limit: 5 })
       .then((page) => setNotifications({ kind: "ready", data: [...page.data] }))
@@ -151,24 +110,7 @@ export function DashboardPage(): ReactNode {
           from the orders aggregate, and the API re-checks both (ADR-003). */}
       {canAnalytics && canOrders ? <DashboardKpiRow /> : null}
 
-      <KpiCards
-        t={t}
-        locale={locale}
-        canOrders={canOrders}
-        canAnalytics={canAnalytics}
-        canCustomers={canCustomers}
-        canProducts={canProducts}
-        canInventory={canInventory}
-        statusCounts={statusCounts}
-        sales={sales}
-        customers={customers}
-        products={products}
-        lowStock={lowStock}
-      />
-
       <QuickActions t={t} />
-
-      {canOrders ? <TodaysBusinessSummary t={t} locale={locale} kpis={kpis} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {canAnalytics ? <SalesChartCard t={t} sales={sales} /> : null}
@@ -186,115 +128,6 @@ export function DashboardPage(): ReactNode {
           <NotificationsSummaryCard t={t} notifications={notifications} />
         </FeatureGate>
       </div>
-    </div>
-  );
-}
-
-function KpiTile({
-  label,
-  value,
-  approximate,
-}: {
-  label: string;
-  value: string;
-  approximate: boolean;
-}): ReactNode {
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold" dir="ltr">
-        {value}
-        {approximate ? "+" : ""}
-      </p>
-    </div>
-  );
-}
-
-function KpiCards({
-  t,
-  locale,
-  canOrders,
-  canAnalytics,
-  canCustomers,
-  canProducts,
-  canInventory,
-  statusCounts,
-  sales,
-  customers,
-  products,
-  lowStock,
-}: {
-  t: (key: TranslationKey, vars?: Record<string, string | number>) => string;
-  locale: string;
-  canOrders: boolean;
-  canAnalytics: boolean;
-  canCustomers: boolean;
-  canProducts: boolean;
-  canInventory: boolean;
-  statusCounts: Section<Record<string, number>>;
-  sales: Section<BusinessSummary>;
-  customers: Section<Counted>;
-  products: Section<Counted>;
-  lowStock: Section<LowStock>;
-}): ReactNode {
-  const tiles: { key: string; label: string; value: string; approximate: boolean }[] = [];
-
-  if (canOrders && statusCounts.kind === "ready") {
-    tiles.push({
-      key: "orders",
-      label: t("dashboard.kpi.orders"),
-      value: String(sumCounts(statusCounts.data)),
-      approximate: false,
-    });
-  }
-  if (canAnalytics && sales.kind === "ready") {
-    tiles.push({
-      key: "revenue",
-      label: t("dashboard.kpi.revenue"),
-      value: formatMoney(sales.data.collectedMinor, locale),
-      approximate: false,
-    });
-  }
-  if (canCustomers && customers.kind === "ready") {
-    tiles.push({
-      key: "customers",
-      label: t("dashboard.kpi.customers"),
-      value: String(customers.data.count),
-      approximate: customers.data.approximate,
-    });
-  }
-  if (canProducts && products.kind === "ready") {
-    tiles.push({
-      key: "products",
-      label: t("dashboard.kpi.products"),
-      value: String(products.data.count),
-      approximate: products.data.approximate,
-    });
-  }
-  if (canInventory && lowStock.kind === "ready") {
-    tiles.push({
-      key: "inventoryAlerts",
-      label: t("dashboard.kpi.inventoryAlerts"),
-      value: String(lowStock.data.rows.length),
-      approximate: lowStock.data.hasMore,
-    });
-  }
-
-  if (tiles.length === 0) return null;
-
-  return (
-    <div
-      className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-      data-testid="dashboard-overview-kpis"
-    >
-      {tiles.map((tile) => (
-        <KpiTile
-          key={tile.key}
-          label={tile.label}
-          value={tile.value}
-          approximate={tile.approximate}
-        />
-      ))}
     </div>
   );
 }
@@ -319,9 +152,6 @@ function QuickActions({ t }: { t: (key: TranslationKey) => string }): ReactNode 
       <PermissionGate permission="products.manage" feature="products">
         <QuickActionLink to="/products">{t("dashboard.quickActions.newProduct")}</QuickActionLink>
       </PermissionGate>
-      <PermissionGate permission="inventory.manage" feature="inventory">
-        <QuickActionLink to="/inventory">{t("dashboard.quickActions.adjustStock")}</QuickActionLink>
-      </PermissionGate>
     </div>
   );
 }
@@ -339,51 +169,6 @@ function SectionCard({ title, children }: { title: string; children: ReactNode }
 
 function SectionMessage({ text }: { text: string }): ReactNode {
   return <p className="text-sm text-muted-foreground">{text}</p>;
-}
-
-function TodaysBusinessSummary({
-  t,
-  locale,
-  kpis,
-}: {
-  t: (key: TranslationKey) => string;
-  locale: string;
-  kpis: Section<OrdersKpis>;
-}): ReactNode {
-  if (kpis.kind === "loading") return null;
-  if (kpis.kind === "error") {
-    return (
-      <SectionCard title={t("dashboard.today.title")}>
-        <SectionMessage text={t("dashboard.loadFailed")} />
-      </SectionCard>
-    );
-  }
-  const { data } = kpis;
-  const tiles = [
-    { label: t("orders.kpi.ordersToday"), value: String(data.ordersToday) },
-    { label: t("orders.kpi.pending"), value: String(data.pending) },
-    { label: t("orders.kpi.delivered"), value: String(data.delivered) },
-    { label: t("orders.kpi.cancelled"), value: String(data.cancelled) },
-    { label: t("orders.kpi.revenueToday"), value: formatMoney(data.revenueToday, locale) },
-    { label: t("orders.kpi.cod"), value: formatMoney(data.codToday, locale) },
-  ];
-  return (
-    <SectionCard title={t("dashboard.today.title")}>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-        {tiles.map((tile) => (
-          <div key={tile.label} className="flex flex-col">
-            <dt className="text-xs text-muted-foreground">{tile.label}</dt>
-            <dd className="tabular-nums" dir="ltr">
-              {tile.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {data.todayApproximate ? (
-        <p className="mt-2 text-[10px] text-muted-foreground">{t("orders.kpi.approximate")}</p>
-      ) : null}
-    </SectionCard>
-  );
 }
 
 function SalesChartCard({

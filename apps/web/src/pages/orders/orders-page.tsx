@@ -1,14 +1,4 @@
-import {
-  CalendarDays,
-  Clock,
-  Download,
-  MoreHorizontal,
-  Plus,
-  Printer,
-  ShoppingBag,
-  Truck,
-  Wallet,
-} from "lucide-react";
+import { Download, MoreHorizontal, Plus, Printer } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
@@ -19,7 +9,6 @@ import { BulkActionsBar } from "@/components/bulk-actions/bulk-actions-bar";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { MobileListRow } from "@/components/data-grid/mobile-list-row";
-import { KpiRow, type KpiTileSpec } from "@/components/kpi/kpi-card";
 import { useDataGridSelection } from "@/components/data-grid/use-data-grid-selection";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import type { Translate } from "@/components/i18n/translate-type";
@@ -74,7 +63,6 @@ import {
 } from "./orders-detail-sections";
 import { downloadCsv, ordersToCsv } from "./orders-export";
 import { OrdersFilterBar } from "./orders-filter-bar";
-import { fetchOrdersListKpis, type OrdersListKpis } from "./orders-list-kpis";
 import { OrderRowActions, TRANSITIONS } from "./orders-row-actions";
 import { isWhatsappStatus, openWhatsappForOrder, type WhatsappStatus } from "./orders-whatsapp";
 
@@ -150,7 +138,6 @@ function OrdersScreen(): ReactNode {
   }, [searchParams, setSearchParams, capabilities]);
   const [labelsById, setLabelsById] = useState<Map<string, OrderLabel>>(new Map());
   const [selectedOrder, setSelectedOrder] = useState<OrderListItem | null>(null);
-  const [kpis, setKpis] = useState<OrdersListKpis | null>(null);
   // Shipments are always created one order at a time (no bulk shipping) — set
   // when exactly one row is selected and "Create shipment" is clicked.
   const [shippingOrder, setShippingOrder] = useState<OrderListItem | null>(null);
@@ -218,12 +205,6 @@ function OrdersScreen(): ReactNode {
       )
       .catch(() => setLabelsById(new Map()));
   }, []);
-
-  useEffect(() => {
-    void fetchOrdersListKpis()
-      .then(setKpis)
-      .catch(() => setKpis(null));
-  }, [state.kind === "ready" ? state.items.length : -1]);
 
   const selectStatus = (next: OrderStatus | "all"): void => {
     setStatus(next);
@@ -469,8 +450,6 @@ function OrdersScreen(): ReactNode {
           </div>
         ) : null}
       </header>
-
-      {kpis !== null ? <OrdersKpiRow kpis={kpis} t={t} locale={locale} /> : null}
 
       {/* Status tabs with live counts. On a phone the twelve statuses stay on
           one line and scroll sideways — wrapping them turned the strip into a
@@ -768,71 +747,6 @@ function WhatsappPromptCard({
       </div>
     </div>
   );
-}
-
-function OrdersKpiRow({
-  kpis,
-  t,
-  locale,
-}: {
-  kpis: OrdersListKpis;
-  t: Translate;
-  locale: string;
-}): ReactNode {
-  const tiles: KpiTileSpec[] = [
-    {
-      label: t("orders.kpi.cod"),
-      value: formatMoney(kpis.codToday.value, locale),
-      icon: <Wallet className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-success/10 text-success",
-      trendPct: kpis.codToday.trendPct,
-      series: null,
-      approximate: kpis.codToday.approximate,
-    },
-    {
-      label: t("orders.kpi.revenueToday"),
-      value: formatMoney(kpis.revenueToday.value, locale),
-      icon: <ShoppingBag className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-primary/10 text-primary",
-      trendPct: kpis.revenueToday.trendPct,
-      series: null,
-      approximate: kpis.revenueToday.approximate,
-    },
-    {
-      label: t("orders.kpi.shipped"),
-      value: String(kpis.shipped.value),
-      icon: <Truck className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-info/10 text-info",
-      trendPct: kpis.shipped.trendPct,
-      series: kpis.shipped.series,
-    },
-    {
-      label: t("orders.kpi.processing"),
-      value: String(kpis.processing.value),
-      icon: <Clock className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-warning/10 text-warning",
-      trendPct: kpis.processing.trendPct,
-      series: kpis.processing.series,
-    },
-    {
-      label: t("orders.kpi.ordersToday"),
-      value: String(kpis.ordersToday.value),
-      icon: <CalendarDays className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-primary/10 text-primary",
-      trendPct: kpis.ordersToday.trendPct,
-      series: kpis.ordersToday.series,
-    },
-    {
-      label: t("orders.kpi.totalOrders"),
-      value: String(kpis.totalOrders.value),
-      icon: <ShoppingBag className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-muted text-foreground",
-      trendPct: kpis.totalOrders.trendPct,
-      series: kpis.totalOrders.series,
-    },
-  ];
-
-  return <KpiRow tiles={tiles} trendSuffix={t("orders.kpi.vsYesterday")} testId="orders-kpi-row" />;
 }
 
 function StatusTab({

@@ -316,13 +316,6 @@ describe("OrdersPage", () => {
     expect(tab).toHaveTextContent("1");
   });
 
-  it("renders the KPI row from status counts", async () => {
-    renderPage();
-    await screen.findByText("#1042");
-    const kpiRow = await screen.findByTestId("orders-kpi-row");
-    expect(within(kpiRow).getByText("Processing")).toBeInTheDocument();
-  });
-
   it("hides the create button without orders.manage", async () => {
     renderPage(["orders"], ["orders.read"]);
     await screen.findByText("#1042");
