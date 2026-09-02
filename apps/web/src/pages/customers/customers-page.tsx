@@ -5,6 +5,7 @@ import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { MobileListRow } from "@/components/data-grid/mobile-list-row";
 import { useRegisterMobileRefresh } from "@/components/shell/mobile/mobile-header-context";
 import { DetailPanel as SharedDetailPanel } from "@/components/detail-panel/detail-panel";
 import type { Translate } from "@/components/i18n/translate-type";
@@ -19,6 +20,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { StarRatingDisplay } from "@/components/ui/star-rating";
+import { StatusBadge } from "@/components/status-badge/status-badge";
 import { PageTitle } from "@/components/layout/page-title";
 import {
   archiveCustomer,
@@ -40,6 +42,7 @@ import { listItems, type MasterDataItem } from "@/features/master-data/master-da
 import { useIsDesktop } from "@/hooks/use-media-query";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
+import { cn } from "@/lib/cn";
 import { ApiError } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format-money";
 import { buildCustomerColumns } from "./customers-columns";
@@ -283,7 +286,9 @@ function CustomersScreen(): ReactNode {
             items={state.kind === "ready" ? state.items : []}
             loading={state.kind === "loading"}
             getRowId={(row) => row.id}
-            renderCard={renderCustomerDetail}
+            renderCard={(customer) => (
+              <CustomerRow customer={customer} onOpen={() => setSelectedCustomer(customer)} />
+            )}
             emptyTitle={t("customers.empty")}
             hasMore={state.kind === "ready" && state.nextCursor !== null}
             onLoadMore={loadMore}
@@ -318,6 +323,80 @@ function CustomersScreen(): ReactNode {
 }
 
 /** A customer row: masked phone, KPIs, actions, and an expandable detail panel. */
+/**
+ * A customer as a **list row** (Mobile). Deliberately not the same component as
+ * {@link CustomerCard}: a list wants one scannable line per person, while the
+ * detail panel wants every field. Sharing one component gave the list the
+ * density of a detail view — five equally-weighted label/value pairs and two
+ * buttons per customer, with nothing to aim the eye at.
+ *
+ * The hierarchy carries the meaning: initials lead the row so the eye has a
+ * single column to scan, the name is the title, and the money reads down the
+ * trailing edge in tabular figures so amounts line up between rows. Actions are
+ * not on the row's face — tapping it opens the detail panel, which already
+ * holds them (ADR-002: no hover, tap opens the detail).
+ */
+function CustomerRow({
+  customer,
+  onOpen,
+}: {
+  customer: CustomerListItem;
+  onOpen: () => void;
+}): ReactNode {
+  const { t, locale } = useI18n();
+  const initial = customer.name.trim().charAt(0) || "?";
+
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-lg border border-border bg-card",
+        // An archived customer reads as archived from across the room, not by
+        // reading a chip: the whole row recedes.
+        !customer.active && "opacity-60",
+      )}
+    >
+      <MobileListRow
+        onPress={onOpen}
+        leading={
+          <span
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-full text-body font-semibold",
+              customer.active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+            )}
+            aria-hidden="true"
+          >
+            {initial}
+          </span>
+        }
+        title={
+          <span className="flex items-center gap-2">
+            <span className="truncate">{customer.name}</span>
+            {customer.active ? null : (
+              <StatusBadge label={t("customers.status.inactive")} tone="warning" testId="status" />
+            )}
+          </span>
+        }
+        secondary={
+          // Phone alone: adding the last-order date pushed the line past the
+          // width the row can give it, and a clipped date is worse than none.
+          // The date is one tap away in the detail panel.
+          <span dir="ltr">{customer.phoneMasked}</span>
+        }
+        trailing={
+          <span className="flex flex-col items-end gap-0.5">
+            <span className="text-body font-semibold tabular-nums text-foreground" dir="ltr">
+              {formatMoney(customer.totalSpent, locale)}
+            </span>
+            <span>
+              {t("customers.kpi.orders")}: {customer.ordersCount}
+            </span>
+          </span>
+        }
+      />
+    </div>
+  );
+}
+
 function CustomerCard({
   customer,
   governorates,

@@ -33,6 +33,17 @@ function caps(features: string[], permissions: string[], children: ReactNode): R
   return <CapabilitiesContext value={value}>{children}</CapabilitiesContext>;
 }
 
+/**
+ * Opens a customer from the list. The row itself is the affordance now — its
+ * actions and full fields live in the detail panel it opens, not on its face.
+ */
+async function openCustomer(name: string): Promise<void> {
+  const label = await screen.findByText(name);
+  const row = label.closest("li");
+  if (row === null) throw new Error("no row for " + name);
+  await userEvent.click(within(row).getByRole("button"));
+}
+
 function renderPage(
   features = ["customers"],
   permissions = ["customers.read", "customers.manage"],
@@ -176,6 +187,21 @@ describe("CustomersPage", () => {
     expect(screen.queryByText("+201001234567")).not.toBeInTheDocument();
   });
 
+  it("puts each customer on one row, with actions behind it rather than on it", async () => {
+    renderPage();
+    const row = (await screen.findByText("Sara")).closest("li");
+    if (row === null) throw new Error("row not found");
+
+    // Name, masked phone and money are all on the row itself…
+    expect(within(row).getByText("Sara")).toBeInTheDocument();
+    expect(within(row).getByText("+2010•••4567")).toBeInTheDocument();
+    expect(within(row).getByText("1,250.00")).toBeInTheDocument();
+
+    // …but its actions are not: the row is one control that opens the panel,
+    // which is what keeps a list of customers scannable.
+    expect(within(row).getAllByRole("button")).toHaveLength(1);
+    expect(within(row).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
   it("hides the whole screen without the feature", () => {
     renderPage([], []);
     expect(screen.getByText("You do not have access to customers.")).toBeInTheDocument();
@@ -190,8 +216,8 @@ describe("CustomersPage", () => {
 
   it("reveals the full phone and the addresses only on the detail read", async () => {
     renderPage();
-    await screen.findByText("Sara");
-    await userEvent.click(screen.getByRole("button", { name: "Details" }));
+    await openCustomer("Sara");
+    await userEvent.click(await screen.findByRole("button", { name: "Details" }));
 
     expect(await screen.findByText("+201001234567")).toBeInTheDocument();
     expect(screen.getByText(/12 Nile St/)).toBeInTheDocument();
@@ -241,14 +267,14 @@ describe("CustomersPage", () => {
 
   it("edits a customer without sending the phone when it is left blank", async () => {
     renderPage();
-    await screen.findByText("Sara");
-    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await openCustomer("Sara");
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
     const name = screen.getByLabelText("Name");
     await userEvent.clear(name);
     await userEvent.type(name, "Sara Ali");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText("Sara Ali")).toBeInTheDocument();
+    expect((await screen.findAllByText("Sara Ali")).length).toBeGreaterThan(0);
     const patched = fetchMock.mock.calls.find(
       (c) => String(c[0]).endsWith("/customers/c1") && (c[1] as RequestInit)?.method === "PATCH",
     );
@@ -258,30 +284,30 @@ describe("CustomersPage", () => {
 
   it("keeps the list row masked after an edit returns the full phone", async () => {
     renderPage();
-    await screen.findByText("Sara");
-    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await openCustomer("Sara");
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await screen.findByText("Sara Ali");
-    expect(screen.getByText("+2010•••4567")).toBeInTheDocument();
+    await screen.findAllByText("Sara Ali");
+    expect(screen.getAllByText("+2010•••4567").length).toBeGreaterThan(0);
     expect(screen.queryByText("+201001234567")).not.toBeInTheDocument();
   });
 
   it("archives a customer", async () => {
     renderPage();
-    const name = await screen.findByText("Sara");
-    const card = name.closest("li");
-    if (card === null) throw new Error("card not found");
-    await userEvent.click(within(card as HTMLElement).getByRole("button", { name: "Archive" }));
+    const row = (await screen.findByText("Sara")).closest("li");
+    if (row === null) throw new Error("row not found");
+    await openCustomer("Sara");
+    await userEvent.click(await screen.findByRole("button", { name: "Archive" }));
     await waitFor(() =>
-      expect(within(card as HTMLElement).getByTestId("status")).toHaveTextContent("Archived"),
+      expect(within(row as HTMLElement).getByTestId("status")).toHaveTextContent("Archived"),
     );
   });
 
   it("adds an address to a customer", async () => {
     renderPage();
-    await screen.findByText("Sara");
-    await userEvent.click(screen.getByRole("button", { name: "Details" }));
+    await openCustomer("Sara");
+    await userEvent.click(await screen.findByRole("button", { name: "Details" }));
     await screen.findByText("+201001234567");
 
     await userEvent.click(screen.getByRole("button", { name: "Add address" }));
