@@ -32,6 +32,18 @@ function caps(features: string[], permissions: string[], children: ReactNode): R
   return <CapabilitiesContext value={value}>{children}</CapabilitiesContext>;
 }
 
+/**
+ * Opens a product from the list. The row is the affordance now — its actions
+ * and full fields live in the detail panel it opens, not on its face.
+ */
+async function openProduct(name: string): Promise<HTMLElement> {
+  const label = await screen.findByText(name);
+  const row = label.closest("li");
+  if (row === null) throw new Error("no row for " + name);
+  await userEvent.click(within(row).getByRole("button"));
+  return (await screen.findByRole("dialog")) as HTMLElement;
+}
+
 function renderPage(features = ["products"], permissions = ["products.read", "products.manage"]) {
   return render(
     <I18nProvider>
@@ -58,7 +70,7 @@ function product(id: string, over: Record<string, unknown> = {}) {
 }
 
 const PRODUCTS_PAGE = {
-  data: [product("p1")],
+  data: [product("p1", { imageUrl: "https://img.example/mug.png", warehouseNames: ["Main"] })],
   page: { limit: 25, nextCursor: null, hasMore: false },
 };
 
@@ -159,7 +171,32 @@ describe("ProductsPage", () => {
   it("lists products and resolves the category name", async () => {
     renderPage();
     expect(await screen.findByText("Mug")).toBeInTheDocument();
-    expect(await screen.findByText("Kitchen")).toBeInTheDocument();
+    // The category is a detail, not a list column: it arrives with the panel.
+    const panel = await openProduct("Mug");
+    expect(await within(panel).findByText("Kitchen")).toBeInTheDocument();
+  });
+
+  it("puts each product on one row — image, name and warehouse, nothing else", async () => {
+    renderPage();
+    const row = (await screen.findByText("Mug")).closest("li");
+    if (row === null) throw new Error("row not found");
+
+    expect(within(row).getByText("Mug")).toBeInTheDocument();
+    expect(within(row).getByText("Main")).toBeInTheDocument();
+
+    // Category, unit and description belong to the panel, and the row carries
+    // no actions of its own — it is one control that opens that panel.
+    expect(within(row).queryByText("Kitchen")).not.toBeInTheDocument();
+    expect(within(row).queryByText("Ceramic")).not.toBeInTheDocument();
+    expect(within(row).getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("shows the product image, falling back to an initial when it fails", async () => {
+    renderPage();
+    const row = (await screen.findByText("Mug")).closest("li");
+    if (row === null) throw new Error("row not found");
+    const image = within(row).getByRole("presentation", { hidden: true });
+    expect(image).toHaveAttribute("src", "https://img.example/mug.png");
   });
 
   it("hides the whole screen without the feature", () => {
@@ -189,35 +226,28 @@ describe("ProductsPage", () => {
 
   it("archives a product", async () => {
     renderPage();
-    const name = await screen.findByText("Mug");
-    const card = name.closest("li");
-    if (card === null) throw new Error("card not found");
-    await userEvent.click(within(card as HTMLElement).getByRole("button", { name: "Archive" }));
-    await waitFor(() =>
-      expect(within(card as HTMLElement).getByTestId("status")).toHaveTextContent("Archived"),
-    );
+    const panel = await openProduct("Mug");
+    await userEvent.click(within(panel).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(within(panel).getByTestId("status")).toHaveTextContent("Archived"));
   });
 
   it("lazy-loads variants when expanded", async () => {
     renderPage();
-    const name = await screen.findByText("Mug");
-    const card = name.closest("li");
-    if (card === null) throw new Error("card not found");
-    await userEvent.click(within(card as HTMLElement).getByRole("button", { name: "Variants" }));
+    const panel = await openProduct("Mug");
+    await userEvent.click(within(panel).getByRole("button", { name: "Variants" }));
     expect(await screen.findByText("Small")).toBeInTheDocument();
   });
 
   it("edits a product name", async () => {
     renderPage();
-    const name = await screen.findByText("Mug");
-    const card = name.closest("li");
-    if (card === null) throw new Error("card not found");
-    await userEvent.click(within(card as HTMLElement).getByRole("button", { name: "Edit" }));
+    const panel = await openProduct("Mug");
+    await userEvent.click(within(panel).getByRole("button", { name: "Edit" }));
     const input = screen.getByLabelText("Name");
     await userEvent.clear(input);
     await userEvent.type(input, "Tea Mug");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Tea Mug")).toBeInTheDocument();
+    // The rename reaches the list row, not just the panel it was made in.
+    await waitFor(() => expect(screen.getAllByText("Tea Mug").length).toBeGreaterThan(0));
     const patched = fetchMock.mock.calls.find(
       (c) => String(c[0]).endsWith("/products/p1") && (c[1] as RequestInit)?.method === "PATCH",
     );
@@ -226,10 +256,8 @@ describe("ProductsPage", () => {
 
   it("adds a variant", async () => {
     renderPage();
-    const name = await screen.findByText("Mug");
-    const card = name.closest("li");
-    if (card === null) throw new Error("card not found");
-    await userEvent.click(within(card as HTMLElement).getByRole("button", { name: "Variants" }));
+    const panel = await openProduct("Mug");
+    await userEvent.click(within(panel).getByRole("button", { name: "Variants" }));
     await screen.findByText("Small");
     await userEvent.click(screen.getByRole("button", { name: "Add variant" }));
     await userEvent.type(screen.getByLabelText("Name"), "Large");
@@ -239,10 +267,8 @@ describe("ProductsPage", () => {
 
   it("edits a variant SKU", async () => {
     renderPage();
-    const name = await screen.findByText("Mug");
-    const card = name.closest("li");
-    if (card === null) throw new Error("card not found");
-    await userEvent.click(within(card as HTMLElement).getByRole("button", { name: "Variants" }));
+    const panel = await openProduct("Mug");
+    await userEvent.click(within(panel).getByRole("button", { name: "Variants" }));
     const variantRow = (await screen.findByText("Small")).closest("li");
     if (variantRow === null) throw new Error("variant row not found");
     await userEvent.click(within(variantRow as HTMLElement).getByRole("button", { name: "Edit" }));

@@ -4,6 +4,7 @@ import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
 import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
+import { MobileListRow } from "@/components/data-grid/mobile-list-row";
 import { DetailPanel } from "@/components/detail-panel/detail-panel";
 import { FilterBar } from "@/components/filter-bar/filter-bar";
 import { EmptyState } from "@/components/states/empty-state";
@@ -15,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/status-badge/status-badge";
 import { PageTitle } from "@/components/layout/page-title";
 import {
   createTransfer,
@@ -39,6 +41,7 @@ import {
 } from "@/features/products/products-api";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
+import { cn } from "@/lib/cn";
 import { buildProductColumns } from "./products-columns";
 
 /** A `{ id → name }` lookup for a reference collection (categories, units). */
@@ -208,6 +211,15 @@ function ProductsScreen(): ReactNode {
     [t, categoryNames, unitNames],
   );
 
+  /**
+   * One product in the mobile list: a scannable summary row, not the full card.
+   * Editing happens in the detail panel the row opens, exactly as it does for
+   * customers — the list never turns into a column of forms.
+   */
+  const renderProductRow = (product: Product): ReactNode => (
+    <ProductRow product={product} onOpen={() => setSelectedProduct(product)} />
+  );
+
   /** The card-or-edit-form for one product — shared by the mobile list and the desktop detail panel. */
   const renderProductDetail = (product: Product): ReactNode =>
     editingId === product.id ? (
@@ -313,7 +325,7 @@ function ProductsScreen(): ReactNode {
             items={state.kind === "ready" ? state.items : []}
             loading={state.kind === "loading"}
             getRowId={(row) => row.id}
-            renderCard={renderProductDetail}
+            renderCard={renderProductRow}
             emptyTitle={t("products.empty")}
             hasMore={state.kind === "ready" && state.nextCursor !== null}
             onLoadMore={loadMore}
@@ -341,6 +353,73 @@ function ProductsScreen(): ReactNode {
                   content: renderProductDetail(selectedProduct),
                 },
               ]
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * One product as a tappable summary row, matching the customer list: a
+ * thumbnail, the product name, and the warehouse it sits in — nothing else.
+ *
+ * Category, unit, description and variants are deliberately absent. On a phone
+ * the list exists to *find* a product; the moment it carries every field it
+ * stops being scannable and becomes a stack of forms. Everything omitted here
+ * is one tap away in the detail panel.
+ */
+function ProductRow({ product, onOpen }: { product: Product; onOpen: () => void }): ReactNode {
+  const { t } = useI18n();
+  const [imageFailed, setImageFailed] = useState(false);
+  const initial = product.name.trim().charAt(0) || "?";
+  const hasImage = product.imageUrl !== null && product.imageUrl.trim().length > 0 && !imageFailed;
+
+  return (
+    <div
+      className={cn(
+        "card-raised overflow-hidden rounded-xl border border-border bg-card",
+        // An archived product recedes as a whole, the way an archived customer
+        // does — read from across the room rather than off a chip.
+        !product.active && "opacity-60",
+      )}
+    >
+      <MobileListRow
+        onPress={onOpen}
+        leading={
+          hasImage ? (
+            <img
+              src={(product.imageUrl ?? "").trim()}
+              alt=""
+              // A broken URL must not leave a torn-image glyph in the list, so a
+              // load failure falls back to the same initial tile as a product
+              // with no image at all.
+              onError={() => setImageFailed(true)}
+              className="h-11 w-11 rounded-lg border border-border object-cover"
+            />
+          ) : (
+            <span
+              className={cn(
+                "flex h-11 w-11 items-center justify-center rounded-lg text-body font-semibold",
+                product.active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+              )}
+              aria-hidden="true"
+            >
+              {initial}
+            </span>
+          )
+        }
+        title={
+          <span className="flex items-center gap-2">
+            <span className="truncate">{product.name}</span>
+            {product.active ? null : (
+              <StatusBadge label={t("products.status.inactive")} tone="warning" testId="status" />
+            )}
+          </span>
+        }
+        secondary={
+          product.warehouseNames.length > 0
+            ? product.warehouseNames.join("، ")
+            : t("products.field.warehouseNone")
         }
       />
     </div>
