@@ -36,6 +36,8 @@ function build(overrides: {
     listAvailablePermissions: vi.fn().mockResolvedValue([]),
     listTemplateKeys: vi.fn().mockResolvedValue(["owner", "store_manager"]),
     findMember: vi.fn().mockResolvedValue({ id: "m1", userId: "u2", role: "member" }),
+    findOwnRole: vi.fn().mockResolvedValue("owner"),
+    hasOtherActiveOwner: vi.fn().mockResolvedValue(true),
     assignMemberPermissions: vi.fn(),
     ...overrides.repo,
   } as unknown as AccessManagementRepositoryPort;
@@ -102,11 +104,15 @@ describe("AccessService.listAvailablePermissions", () => {
       repo: {
         listAvailablePermissions: vi
           .fn()
-          .mockResolvedValue([{ key: "orders.read", description: null, featureKey: "orders" }]),
+          .mockResolvedValue([
+            { key: "orders.read", description: null, featureKey: "orders", available: true },
+          ]),
       },
     });
     const result = await service.listAvailablePermissions(PRINCIPAL);
-    expect(result).toEqual([{ key: "orders.read", description: null, featureKey: "orders" }]);
+    expect(result).toEqual([
+      { key: "orders.read", description: null, featureKey: "orders", available: true },
+    ]);
   });
 
   it("403s when the caller has no active company", async () => {
@@ -177,5 +183,58 @@ describe("AccessService.assignMemberPermissions", () => {
         templateKey: "owner",
       }),
     ).rejects.toBeInstanceOf(AppException);
+  });
+
+  it("forbids granting the owner template unless the caller is themselves an owner", async () => {
+    const assign = vi.fn();
+    const { service } = build({
+      repo: {
+        findOwnRole: vi.fn().mockResolvedValue("store_manager"),
+        assignMemberPermissions: assign,
+      },
+    });
+    await expect(
+      service.assignMemberPermissions(PRINCIPAL, "m1", { templateKey: "owner" }),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("allows an owner to grant the owner template", async () => {
+    const assign = vi.fn().mockResolvedValue(result);
+    const { service } = build({
+      repo: { findOwnRole: vi.fn().mockResolvedValue("owner"), assignMemberPermissions: assign },
+    });
+    await expect(
+      service.assignMemberPermissions(PRINCIPAL, "m1", { templateKey: "owner" }),
+    ).resolves.toEqual(result.after);
+  });
+
+  it("refuses to reassign the company's last owner away from the owner template", async () => {
+    const assign = vi.fn();
+    const { service } = build({
+      repo: {
+        findMember: vi.fn().mockResolvedValue({ id: "m1", userId: "u2", role: "owner" }),
+        hasOtherActiveOwner: vi.fn().mockResolvedValue(false),
+        assignMemberPermissions: assign,
+      },
+    });
+    await expect(
+      service.assignMemberPermissions(PRINCIPAL, "m1", { templateKey: "store_manager" }),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("allows reassigning an owner's role away from owner when another owner remains", async () => {
+    const assign = vi.fn().mockResolvedValue(result);
+    const { service } = build({
+      repo: {
+        findMember: vi.fn().mockResolvedValue({ id: "m1", userId: "u2", role: "owner" }),
+        hasOtherActiveOwner: vi.fn().mockResolvedValue(true),
+        assignMemberPermissions: assign,
+      },
+    });
+    await expect(
+      service.assignMemberPermissions(PRINCIPAL, "m1", { templateKey: "store_manager" }),
+    ).resolves.toEqual(result.after);
   });
 });

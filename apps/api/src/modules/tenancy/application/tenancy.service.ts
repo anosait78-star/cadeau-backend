@@ -214,7 +214,6 @@ export class TenancyService {
     principal: RequestPrincipal,
     companyId: string,
     input: {
-      readonly email: string;
       readonly role: string;
       readonly permissionKeys?: readonly string[];
     },
@@ -228,7 +227,6 @@ export class TenancyService {
     const code = randomBytes(32).toString("base64url");
     const invitation = await this.repo.createInvitation({
       companyId,
-      email: input.email,
       role: input.role,
       customPermissionKeys,
       codeHash: hashCode(code),
@@ -239,7 +237,6 @@ export class TenancyService {
       userId: principal.userId,
       companyId,
       invitationId: invitation.id,
-      email: input.email,
       role: input.role,
     });
     return { invitation, code };
@@ -326,7 +323,11 @@ export class TenancyService {
     return this.repo.listMembers(companyId);
   }
 
-  /** Remove a member from the caller's active company. Refuses to remove the last Owner. */
+  /**
+   * Remove a member from the caller's active company. Refuses to remove the
+   * last Owner, and (mirroring `createInvitation`'s invite-side rule) refuses
+   * to remove an Owner at all unless the caller is themselves an Owner.
+   */
   async removeMember(
     principal: RequestPrincipal,
     companyId: string,
@@ -341,6 +342,8 @@ export class TenancyService {
     switch (outcome.kind) {
       case "not_found":
         throw AppErrors.notFound("Member not found.");
+      case "not_owner":
+        throw AppErrors.forbidden("Only an existing Owner can remove another Owner.");
       case "last_owner":
         throw AppErrors.conflict("Cannot remove the company's last owner.");
       case "removed":
@@ -353,7 +356,12 @@ export class TenancyService {
     }
   }
 
-  /** Accept an invitation by its code, joining the company. */
+  /**
+   * Accept an invitation by its code, joining the company. The code is the
+   * whole credential: it is issued to whoever the inviter shares it with, and
+   * the invitee signs up with their own address, so there is no email to match
+   * against. Bounded by the invitation's expiry and revocability instead.
+   */
   async acceptInvitation(
     principal: RequestPrincipal,
     code: string,
@@ -365,15 +373,12 @@ export class TenancyService {
     const outcome = await this.repo.acceptInvitationByCode({
       codeHash: hashCode(code),
       userId: principal.userId,
-      email: profile.email,
     });
     switch (outcome.kind) {
       case "invalid":
         // Generic 404 so a bad code cannot be distinguished from an expired/
         // revoked one (no invitation enumeration).
         throw AppErrors.notFound("Invitation is invalid or has expired.");
-      case "email_mismatch":
-        throw AppErrors.forbidden("This invitation was issued to a different email.");
       case "already_member":
         return { companyId: outcome.companyId, role: outcome.role, alreadyMember: true };
       case "accepted":
@@ -390,8 +395,8 @@ export class TenancyService {
    * Accept a warehouse join code, joining the company as a `"vendor"` member
    * scoped to that code's warehouse (Vendor Accounts, Phase 1). Mirrors
    * {@link acceptInvitation}'s shape (generic 404 so a bad code cannot be
-   * distinguished from an inactive one; idempotent already-member) but with no
-   * email check — the code is not email-scoped.
+   * distinguished from an inactive one; idempotent already-member), scoped to
+   * one warehouse.
    */
   async joinWarehouseByCode(
     principal: RequestPrincipal,

@@ -224,9 +224,6 @@ export function TeamPage(): ReactNode {
                   <thead>
                     <tr className="border-b border-border text-start text-xs uppercase text-muted-foreground">
                       <th className="px-2 py-2 text-start font-medium">
-                        {t("team.invitations.column.email")}
-                      </th>
-                      <th className="px-2 py-2 text-start font-medium">
                         {t("team.invitations.column.role")}
                       </th>
                       <th className="px-2 py-2 text-start font-medium">
@@ -243,7 +240,6 @@ export function TeamPage(): ReactNode {
                       const expired = new Date(invitation.expiresAt).getTime() <= Date.now();
                       return (
                         <tr key={invitation.id} className="border-b border-border last:border-0">
-                          <td className="px-2 py-2">{invitation.email}</td>
                           <td className="px-2 py-2">{roleLabel(invitation.role, t)}</td>
                           <td className="px-2 py-2">
                             <StatusBadge
@@ -330,7 +326,7 @@ export function TeamPage(): ReactNode {
         }}
         title={t("team.invitations.revoke.confirmTitle")}
         description={t("team.invitations.revoke.confirmDescription", {
-          email: invitationToRevoke?.email ?? "",
+          role: invitationToRevoke === null ? "" : roleLabel(invitationToRevoke.role, t),
         })}
         confirmLabel={t("team.invitations.revoke.confirm")}
         cancelLabel={t("team.invitations.revoke.cancel")}

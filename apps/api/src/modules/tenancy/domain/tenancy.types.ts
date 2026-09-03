@@ -58,7 +58,6 @@ export interface MeView {
 export interface InvitationRecord {
   readonly id: string;
   readonly companyId: string;
-  readonly email: string;
   readonly role: string;
   /**
    * Permission keys for a one-off "custom" role (Team/Invitations, EPIC-15).
@@ -70,16 +69,20 @@ export interface InvitationRecord {
   readonly createdAt: Date;
 }
 
-/** Result of accepting an invite by code. */
+/**
+ * Result of accepting an invite by code. The code alone identifies the
+ * invitation — it is not scoped to an email address, so whoever holds it joins
+ * with it, exactly like {@link AcceptWarehouseJoinCodeOutcome}.
+ */
 export type AcceptOutcome =
   | { readonly kind: "accepted"; readonly companyId: string; readonly role: string }
   | { readonly kind: "already_member"; readonly companyId: string; readonly role: string }
-  | { readonly kind: "invalid" }
-  | { readonly kind: "email_mismatch" };
+  | { readonly kind: "invalid" };
 
 /**
- * Result of accepting a warehouse join code (Vendor Accounts, Phase 1). No
- * email check — the code is not email-scoped, unlike {@link AcceptOutcome}.
+ * Result of accepting a warehouse join code (Vendor Accounts, Phase 1). Same
+ * shape as {@link AcceptOutcome}, plus the warehouse the membership is scoped
+ * to.
  */
 export type AcceptWarehouseJoinCodeOutcome =
   | {
@@ -111,4 +114,5 @@ export interface MemberView {
 export type RemoveMemberOutcome =
   | { readonly kind: "removed" }
   | { readonly kind: "not_found" }
-  | { readonly kind: "last_owner" };
+  | { readonly kind: "last_owner" }
+  | { readonly kind: "not_owner" };

@@ -110,6 +110,8 @@ export class TenancyController {
   }
 
   @Patch("companies/:companyId/whatsapp-settings")
+  @UseGuards(AccessGuard)
+  @RequireCapability({ permission: "access.manage" })
   @ApiOperation({
     summary: "Update the company's WhatsApp dialing-prefix setting",
     operationId: "updateWhatsappSettings",
@@ -139,7 +141,6 @@ export class TenancyController {
     @Body() dto: CreateInvitationDto,
   ): Promise<CreatedInvitationDto> {
     const created = await this.tenancy.createInvitation(principal, companyId, {
-      email: dto.email,
       role: dto.role,
       ...(dto.permissionKeys !== undefined ? { permissionKeys: dto.permissionKeys } : {}),
     });

@@ -167,7 +167,6 @@ describe("TenancyController", () => {
       invitation: {
         id: randomUUID(),
         companyId,
-        email: "t@test.dev",
         role: "store_manager",
         customPermissionKeys: [],
         status: "pending",
@@ -179,11 +178,9 @@ describe("TenancyController", () => {
     const createInvitation = vi.fn().mockResolvedValue(created);
     const controller = make({ createInvitation });
     const dto = await controller.createInvitation(PRINCIPAL, companyId, {
-      email: "t@test.dev",
       role: "store_manager",
     });
     expect(createInvitation).toHaveBeenCalledWith(PRINCIPAL, companyId, {
-      email: "t@test.dev",
       role: "store_manager",
       permissionKeys: undefined,
     });
@@ -197,7 +194,6 @@ describe("TenancyController", () => {
       invitation: {
         id: randomUUID(),
         companyId,
-        email: "t@test.dev",
         role: "custom",
         customPermissionKeys: ["orders.read"],
         status: "pending",
@@ -209,12 +205,10 @@ describe("TenancyController", () => {
     const createInvitation = vi.fn().mockResolvedValue(created);
     const controller = make({ createInvitation });
     const dto = await controller.createInvitation(PRINCIPAL, companyId, {
-      email: "t@test.dev",
       role: "custom",
       permissionKeys: ["orders.read"],
     });
     expect(createInvitation).toHaveBeenCalledWith(PRINCIPAL, companyId, {
-      email: "t@test.dev",
       role: "custom",
       permissionKeys: ["orders.read"],
     });
@@ -236,7 +230,6 @@ describe("TenancyController", () => {
       {
         id: randomUUID(),
         companyId,
-        email: "t@test.dev",
         role: "custom",
         customPermissionKeys: ["orders.read"],
         status: "pending",

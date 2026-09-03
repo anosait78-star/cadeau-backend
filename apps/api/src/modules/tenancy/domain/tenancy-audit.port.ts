@@ -13,7 +13,6 @@ export interface TenancyAuditDetails {
   readonly userId?: string;
   readonly companyId?: string;
   readonly invitationId?: string;
-  readonly email?: string;
   readonly role?: string;
   readonly memberId?: string;
   /** The warehouse a vendor member is scoped to (Vendor Accounts, Phase 1). */

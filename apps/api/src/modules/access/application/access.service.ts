@@ -30,6 +30,16 @@ export interface AssignMemberInput {
 }
 
 /**
+ * The Owner template key. Called out separately for the same reason
+ * `TenancyService.createInvitation` singles it out: the permission catalog has
+ * no dedicated "manage owners" capability, so granting/changing Owner — the
+ * one template that is a strict superset of every other permission, including
+ * `access.manage` itself — needs its own rule rather than being gated by the
+ * same `access.manage` check as every other template.
+ */
+const OWNER_TEMPLATE_KEY = "owner";
+
+/**
  * Orchestrates the caller-facing access surface: reading effective capabilities
  * (delegating the triple-layer resolution to the shared {@link AccessResolverService}),
  * listing the company's features and the permission templates, and assigning a
@@ -105,11 +115,31 @@ export class AccessService {
       if (!known.includes(input.templateKey)) {
         throw AppErrors.validation(`Unknown permission template: ${input.templateKey}.`);
       }
+      // Only an Owner may grant Owner — mirrors the invite-side rule, since
+      // holding `access.manage` (this route's only gate) is not itself proof
+      // the caller is an Owner.
+      if (input.templateKey === OWNER_TEMPLATE_KEY) {
+        const actorRole = await this.repo.findOwnRole(companyId, principal.userId);
+        if (actorRole !== OWNER_TEMPLATE_KEY) {
+          throw AppErrors.forbidden("Only an existing Owner can grant the Owner role.");
+        }
+      }
     }
 
     const member = await this.repo.findMember(companyId, memberId);
     if (member === null) {
       throw AppErrors.notFound("Member not found.");
+    }
+
+    // Reassigning the company's last Owner away from "owner" would leave it
+    // with none — the same invariant `TenancyService.removeMember` protects.
+    if (
+      input.templateKey !== undefined &&
+      input.templateKey !== member.role &&
+      member.role === OWNER_TEMPLATE_KEY &&
+      !(await this.repo.hasOtherActiveOwner(companyId, memberId))
+    ) {
+      throw AppErrors.conflict("Cannot change the company's last owner's role.");
     }
 
     const result = await this.repo.assignMemberPermissions({

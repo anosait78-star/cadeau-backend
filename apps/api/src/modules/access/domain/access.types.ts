@@ -17,18 +17,25 @@ export interface PermissionTemplateView {
 }
 
 /**
- * One permission the caller's company can actually grant right now — filtered
- * to the company's effective features (plan ∪ add-ons, flags applied, ∩
- * globally-active), independent of any one member's role. `featureKey` is
- * `null` for the two feature-independent core permissions (`access.read`,
- * `access.manage`). Powers the custom-role permission picker (Team/Invitations,
- * EPIC-15) — the same three-layer resolution `POST .../invitations` validates
- * a custom role's chosen keys against server-side.
+ * One permission from the catalog, carrying whether the caller's company can
+ * actually grant it right now — `available` is the three-layer resolution
+ * (plan ∪ add-ons, flags applied, ∩ globally-active), independent of any one
+ * member's role. `featureKey` is `null` for the two feature-independent core
+ * permissions (`access.read`, `access.manage`).
+ *
+ * The **whole** catalog is returned, not just the grantable part: the
+ * custom-role picker shows an out-of-plan permission disabled rather than
+ * hiding it, so an admin can see what the company does not have instead of
+ * wondering whether the list is complete. `POST .../invitations` still
+ * re-validates every chosen key server-side against the same resolution — an
+ * unavailable key sent anyway is rejected there, so listing it is not a grant.
  */
 export interface AvailablePermissionView {
   readonly key: string;
   readonly description: string | null;
   readonly featureKey: string | null;
+  /** Whether the company's plan/features currently make this permission grantable. */
+  readonly available: boolean;
 }
 
 /** The caller's effective capabilities plus their platform/tenant context. */

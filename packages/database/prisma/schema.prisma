@@ -221,7 +221,6 @@ model Session {
 model Invitation {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   companyId  String    @map("company_id") @db.Uuid
-  email      String    @db.Citext
   role       String    @default("member")
   /// Permission keys for a one-off "custom" role (Team/Invitations, EPIC-15). Only
   /// populated when `role = "custom"`; belongs to this invitation alone — never a
@@ -242,7 +241,6 @@ model Invitation {
   acceptedByUser Profile? @relation("InvitationAcceptedBy", fields: [acceptedBy], references: [id], onDelete: SetNull)
 
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "invitations_keyset_idx")
-  @@index([companyId, email], map: "invitations_email_idx")
   @@map("invitations")
 }
 
@@ -794,8 +792,8 @@ model Warehouse {
 /// A rotatable, revocable self-service join code for one warehouse (Vendor
 /// Accounts, Phase 1). One row per warehouse (`warehouseId` unique) — the
 /// "current slot" a company can create/rotate/revoke, not a history of past
-/// invitations. Distinct from {@link Invitation}: not email-scoped, reusable
-/// by anyone who has it, and there is no expiry — only `isActive`.
+/// invitations. Distinct from {@link Invitation}: reusable rather than
+/// single-use, and there is no expiry — only `isActive`.
 /// `codeHash` follows the same show-once convention as `Invitation.codeHash`
 /// (sha256 of the plaintext; the plaintext itself is never stored and is
 /// returned to the caller only once, at creation/rotation time).

@@ -43,11 +43,13 @@ multiple companies; the active tenant comes from the token, never the payload
   (invite create/revoke) require the path `companyId` to equal the active tenant in
   the token AND an active membership; otherwise `403` (ADR-003).
 - **Invite codes** are high-entropy, returned once, stored only as a SHA-256 hash;
-  acceptance is email-matched, single-use, and idempotent (re-accept ⇒
-  `alreadyMember: true`). Invalid/expired/revoked codes all return an
+  acceptance is single-use and idempotent (re-accept ⇒ `alreadyMember: true`).
+  An invitation names no recipient: the inviter shares the code directly and the
+  invitee signs up with whatever address they choose, so the code alone is the
+  credential — bounded by its 7-day expiry and its revocability. Invalid/expired/revoked codes all return an
   indistinguishable `404` (no enumeration).
 - **Warehouse join codes** (Vendor Accounts, Phase 1) are a separate concept
-  from `Invitation` — not email-scoped, reusable while active, no expiry
+  from `Invitation` — reusable while active rather than single-use, no expiry
   (created/rotated/revoked from `/v1/warehouses/{id}/join-code`, see
   [inventory.md](./inventory.md)). Accepting one always creates a
   `role = "vendor"` member with `CompanyMember.warehouseId` set to that

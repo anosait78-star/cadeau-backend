@@ -49,12 +49,12 @@ describe("AccessController", () => {
       listAvailablePermissions: vi
         .fn()
         .mockResolvedValue([
-          { key: "orders.read", description: "View orders", featureKey: "orders" },
+          { key: "orders.read", description: "View orders", featureKey: "orders", available: true },
         ]),
     } as unknown as AccessService;
     const dto = await new AccessController(service).listAvailablePermissions(PRINCIPAL);
     expect(dto.data).toEqual([
-      { key: "orders.read", description: "View orders", featureKey: "orders" },
+      { key: "orders.read", description: "View orders", featureKey: "orders", available: true },
     ]);
   });
 

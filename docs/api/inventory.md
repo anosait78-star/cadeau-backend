@@ -30,7 +30,7 @@ updatedAt }`. One row per (warehouse, variant); created on
 - `StockTransfer` — an atomic move between warehouses (a durable log).
 - `StockAdjustment` — a counted correction (reason-coded, a durable log).
 - `WarehouseJoinCode` — a rotatable, revocable self-service join code, one per
-  warehouse (Vendor Accounts, Phase 1). Not email-scoped and not single-use,
+  warehouse (Vendor Accounts, Phase 1). Reusable rather than single-use,
   unlike `Invitation`; stored only as a SHA-256 hash and returned plaintext
   once, at creation/rotation (see [tenancy.md](./tenancy.md) for the accept
   flow). `GET .../join-code` never exposes the plaintext.

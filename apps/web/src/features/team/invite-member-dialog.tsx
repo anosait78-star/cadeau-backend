@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { LoadingState } from "@/components/states/loading-state";
@@ -21,18 +20,20 @@ import {
   type CreatedInvitation,
   type TemplateRole,
 } from "./team-api";
-import { CORE_MODULE_KEY, MODULE_LABEL_KEYS } from "./team-module-labels";
+import { PermissionPicker } from "./permission-picker";
 
 type RoleType = "predefined" | "custom";
 type Step = 1 | 2;
 
 /**
- * "Invite member": step 1 picks the email + role (a fixed template, or
- * "custom"); step 2 — custom only — picks the exact permission set from what
- * the company's plan/features currently make available. The server
- * re-validates everything (role, permission keys, and the Owner-invite rule)
- * regardless of what this dialog sends — this is UX only, never the security
- * boundary.
+ * "Invite member": step 1 picks the role (a fixed template, or "custom");
+ * step 2 — custom only — picks the exact permission set from what the
+ * company's plan/features currently make available. The server re-validates
+ * everything (role, permission keys, and the Owner-invite rule) regardless of
+ * what this dialog sends — this is UX only, never the security boundary.
+ *
+ * There is no recipient field: the invitation is delivered as a one-time code
+ * the inviter shares directly, and the invitee signs up with their own email.
  */
 export function InviteMemberDialog({
   open,
@@ -53,7 +54,6 @@ export function InviteMemberDialog({
 }): ReactNode {
   const { t } = useI18n();
   const [step, setStep] = useState<Step>(1);
-  const [email, setEmail] = useState("");
   const [roleType, setRoleType] = useState<RoleType>("predefined");
   const [predefinedRole, setPredefinedRole] = useState<TemplateRole>("store_manager");
   const [grantAccessManage, setGrantAccessManage] = useState(false);
@@ -68,7 +68,6 @@ export function InviteMemberDialog({
   useEffect(() => {
     if (!open) return;
     setStep(1);
-    setEmail("");
     setRoleType("predefined");
     setPredefinedRole("store_manager");
     setGrantAccessManage(false);
@@ -88,18 +87,21 @@ export function InviteMemberDialog({
       .catch(() => setPermissionsState("error"));
   }, [open, roleType, permissionsState]);
 
-  const groups = useMemo(() => {
-    const byModule = new Map<string, AvailablePermission[]>();
-    for (const permission of availablePermissions) {
-      const key = permission.featureKey ?? CORE_MODULE_KEY;
-      const list = byModule.get(key) ?? [];
-      list.push(permission);
-      byModule.set(key, list);
+  // Only a grantable permission may ever enter the selection: the server
+  // rejects an out-of-plan key, so offering one in "select all" would build a
+  // set that cannot be submitted.
+  const grantable = useMemo(
+    () => availablePermissions.filter((p) => p.available),
+    [availablePermissions],
+  );
+  const selectedModuleCount = useMemo(() => {
+    const modules = new Set<string>();
+    for (const permission of grantable) {
+      if (selected.has(permission.key)) modules.add(permission.featureKey ?? "core");
     }
-    return [...byModule.entries()];
-  }, [availablePermissions]);
+    return modules.size;
+  }, [grantable, selected]);
 
-  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const predefinedRoleOptions = TEMPLATE_ROLES.filter((role) => {
     if (role === "owner") return isOwner;
     if (role === MANAGER_ROLE) return isOwner || isManager;
@@ -115,12 +117,22 @@ export function InviteMemberDialog({
     });
   };
 
+  const selectMany = (keys: readonly string[], select: boolean): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) {
+        if (select) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
   const submit = async (): Promise<void> => {
     setPending(true);
     setError(null);
     try {
       const created = await createInvitation(companyId, {
-        email: email.trim(),
         role: roleType === "custom" ? CUSTOM_ROLE : predefinedRole,
         ...(roleType === "custom" ? { permissionKeys: [...selected] } : {}),
         ...(roleType === "predefined" && predefinedRole === MANAGER_ROLE && grantAccessManage
@@ -136,9 +148,9 @@ export function InviteMemberDialog({
     }
   };
 
-  const canGoNext = emailValid && roleType === "custom";
-  const canSubmitPredefined = emailValid && roleType === "predefined";
-  const canSubmitCustom = emailValid && selected.size > 0;
+  const canGoNext = roleType === "custom";
+  const canSubmitPredefined = roleType === "predefined";
+  const canSubmitCustom = selected.size > 0;
 
   return (
     <Modal
@@ -151,17 +163,6 @@ export function InviteMemberDialog({
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
         {step === 1 ? (
           <div className="flex flex-col gap-4">
-            <FormField label={t("team.invite.field.email")} htmlFor="invite-email" required>
-              <Input
-                id="invite-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
-                aria-label={t("team.invite.field.email")}
-              />
-            </FormField>
-
             <div className="flex flex-col gap-1.5">
               <Label>{t("team.invite.field.role")}</Label>
               <div
@@ -242,21 +243,24 @@ export function InviteMemberDialog({
 
             {permissionsState === "ready" && availablePermissions.length > 0 ? (
               <>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">
-                    {t("team.invite.custom.selected", { count: selected.size })}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-caption text-muted-foreground">
+                    {t("team.invite.custom.summary", {
+                      permissions: selected.size,
+                      modules: selectedModuleCount,
+                    })}
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex gap-3">
                     <button
                       type="button"
-                      className="text-sm text-primary hover:underline"
-                      onClick={() => setSelected(new Set(availablePermissions.map((p) => p.key)))}
+                      className="text-caption text-primary hover:underline"
+                      onClick={() => setSelected(new Set(grantable.map((p) => p.key)))}
                     >
                       {t("team.invite.custom.selectAll")}
                     </button>
                     <button
                       type="button"
-                      className="text-sm text-primary hover:underline"
+                      className="text-caption text-primary hover:underline"
                       onClick={() => setSelected(new Set())}
                     >
                       {t("team.invite.custom.clearAll")}
@@ -264,43 +268,12 @@ export function InviteMemberDialog({
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-3">
-                  {groups.map(([moduleKey, permissions]) => (
-                    <div key={moduleKey} className="rounded-md border border-border p-3">
-                      <p className="mb-2 text-sm font-medium">
-                        {moduleKey === CORE_MODULE_KEY
-                          ? t("team.module.core")
-                          : MODULE_LABEL_KEYS[moduleKey] !== undefined
-                            ? t(MODULE_LABEL_KEYS[moduleKey])
-                            : moduleKey}
-                      </p>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {permissions.map((permission) => (
-                          <label
-                            key={permission.key}
-                            className="flex items-start gap-2 text-sm"
-                            htmlFor={`perm-${permission.key}`}
-                          >
-                            <Checkbox
-                              id={`perm-${permission.key}`}
-                              checked={selected.has(permission.key)}
-                              onChange={() => toggle(permission.key)}
-                              className="mt-0.5"
-                            />
-                            <span className="flex flex-col">
-                              <span className="font-mono text-xs">{permission.key}</span>
-                              {permission.description !== null ? (
-                                <span className="text-xs text-muted-foreground">
-                                  {permission.description}
-                                </span>
-                              ) : null}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <PermissionPicker
+                  permissions={availablePermissions}
+                  selected={selected}
+                  onToggle={toggle}
+                  onSelectMany={selectMany}
+                />
               </>
             ) : null}
           </div>

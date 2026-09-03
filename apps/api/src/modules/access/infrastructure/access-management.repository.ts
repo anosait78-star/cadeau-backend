@@ -115,13 +115,15 @@ export class AccessManagementRepository implements AccessManagementRepositoryPor
         featureKeyByPermission.set(edge.permissionKey, edge.featureKey);
       }
 
-      return catalog
-        .filter((p) => available.has(p.key))
-        .map((p) => ({
-          key: p.key,
-          description: p.description,
-          featureKey: featureKeyByPermission.get(p.key) ?? null,
-        }));
+      // The whole catalog goes back, flagged — the picker disables what the
+      // company cannot grant instead of hiding it. Invitation creation runs
+      // this same resolution again, so an unavailable key is still refused.
+      return catalog.map((p) => ({
+        key: p.key,
+        description: p.description,
+        featureKey: featureKeyByPermission.get(p.key) ?? null,
+        available: available.has(p.key),
+      }));
     });
   }
 
@@ -133,6 +135,27 @@ export class AccessManagementRepository implements AccessManagementRepositoryPor
         select: { id: true, userId: true, role: true },
       });
       return row === null ? null : { id: row.id, userId: row.userId, role: row.role };
+    });
+  }
+
+  async findOwnRole(companyId: string, userId: string): Promise<string | null> {
+    return this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+      const row = await tx.companyMember.findFirst({
+        where: { companyId, userId, status: "active" },
+        select: { role: true },
+      });
+      return row?.role ?? null;
+    });
+  }
+
+  async hasOtherActiveOwner(companyId: string, excludingMemberId: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+      const count = await tx.companyMember.count({
+        where: { companyId, role: "owner", status: "active", id: { not: excludingMemberId } },
+      });
+      return count > 0;
     });
   }
 

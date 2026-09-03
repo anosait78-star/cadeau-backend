@@ -4,7 +4,6 @@ import {
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
-  IsEmail,
   IsIn,
   IsOptional,
   IsString,
@@ -21,14 +20,11 @@ export { INVITABLE_ROLES, TEMPLATE_ROLES, CUSTOM_ROLE } from "../../domain/tenan
  * `"custom"` to grant exactly the `permissionKeys` chosen for this invitation
  * alone (validated server-side against what the company's plan/features
  * actually make available — never trusted as given).
+ *
+ * There is no recipient address: the inviter shares the returned one-time code
+ * directly, and the invitee signs up with whatever address they choose.
  */
 export class CreateInvitationDto {
-  @ApiProperty({ example: "teammate@acme.test", maxLength: 254 })
-  @Transform(({ value }) => (typeof value === "string" ? value.trim().toLowerCase() : value))
-  @IsEmail({}, { message: "email must be a valid email address" })
-  @MaxLength(254)
-  email!: string;
-
   @ApiProperty({ enum: INVITABLE_ROLES, example: "store_manager" })
   @IsIn(INVITABLE_ROLES, { message: `role must be one of: ${INVITABLE_ROLES.join(", ")}` })
   role!: InvitableRole;
@@ -54,9 +50,6 @@ export class CreatedInvitationDto {
   @ApiProperty({ format: "uuid" })
   id!: string;
 
-  @ApiProperty({ example: "teammate@acme.test" })
-  email!: string;
-
   @ApiProperty({ example: "store_manager" })
   role!: string;
 
@@ -78,7 +71,6 @@ export class CreatedInvitationDto {
     const dto = new CreatedInvitationDto();
     const { invitation } = created;
     dto.id = invitation.id;
-    dto.email = invitation.email;
     dto.role = invitation.role;
     dto.permissionKeys = [...invitation.customPermissionKeys];
     dto.status = invitation.status;
@@ -92,9 +84,6 @@ export class CreatedInvitationDto {
 export class InvitationDto {
   @ApiProperty({ format: "uuid" })
   id!: string;
-
-  @ApiProperty({ example: "teammate@acme.test" })
-  email!: string;
 
   @ApiProperty({ example: "store_manager" })
   role!: string;
@@ -111,7 +100,6 @@ export class InvitationDto {
   static from(invitation: InvitationRecord): InvitationDto {
     const dto = new InvitationDto();
     dto.id = invitation.id;
-    dto.email = invitation.email;
     dto.role = invitation.role;
     dto.permissionKeys = [...invitation.customPermissionKeys];
     dto.status = invitation.status;

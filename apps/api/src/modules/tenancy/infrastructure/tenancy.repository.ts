@@ -43,7 +43,6 @@ const COMPANY_SELECT = {
 const INVITATION_SELECT = {
   id: true,
   companyId: true,
-  email: true,
   role: true,
   customPermissionKeys: true,
   status: true,
@@ -214,7 +213,6 @@ export class TenancyRepository implements TenancyRepositoryPort {
 
   async createInvitation(input: {
     readonly companyId: string;
-    readonly email: string;
     readonly role: string;
     readonly customPermissionKeys?: readonly string[];
     readonly codeHash: string;
@@ -226,7 +224,6 @@ export class TenancyRepository implements TenancyRepositoryPort {
       return tx.invitation.create({
         data: {
           companyId: input.companyId,
-          email: input.email,
           role: input.role,
           customPermissionKeys: [...(input.customPermissionKeys ?? [])],
           codeHash: input.codeHash,
@@ -349,6 +346,16 @@ export class TenancyRepository implements TenancyRepositoryPort {
         return { kind: "not_found" };
       }
       if (member.role === "owner") {
+        // Mirrors createInvitation's own-role-must-be-owner rule: removing an
+        // Owner is at least as sensitive as inviting one, so it gets the same
+        // ceiling — access.manage alone (the route's only guard) isn't enough.
+        const actor = await tx.companyMember.findFirst({
+          where: { companyId: input.companyId, userId: input.actorId, status: "active" },
+          select: { role: true },
+        });
+        if (actor?.role !== "owner") {
+          return { kind: "not_owner" };
+        }
         const ownerCount = await tx.companyMember.count({
           where: { companyId: input.companyId, role: "owner", status: "active" },
         });
@@ -364,7 +371,6 @@ export class TenancyRepository implements TenancyRepositoryPort {
   async acceptInvitationByCode(input: {
     readonly codeHash: string;
     readonly userId: string;
-    readonly email: string;
   }): Promise<AcceptOutcome> {
     return this.prisma.$transaction(async (tx) => {
       // 1. Resolve the invite pre-tenant (user context only ⇒ code-lookup policy).
@@ -374,7 +380,6 @@ export class TenancyRepository implements TenancyRepositoryPort {
         select: {
           id: true,
           companyId: true,
-          email: true,
           role: true,
           customPermissionKeys: true,
           status: true,
@@ -389,9 +394,6 @@ export class TenancyRepository implements TenancyRepositoryPort {
         invite.expiresAt.getTime() <= Date.now()
       ) {
         return { kind: "invalid" };
-      }
-      if (invite.email.toLowerCase() !== input.email.toLowerCase()) {
-        return { kind: "email_mismatch" };
       }
 
       // 2. Bind the invite's tenant for the membership insert + status update.
@@ -512,7 +514,6 @@ function toInvitationRecord(row: InvitationRow): InvitationRecord {
   return {
     id: row.id,
     companyId: row.companyId,
-    email: row.email,
     role: row.role,
     customPermissionKeys: row.customPermissionKeys,
     status: row.status,

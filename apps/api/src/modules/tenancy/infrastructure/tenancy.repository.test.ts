@@ -381,7 +381,6 @@ describe("TenancyRepository — invitations", () => {
     const { repo } = make();
     const invite = await repo.createInvitation({
       companyId: COMPANY,
-      email: "t@test.dev",
       role: "member",
       codeHash: "hash",
       expiresAt: new Date(Date.now() + 1000),
@@ -397,11 +396,10 @@ describe("TenancyRepository — invitations", () => {
     ).toBe(false);
   });
 
-  it("accepts a live invite addressed to the caller, joining the company", async () => {
+  it("accepts a live invite from whoever holds the code, joining the company", async () => {
     const { repo, db } = make();
     await repo.createInvitation({
       companyId: COMPANY,
-      email: "t@test.dev",
       role: "member",
       codeHash: "code-hash",
       expiresAt: new Date(Date.now() + 60_000),
@@ -410,7 +408,6 @@ describe("TenancyRepository — invitations", () => {
     const outcome = await repo.acceptInvitationByCode({
       codeHash: "code-hash",
       userId: USER2,
-      email: "t@test.dev",
     });
     expect(outcome).toEqual({ kind: "accepted", companyId: COMPANY, role: "member" });
     expect(db.members.some((m) => m["userId"] === USER2)).toBe(true);
@@ -422,7 +419,6 @@ describe("TenancyRepository — invitations", () => {
     db.members.push({ companyId: COMPANY, userId: USER2, role: "member", status: "active" });
     await repo.createInvitation({
       companyId: COMPANY,
-      email: "t@test.dev",
       role: "member",
       codeHash: "code-2",
       expiresAt: new Date(Date.now() + 60_000),
@@ -431,56 +427,33 @@ describe("TenancyRepository — invitations", () => {
     const outcome = await repo.acceptInvitationByCode({
       codeHash: "code-2",
       userId: USER2,
-      email: "t@test.dev",
     });
     expect(outcome).toMatchObject({ kind: "already_member" });
   });
 
-  it("rejects an unknown, expired, or mis-addressed code", async () => {
+  it("rejects an unknown or expired code", async () => {
     const { repo } = make();
     // Unknown code.
-    expect(
-      await repo.acceptInvitationByCode({ codeHash: "nope", userId: USER2, email: "t@test.dev" }),
-    ).toEqual({ kind: "invalid" });
+    expect(await repo.acceptInvitationByCode({ codeHash: "nope", userId: USER2 })).toEqual({
+      kind: "invalid",
+    });
     // Expired code.
     await repo.createInvitation({
       companyId: COMPANY,
-      email: "t@test.dev",
       role: "member",
       codeHash: "expired",
       expiresAt: new Date(Date.now() - 1000),
       actorId: USER,
     });
-    expect(
-      await repo.acceptInvitationByCode({
-        codeHash: "expired",
-        userId: USER2,
-        email: "t@test.dev",
-      }),
-    ).toEqual({ kind: "invalid" });
-    // Wrong email.
-    await repo.createInvitation({
-      companyId: COMPANY,
-      email: "intended@test.dev",
-      role: "member",
-      codeHash: "mismatch",
-      expiresAt: new Date(Date.now() + 60_000),
-      actorId: USER,
+    expect(await repo.acceptInvitationByCode({ codeHash: "expired", userId: USER2 })).toEqual({
+      kind: "invalid",
     });
-    expect(
-      await repo.acceptInvitationByCode({
-        codeHash: "mismatch",
-        userId: USER2,
-        email: "other@test.dev",
-      }),
-    ).toEqual({ kind: "email_mismatch" });
   });
 
   it("lists invitations for the company, newest first", async () => {
     const { repo } = make();
     await repo.createInvitation({
       companyId: COMPANY,
-      email: "a@test.dev",
       role: "member",
       codeHash: "list-1",
       expiresAt: new Date(Date.now() + 60_000),
@@ -488,7 +461,6 @@ describe("TenancyRepository — invitations", () => {
     });
     await repo.createInvitation({
       companyId: COMPANY,
-      email: "b@test.dev",
       role: "custom",
       customPermissionKeys: ["orders.read"],
       codeHash: "list-2",
@@ -497,16 +469,13 @@ describe("TenancyRepository — invitations", () => {
     });
     const list = await repo.listInvitations(COMPANY);
     expect(list).toHaveLength(2);
-    expect(list.find((i) => i.email === "b@test.dev")?.customPermissionKeys).toEqual([
-      "orders.read",
-    ]);
+    expect(list.find((i) => i.role === "custom")?.customPermissionKeys).toEqual(["orders.read"]);
   });
 
   it("grants exactly the custom permission keys as MemberPermission rows on accept", async () => {
     const { repo, db } = make();
     await repo.createInvitation({
       companyId: COMPANY,
-      email: "custom@test.dev",
       role: "custom",
       customPermissionKeys: ["orders.read", "customers.manage"],
       codeHash: "custom-code",
@@ -516,7 +485,6 @@ describe("TenancyRepository — invitations", () => {
     const outcome = await repo.acceptInvitationByCode({
       codeHash: "custom-code",
       userId: USER2,
-      email: "custom@test.dev",
     });
     expect(outcome).toMatchObject({ kind: "accepted", role: "custom" });
     const member = db.members.find((m) => m["userId"] === USER2);
@@ -743,6 +711,32 @@ describe("TenancyRepository — listMembers / removeMember", () => {
       actorId: USER,
     });
     expect(outcome).toEqual({ kind: "removed" });
+    expect(db.members.some((m) => m["id"] === "owner1")).toBe(true);
+  });
+
+  it("refuses to remove an owner unless the actor is themselves an active owner", async () => {
+    const { repo, db } = make();
+    const MANAGER = "6ba7b811-9dad-11d1-80b4-00c04fd430c9";
+    db.members.push({
+      id: "owner1",
+      companyId: COMPANY,
+      userId: USER,
+      role: "owner",
+      status: "active",
+    });
+    db.members.push({
+      id: "manager1",
+      companyId: COMPANY,
+      userId: MANAGER,
+      role: "manager",
+      status: "active",
+    });
+    const outcome = await repo.removeMember({
+      companyId: COMPANY,
+      memberId: "owner1",
+      actorId: MANAGER,
+    });
+    expect(outcome).toEqual({ kind: "not_owner" });
     expect(db.members.some((m) => m["id"] === "owner1")).toBe(true);
   });
 });

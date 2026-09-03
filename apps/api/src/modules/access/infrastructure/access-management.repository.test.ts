@@ -12,7 +12,12 @@ interface Row {
 }
 
 function matches(row: Row, where: Row): boolean {
-  return Object.entries(where).every(([k, v]) => row[k] === v);
+  return Object.entries(where).every(([k, v]) => {
+    if (v !== null && typeof v === "object" && "not" in (v as Row)) {
+      return row[k] !== (v as Row)["not"];
+    }
+    return row[k] === v;
+  });
 }
 
 /** Minimal Prisma double covering exactly the calls the repository makes. */
@@ -65,6 +70,8 @@ class FakePrisma {
       }
       return Promise.resolve({ count });
     },
+    count: ({ where }: { where: Row }) =>
+      Promise.resolve(this.members.filter((m) => matches(m, where)).length),
   };
   memberPermission = {
     findMany: ({ where }: { where: Row }) =>
@@ -176,7 +183,7 @@ describe("AccessManagementRepository — catalog reads", () => {
 });
 
 describe("AccessManagementRepository — listAvailablePermissions", () => {
-  it("filters the catalog to the company's effective features, gates by feature edge", async () => {
+  it("returns the whole catalog, flagging what the company can actually grant", async () => {
     const { repo, db } = make();
     db.subscriptions.push({ companyId: COMPANY, plan: { features: [{ featureKey: "orders" }] } });
     db.features.push({ key: "orders" }, { key: "customers" });
@@ -195,13 +202,20 @@ describe("AccessManagementRepository — listAvailablePermissions", () => {
     const result = await repo.listAvailablePermissions(COMPANY);
 
     expect(result).toEqual([
-      { key: "access.read", description: "View access", featureKey: null },
-      { key: "orders.read", description: "View orders", featureKey: "orders" },
-      { key: "orders.manage", description: "Manage orders", featureKey: "orders" },
+      { key: "access.read", description: "View access", featureKey: null, available: true },
+      { key: "orders.read", description: "View orders", featureKey: "orders", available: true },
+      { key: "orders.manage", description: "Manage orders", featureKey: "orders", available: true },
+      // Out of plan — listed so the picker can show it disabled, not omitted.
+      {
+        key: "customers.read",
+        description: "View customers",
+        featureKey: "customers",
+        available: false,
+      },
     ]);
   });
 
-  it("respects a company feature-flag override", async () => {
+  it("marks a feature-flagged-off permission unavailable", async () => {
     const { repo, db } = make();
     db.subscriptions.push({
       companyId: COMPANY,
@@ -220,10 +234,13 @@ describe("AccessManagementRepository — listAvailablePermissions", () => {
 
     const result = await repo.listAvailablePermissions(COMPANY);
 
-    expect(result.map((p) => p.key)).toEqual(["orders.read"]);
+    expect(result.map((p) => [p.key, p.available])).toEqual([
+      ["orders.read", true],
+      ["customers.read", false],
+    ]);
   });
 
-  it("returns only core permissions when the company has no subscription", async () => {
+  it("marks only the core permissions available when the company has no subscription", async () => {
     const { repo, db } = make();
     db.permissions.push(
       { key: "access.read", description: null },
@@ -234,7 +251,17 @@ describe("AccessManagementRepository — listAvailablePermissions", () => {
 
     const result = await repo.listAvailablePermissions(COMPANY);
 
-    expect(result.map((p) => p.key).sort()).toEqual(["access.manage", "access.read"]);
+    expect(
+      result
+        .filter((p) => p.available)
+        .map((p) => p.key)
+        .sort(),
+    ).toEqual(["access.manage", "access.read"]);
+    expect(result.map((p) => p.key).sort()).toEqual([
+      "access.manage",
+      "access.read",
+      "orders.read",
+    ]);
   });
 });
 
@@ -262,6 +289,39 @@ describe("AccessManagementRepository — member assignment", () => {
     await expect(
       repo.assignMemberPermissions({ companyId: COMPANY, memberId: "ghost", actorId: "a" }),
     ).rejects.toThrow();
+  });
+});
+
+describe("AccessManagementRepository — owner queries", () => {
+  it("findOwnRole returns the caller's active role, or null when not an active member", async () => {
+    const { repo, db } = make();
+    db.members.push(
+      { id: "m1", companyId: COMPANY, userId: "u1", role: "owner", status: "active" },
+      { id: "m2", companyId: COMPANY, userId: "u2", role: "member", status: "inactive" },
+    );
+
+    expect(await repo.findOwnRole(COMPANY, "u1")).toBe("owner");
+    expect(await repo.findOwnRole(COMPANY, "u2")).toBeNull();
+    expect(await repo.findOwnRole(COMPANY, "ghost")).toBeNull();
+  });
+
+  it("hasOtherActiveOwner ignores the excluded member and inactive owners", async () => {
+    const { repo, db } = make();
+    db.members.push(
+      { id: "m1", companyId: COMPANY, userId: "u1", role: "owner", status: "active" },
+      { id: "m2", companyId: COMPANY, userId: "u2", role: "owner", status: "inactive" },
+    );
+
+    expect(await repo.hasOtherActiveOwner(COMPANY, "m1")).toBe(false);
+
+    db.members.push({
+      id: "m3",
+      companyId: COMPANY,
+      userId: "u3",
+      role: "owner",
+      status: "active",
+    });
+    expect(await repo.hasOtherActiveOwner(COMPANY, "m1")).toBe(true);
   });
 });
 

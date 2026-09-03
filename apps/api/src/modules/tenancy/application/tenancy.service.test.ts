@@ -43,7 +43,6 @@ interface JoinCode {
 interface Invite {
   id: string;
   companyId: string;
-  email: string;
   role: string;
   customPermissionKeys: string[];
   codeHash: string;
@@ -161,7 +160,6 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
 
   createInvitation(input: {
     companyId: string;
-    email: string;
     role: string;
     customPermissionKeys?: readonly string[];
     codeHash: string;
@@ -171,7 +169,6 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
     const invite: Invite = {
       id: randomUUID(),
       companyId: input.companyId,
-      email: input.email,
       role: input.role,
       customPermissionKeys: [...(input.customPermissionKeys ?? [])],
       codeHash: input.codeHash,
@@ -244,6 +241,13 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
     }
     const member = this.members[index] as Member;
     if (member.role === "owner") {
+      const actor = this.members.find(
+        (m) =>
+          m.companyId === input.companyId && m.userId === input.actorId && m.status === "active",
+      );
+      if (actor?.role !== "owner") {
+        return Promise.resolve({ kind: "not_owner" });
+      }
       const ownerCount = this.members.filter(
         (m) => m.companyId === input.companyId && m.role === "owner" && m.status === "active",
       ).length;
@@ -255,11 +259,7 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
     return Promise.resolve({ kind: "removed" });
   }
 
-  acceptInvitationByCode(input: {
-    codeHash: string;
-    userId: string;
-    email: string;
-  }): Promise<AcceptOutcome> {
+  acceptInvitationByCode(input: { codeHash: string; userId: string }): Promise<AcceptOutcome> {
     const invite = [...this.invites.values()].find((i) => i.codeHash === input.codeHash);
     if (
       invite === undefined ||
@@ -268,9 +268,6 @@ class FakeTenancyRepo implements TenancyRepositoryPort {
       invite.expiresAt.getTime() <= Date.now()
     ) {
       return Promise.resolve({ kind: "invalid" });
-    }
-    if (invite.email.toLowerCase() !== input.email.toLowerCase()) {
-      return Promise.resolve({ kind: "email_mismatch" });
     }
     const existing = this.members.find(
       (m) => m.companyId === invite.companyId && m.userId === input.userId,
@@ -338,7 +335,6 @@ function toInvitationRecord(i: Invite): InvitationRecord {
   return {
     id: i.id,
     companyId: i.companyId,
-    email: i.email,
     role: i.role,
     customPermissionKeys: i.customPermissionKeys,
     status: i.status,
@@ -566,7 +562,6 @@ describe("invitations", () => {
     const owner: RequestPrincipal = { userId: ownerId, sessionId: randomUUID(), companyId };
 
     const created = await service.createInvitation(owner, companyId, {
-      email: "invitee@test.dev",
       role: "member",
     });
     expect(created.code).toBeTruthy();
@@ -600,18 +595,17 @@ describe("invitations", () => {
       companyId: randomUUID(),
     };
     await expect(
-      service.createInvitation(principal, companyId, { email: "x@test.dev", role: "member" }),
+      service.createInvitation(principal, companyId, { role: "member" }),
     ).rejects.toMatchObject({ status: 403 });
   });
 
-  it("rejects an invite for a different email with 403", async () => {
+  it("lets whoever holds the code accept it, whatever address they signed up with", async () => {
+    // The invitation is delivered as a code the inviter shares directly, so the
+    // invitee's own address is unknown at invite time and cannot be matched.
     const { service, repo } = build();
     const { userId: ownerId, companyId } = seedOwner(repo, "owner3@test.dev");
     const owner: RequestPrincipal = { userId: ownerId, sessionId: randomUUID(), companyId };
-    const created = await service.createInvitation(owner, companyId, {
-      email: "intended@test.dev",
-      role: "member",
-    });
+    const created = await service.createInvitation(owner, companyId, { role: "member" });
 
     const otherId = randomUUID();
     repo.profiles.set(otherId, {
@@ -622,9 +616,9 @@ describe("invitations", () => {
       totpEnabledAt: null,
     });
     const other: RequestPrincipal = { userId: otherId, sessionId: randomUUID(), companyId: null };
-    await expect(service.acceptInvitation(other, created.code)).rejects.toMatchObject({
-      status: 403,
-    });
+
+    const result = await service.acceptInvitation(other, created.code);
+    expect(result).toMatchObject({ companyId, role: "member", alreadyMember: false });
   });
 
   it("404s an unknown or revoked invite code", async () => {
@@ -642,7 +636,6 @@ describe("invitations", () => {
     const { userId, companyId } = seedOwner(repo, "owner5@test.dev");
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
     const created = await service.createInvitation(principal, companyId, {
-      email: "gone@test.dev",
       role: "member",
     });
     const inviteId = [...repo.invites.values()][0]?.id as string;
@@ -677,7 +670,6 @@ describe("invitations", () => {
     // past relative to the fake repo's real-wall-clock expiry check.
     now = Date.now() - 8 * 24 * 60 * 60 * 1000;
     const created = await service.createInvitation(principal, companyId, {
-      email: "late@test.dev",
       role: "member",
     });
     now = Date.now();
@@ -704,7 +696,6 @@ describe("invitations", () => {
     const { userId: ownerId, companyId } = seedOwner(repo, "owner7@test.dev");
     const owner: RequestPrincipal = { userId: ownerId, sessionId: randomUUID(), companyId };
     const created = await service.createInvitation(owner, companyId, {
-      email: "reuse@test.dev",
       role: "member",
     });
     const inviteeId = randomUUID();
@@ -736,7 +727,6 @@ describe("createInvitation — predefined template roles", () => {
     const { userId, companyId } = seedOwner(repo, "tpl1@test.dev");
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
     const created = await service.createInvitation(principal, companyId, {
-      email: "sm@test.dev",
       role: "store_manager",
     });
     expect(created.invitation.role).toBe("store_manager");
@@ -750,7 +740,6 @@ describe("createInvitation — predefined template roles", () => {
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
     await expect(
       service.createInvitation(principal, companyId, {
-        email: "sm2@test.dev",
         role: "store_manager",
         permissionKeys: ["orders.read"],
       }),
@@ -782,7 +771,7 @@ describe("createInvitation — inviting an Owner", () => {
     });
     const manager: RequestPrincipal = { userId: managerId, sessionId: randomUUID(), companyId };
     await expect(
-      service.createInvitation(manager, companyId, { email: "newowner@test.dev", role: "owner" }),
+      service.createInvitation(manager, companyId, { role: "owner" }),
     ).rejects.toMatchObject({ status: 403 });
   });
 
@@ -791,7 +780,6 @@ describe("createInvitation — inviting an Owner", () => {
     const { userId: ownerId, companyId } = seedOwner(repo, "ownerinv2@test.dev");
     const owner: RequestPrincipal = { userId: ownerId, sessionId: randomUUID(), companyId };
     const created = await service.createInvitation(owner, companyId, {
-      email: "newowner2@test.dev",
       role: "owner",
     });
     expect(created.invitation.role).toBe("owner");
@@ -805,7 +793,6 @@ describe("createInvitation — custom role", () => {
     const { userId, companyId } = seedOwner(repo, "custom1@test.dev");
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
     const created = await service.createInvitation(principal, companyId, {
-      email: "c1@test.dev",
       role: "custom",
       permissionKeys: ["orders.read", "orders.read", "customers.read"], // dupes collapse
     });
@@ -819,11 +806,10 @@ describe("createInvitation — custom role", () => {
     const { userId, companyId } = seedOwner(repo, "custom2@test.dev");
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
     await expect(
-      service.createInvitation(principal, companyId, { email: "c2@test.dev", role: "custom" }),
+      service.createInvitation(principal, companyId, { role: "custom" }),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
       service.createInvitation(principal, companyId, {
-        email: "c2@test.dev",
         role: "custom",
         permissionKeys: [],
       }),
@@ -837,7 +823,6 @@ describe("createInvitation — custom role", () => {
     // The company's available set (test fixture) does not include "finance.manage".
     await expect(
       service.createInvitation(principal, companyId, {
-        email: "c3@test.dev",
         role: "custom",
         permissionKeys: ["orders.read", "finance.manage"],
       }),
@@ -850,7 +835,6 @@ describe("createInvitation — custom role", () => {
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
     await expect(
       service.createInvitation(principal, companyId, {
-        email: "c4@test.dev",
         role: "custom",
         permissionKeys: ["not-a-real-permission"],
       }),
@@ -864,7 +848,6 @@ describe("createInvitation — custom role", () => {
     const principal: RequestPrincipal = { userId, sessionId: randomUUID(), companyId };
     await expect(
       service.createInvitation(principal, companyId, {
-        email: "c5@test.dev",
         role: "custom",
         permissionKeys: ["orders.read", "orders.manage"],
       }),
@@ -878,7 +861,6 @@ describe("acceptInvitation — custom role", () => {
     const { userId: ownerId, companyId } = seedOwner(repo, "acc1@test.dev");
     const owner: RequestPrincipal = { userId: ownerId, sessionId: randomUUID(), companyId };
     const created = await service.createInvitation(owner, companyId, {
-      email: "invitee@test.dev",
       role: "custom",
       permissionKeys: ["orders.read", "customers.manage"],
     });
@@ -989,6 +971,37 @@ describe("listMembers / removeMember", () => {
 
     await service.removeMember(owner1, companyId, owner2MemberId);
     expect(repo.members.some((m) => m.id === owner2MemberId)).toBe(false);
+  });
+
+  it("403s when a non-owner tries to remove an owner", async () => {
+    const { service, repo } = build();
+    const { userId: ownerId, companyId } = seedOwner(repo, "rm5@test.dev");
+    const managerId = randomUUID();
+    const managerMemberId = randomUUID();
+    repo.profiles.set(managerId, {
+      id: managerId,
+      email: "manager@test.dev",
+      fullName: "Manager",
+      phoneEncrypted: null,
+      totpEnabledAt: null,
+    });
+    repo.members.push({
+      id: managerMemberId,
+      companyId,
+      userId: managerId,
+      role: "manager",
+      status: "active",
+      createdAt: new Date(),
+      warehouseId: null,
+    });
+    const manager: RequestPrincipal = { userId: managerId, sessionId: randomUUID(), companyId };
+    const ownerMember = repo.members.find((m) => m.userId === ownerId && m.companyId === companyId);
+
+    await expect(
+      service.removeMember(manager, companyId, ownerMember?.id as string),
+    ).rejects.toMatchObject({ status: 403 });
+    // The owner is still there — nothing was removed.
+    expect(repo.members.some((m) => m.id === ownerMember?.id)).toBe(true);
   });
 });
 

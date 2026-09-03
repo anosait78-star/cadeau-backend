@@ -32,7 +32,6 @@ export interface TeamMember {
 /** An invitation row (no code — the code is only ever returned once, at creation). */
 export interface TeamInvitation {
   readonly id: string;
-  readonly email: string;
   readonly role: string;
   readonly permissionKeys: string[];
   readonly status: string;
@@ -50,6 +49,8 @@ export interface AvailablePermission {
   readonly description: string | null;
   /** `null` for the two core, feature-independent permissions. */
   readonly featureKey: string | null;
+  /** False when the company plan does not make this grantable — shown, but disabled. */
+  readonly available: boolean;
 }
 
 /** `GET /v1/companies/{id}/members` — the company's active members. */
@@ -77,7 +78,7 @@ export function listInvitations(companyId: string): Promise<{ data: TeamInvitati
  */
 export function createInvitation(
   companyId: string,
-  input: { email: string; role: string; permissionKeys?: string[] },
+  input: { role: string; permissionKeys?: string[] },
 ): Promise<CreatedInvitation> {
   return apiFetch(`/companies/${companyId}/invitations`, { method: "POST", body: input });
 }

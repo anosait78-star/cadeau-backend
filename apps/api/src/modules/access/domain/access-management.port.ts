@@ -45,13 +45,20 @@ export interface AccessManagementRepositoryPort {
   listTemplateKeys(): Promise<string[]>;
 
   /**
-   * Permissions actually available to a company right now (its plan/features,
-   * independent of any one member's role) — see {@link AvailablePermissionView}.
+   * The whole permission catalog, each entry flagged with whether the company
+   * can actually grant it right now (its plan/features, independent of any one
+   * member's role) — see {@link AvailablePermissionView}.
    */
   listAvailablePermissions(companyId: string): Promise<AvailablePermissionView[]>;
 
   /** A member of the given (active) company, or null. */
   findMember(companyId: string, memberId: string): Promise<MemberRow | null>;
+
+  /** The caller's own active role in the company, or null if they aren't an active member. */
+  findOwnRole(companyId: string, userId: string): Promise<string | null>;
+
+  /** Whether an active Owner other than `excludingMemberId` exists in the company. */
+  hasOtherActiveOwner(companyId: string, excludingMemberId: string): Promise<boolean>;
 
   /** Apply a template/override assignment atomically; returns before/after + the member's user id. */
   assignMemberPermissions(

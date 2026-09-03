@@ -61,7 +61,6 @@ export interface TenancyRepositoryPort {
   /** Create a pending invitation in the given (active) tenant. */
   createInvitation(input: {
     readonly companyId: string;
-    readonly email: string;
     readonly role: string;
     /** Permission keys for a one-off "custom" role; omitted/empty for a template role. */
     readonly customPermissionKeys?: readonly string[];
@@ -101,22 +100,22 @@ export interface TenancyRepositoryPort {
   }): Promise<RemoveMemberOutcome>;
 
   /**
-   * Accept an invitation by its code hash: resolve it (pre-tenant lookup), verify
-   * it is live and addressed to the caller, then join the company and mark it
-   * accepted — all atomically. Returns a typed outcome rather than throwing for
-   * the expected rejection cases.
+   * Accept an invitation by its code hash: resolve it (pre-tenant lookup),
+   * verify it is live, then join the company and mark it accepted — all
+   * atomically. Returns a typed outcome rather than throwing for the expected
+   * rejection cases. The code is the whole credential; it is not scoped to an
+   * email address.
    */
   acceptInvitationByCode(input: {
     readonly codeHash: string;
     readonly userId: string;
-    readonly email: string;
   }): Promise<AcceptOutcome>;
 
   /**
    * Accept a warehouse join code by its hash (Vendor Accounts, Phase 1): same
    * pre-tenant lookup + atomic join shape as {@link acceptInvitationByCode},
-   * but no email check (the code is not email-scoped) and the resulting
-   * membership is always `role = "vendor"` scoped to the code's warehouse.
+   * but the resulting membership is always `role = "vendor"` scoped to the
+   * code's warehouse.
    */
   acceptWarehouseJoinCodeByCode(input: {
     readonly codeHash: string;
