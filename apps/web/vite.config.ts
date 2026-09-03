@@ -10,7 +10,15 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    proxy: {
+      "/v1": {
+        target: process.env["VITE_DEV_API_TARGET"] ?? "http://localhost:3000",
+        changeOrigin: true,
+      },
+    },
+  },
   build: { outDir: "dist", sourcemap: true },
   test: {
     environment: "jsdom",
