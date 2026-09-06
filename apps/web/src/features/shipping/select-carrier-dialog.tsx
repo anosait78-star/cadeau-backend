@@ -139,6 +139,28 @@ export function SelectCarrierDialog({
     void listBostaDistricts(bostaCityId).then(({ data }) => setBostaDistricts(data));
   }, [selected, bostaCityId]);
 
+  // Prefill from the storefront's own governorate/area text — a suggestion,
+  // never a lock: only sets the field when it's still empty (never fights a
+  // staff pick), and only on an exact (trimmed) name match — no fuzzy
+  // guessing, since a wrong Bosta city/district can misroute the shipment.
+  // Staff sees it selected in the same editable dropdown and can correct it.
+  useEffect(() => {
+    if (bostaCityId !== "" || !savedGovernorateHint || bostaCities.length === 0) return;
+    const target = savedGovernorateHint.trim();
+    const match = bostaCities.find((c) => c.nameAr?.trim() === target || c.name.trim() === target);
+    if (match !== undefined) setBostaCityId(match.id);
+  }, [bostaCities, savedGovernorateHint, bostaCityId]);
+
+  useEffect(() => {
+    if (bostaDistrictId !== "" || !savedAreaHint || bostaDistricts.length === 0) return;
+    const target = savedAreaHint.trim();
+    const match = bostaDistricts.find((d) => d.districtName.trim() === target);
+    if (match !== undefined) {
+      setBostaZoneId(match.zoneId);
+      setBostaDistrictId(match.districtId);
+    }
+  }, [bostaDistricts, savedAreaHint, bostaDistrictId]);
+
   const selectedCity = bostaCities.find((c) => c.id === bostaCityId);
 
   // Zone is a pure narrowing step over the districts already fetched for the
@@ -266,7 +288,7 @@ export function SelectCarrierDialog({
                     setBostaDistrictId("");
                   }}
                   placeholder={DASH}
-                  options={bostaCities.map((c) => ({ value: c.id, label: c.name }))}
+                  options={bostaCities.map((c) => ({ value: c.id, label: c.nameAr ?? c.name }))}
                 />
               </FormField>
               <FormField
