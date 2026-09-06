@@ -411,51 +411,61 @@ function CustomerCard({
   onNotify: (text: string) => void;
 }): ReactNode {
   const { t, locale } = useI18n();
-  const [showDetail, setShowDetail] = useState(false);
+  const initial = customer.name.trim().charAt(0) || "?";
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span>{customer.name}</span>
-          <span
-            className="rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground"
-            data-testid="status"
-          >
-            {customer.active ? t("customers.status.active") : t("customers.status.inactive")}
-          </span>
-        </CardTitle>
+      <CardHeader className="flex flex-row items-center gap-3 space-y-0">
+        <span
+          className={cn(
+            "flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-semibold",
+            customer.active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+          )}
+          aria-hidden="true"
+        >
+          {initial}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+            <span className="truncate">{customer.name}</span>
+            <StatusBadge
+              label={
+                customer.active ? t("customers.status.active") : t("customers.status.inactive")
+              }
+              tone={customer.active ? "success" : "warning"}
+              testId="status"
+            />
+          </CardTitle>
+          {customer.email !== null ? (
+            <span className="truncate text-sm text-muted-foreground">{customer.email}</span>
+          ) : null}
+        </div>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
+      <CardContent className="flex flex-col gap-4">
+        {/* Three equal stat tiles read faster than a label/value list, and line
+            up identically whether this card sits in the mobile sheet or the
+            desktop detail panel. */}
+        <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/40 p-3 text-center">
           <div className="flex flex-col">
-            <dt className="text-xs text-muted-foreground">{t("customers.field.phone")}</dt>
-            {/* Masked on the list by design — the full number needs a detail read. */}
-            <dd dir="ltr">{customer.phoneMasked}</dd>
+            <span className="text-lg font-semibold tabular-nums">{customer.ordersCount}</span>
+            <span className="text-xs text-muted-foreground">{t("customers.kpi.orders")}</span>
+          </div>
+          <div className="flex flex-col border-x border-border">
+            <span className="text-lg font-semibold tabular-nums">
+              {formatMoney(customer.totalSpent, locale)}
+            </span>
+            <span className="text-xs text-muted-foreground">{t("customers.kpi.spent")}</span>
           </div>
           <div className="flex flex-col">
-            <dt className="text-xs text-muted-foreground">{t("customers.field.email")}</dt>
-            <dd>{customer.email ?? DASH}</dd>
+            <span className="text-sm font-semibold">
+              {formatDate(customer.lastOrderAt, locale)}
+            </span>
+            <span className="text-xs text-muted-foreground">{t("customers.kpi.lastOrder")}</span>
           </div>
-          <div className="flex flex-col">
-            <dt className="text-xs text-muted-foreground">{t("customers.kpi.orders")}</dt>
-            <dd>{customer.ordersCount}</dd>
-          </div>
-          <div className="flex flex-col">
-            <dt className="text-xs text-muted-foreground">{t("customers.kpi.spent")}</dt>
-            <dd>{formatMoney(customer.totalSpent, locale)}</dd>
-          </div>
-          <div className="flex flex-col">
-            <dt className="text-xs text-muted-foreground">{t("customers.kpi.lastOrder")}</dt>
-            <dd>{formatDate(customer.lastOrderAt, locale)}</dd>
-          </div>
-        </dl>
+        </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowDetail((v) => !v)}>
-            {t("customers.actions.details")}
-          </Button>
-          <PermissionGate permission="customers.manage">
+        <PermissionGate permission="customers.manage">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={onEdit}>
               {t("customers.actions.edit")}
             </Button>
@@ -464,16 +474,17 @@ function CustomerCard({
                 {t("customers.actions.archive")}
               </Button>
             ) : null}
-          </PermissionGate>
-        </div>
+          </div>
+        </PermissionGate>
 
-        {showDetail ? (
-          <CustomerDetailExpansion
-            customerId={customer.id}
-            governorates={governorates}
-            onNotify={onNotify}
-          />
-        ) : null}
+        {/* Opening this card at all (the list only ever shows a masked phone)
+            is already the deliberate, audited single-customer read — so the
+            full detail below is shown right away, with no extra click. */}
+        <CustomerDetailExpansion
+          customerId={customer.id}
+          governorates={governorates}
+          onNotify={onNotify}
+        />
       </CardContent>
     </Card>
   );
@@ -554,19 +565,23 @@ function CustomerDetailExpansion({
 
   return (
     <section
-      className="mt-1 flex flex-col gap-3 border-t border-border pt-3"
+      className="mt-1 flex flex-col gap-4 border-t border-border pt-4"
       aria-label={t("customers.detail.title")}
     >
-      <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+      <div className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col">
-          <dt className="text-xs text-muted-foreground">{t("customers.field.phoneFull")}</dt>
-          <dd dir="ltr">{detail.phone}</dd>
+          <span className="text-xs text-muted-foreground">{t("customers.field.phoneFull")}</span>
+          <span className="text-lg font-semibold tabular-nums" dir="ltr">
+            {detail.phone}
+          </span>
         </div>
-        <div className="flex flex-col">
-          <dt className="text-xs text-muted-foreground">{t("customers.field.notes")}</dt>
-          <dd>{detail.notes ?? DASH}</dd>
-        </div>
-      </dl>
+        {detail.notes !== null && detail.notes.length > 0 ? (
+          <div className="flex flex-col sm:max-w-xs sm:text-end">
+            <span className="text-xs text-muted-foreground">{t("customers.field.notes")}</span>
+            <span className="text-sm">{detail.notes}</span>
+          </div>
+        ) : null}
+      </div>
 
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">{t("customers.addresses.title")}</h3>
@@ -627,7 +642,7 @@ function CustomerDetailExpansion({
                   </div>
                   <PermissionGate permission="customers.manage">
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(address.id)}>
-                      {t("customers.actions.edit")}
+                      {t("customers.addresses.edit")}
                     </Button>
                   </PermissionGate>
                 </div>

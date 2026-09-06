@@ -217,7 +217,6 @@ describe("CustomersPage", () => {
   it("reveals the full phone and the addresses only on the detail read", async () => {
     renderPage();
     await openCustomer("Sara");
-    await userEvent.click(await screen.findByRole("button", { name: "Details" }));
 
     expect(await screen.findByText("+201001234567")).toBeInTheDocument();
     expect(screen.getByText(/12 Nile St/)).toBeInTheDocument();
@@ -282,15 +281,17 @@ describe("CustomersPage", () => {
     expect(body).not.toHaveProperty("phone");
   });
 
-  it("keeps the list row masked after an edit returns the full phone", async () => {
+  it("keeps the list row masked after an edit returns the full phone (the open detail panel still shows it)", async () => {
     renderPage();
     await openCustomer("Sara");
     await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await screen.findAllByText("Sara Ali");
+    // The list row behind the still-open panel never gets the full phone —
+    // only the one customer whose panel is open ever shows it, and only there.
     expect(screen.getAllByText("+2010•••4567").length).toBeGreaterThan(0);
-    expect(screen.queryByText("+201001234567")).not.toBeInTheDocument();
+    expect(screen.getByText("+201001234567")).toBeInTheDocument();
   });
 
   it("archives a customer", async () => {
@@ -307,7 +308,6 @@ describe("CustomersPage", () => {
   it("adds an address to a customer", async () => {
     renderPage();
     await openCustomer("Sara");
-    await userEvent.click(await screen.findByRole("button", { name: "Details" }));
     await screen.findByText("+201001234567");
 
     await userEvent.click(screen.getByRole("button", { name: "Add address" }));
