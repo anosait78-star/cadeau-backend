@@ -55,7 +55,11 @@ function makeHarness() {
     findActiveByKeyPrefix: vi.fn(),
     touchLastEventAt: vi.fn().mockResolvedValue(undefined),
   };
-  const orders = { create: vi.fn(), updateForStorefront: vi.fn() };
+  const orders = {
+    create: vi.fn(),
+    updateForStorefront: vi.fn(),
+    cancelForStorefront: vi.fn().mockResolvedValue(undefined),
+  };
   const products = {
     findVariantBySku: vi.fn(),
     create: vi.fn(),
@@ -177,6 +181,36 @@ describe("StorefrontIngestionService.ingestOrder", () => {
     expect(h.connections.touchLastEventAt).toHaveBeenCalledWith("co-1", "conn-1");
   });
 
+  it("cancels an order right after creating it when the storefront reports it cancelled (incident, 2026-09-07)", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.customers.list.mockResolvedValue(emptyPage());
+    h.customers.create.mockResolvedValue({ customer: { id: "cust-1" }, replayed: false });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
+
+    await h.service.ingestOrder(CONNECTION, { ...ORDER_PAYLOAD, status: "cancelled" });
+
+    expect(h.orders.cancelForStorefront).toHaveBeenCalledWith(expect.anything(), "order-1");
+  });
+
+  it("never cancels an order for an ordinary status (processing/completed/etc)", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.customers.list.mockResolvedValue(emptyPage());
+    h.customers.create.mockResolvedValue({ customer: { id: "cust-1" }, replayed: false });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
+
+    await h.service.ingestOrder(CONNECTION, { ...ORDER_PAYLOAD, status: "processing" });
+
+    expect(h.orders.cancelForStorefront).not.toHaveBeenCalled();
+  });
+
   it("reuses an existing customer found by phone instead of creating a duplicate", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },
@@ -275,6 +309,22 @@ describe("StorefrontIngestionService.ingestOrder", () => {
     });
     // The order itself is never re-created/re-priced on a resync.
     expect(h.orders.create).not.toHaveBeenCalled();
+  });
+
+  it("cancels an already-synced order when a later order.updated reports it cancelled", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "processed", internalEntityId: "order-existing" },
+      enqueued: false,
+    });
+    h.customers.list.mockResolvedValue({ data: [{ id: "existing-cust" }], page: emptyPage().page });
+
+    await h.service.ingestOrder(
+      CONNECTION,
+      { ...ORDER_PAYLOAD, status: "cancelled" },
+      "order.updated",
+    );
+
+    expect(h.orders.cancelForStorefront).toHaveBeenCalledWith(expect.anything(), "order-existing");
   });
 
   it("records a resync failure to the audit log without throwing or failing the original event", async () => {

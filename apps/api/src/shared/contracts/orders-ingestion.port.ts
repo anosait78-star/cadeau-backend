@@ -69,6 +69,15 @@ export interface OrdersIngestionPort {
     orderId: string,
     data: OrdersIngestionUpdateInput,
   ): Promise<{ order: { id: string } }>;
+  /**
+   * Cancels an order the storefront itself reports as cancelled/failed —
+   * found live (2026-09-07): a cancelled WooCommerce order was still being
+   * synced in as a normal, active CRM order. A no-op (never throws) when the
+   * order is already cancelled, or when cancelling isn't a valid transition
+   * from its current status (e.g. already shipped) — a resync must never
+   * fail the whole event over this.
+   */
+  cancelForStorefront(principal: RequestPrincipal, orderId: string): Promise<void>;
 }
 
 /** DI token for {@link OrdersIngestionPort}. */

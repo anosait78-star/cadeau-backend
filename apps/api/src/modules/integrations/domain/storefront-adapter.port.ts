@@ -58,6 +58,16 @@ export interface NormalizedOrder {
   readonly items: readonly NormalizedOrderItem[];
   readonly currency?: string;
   readonly notes?: string | null;
+  /**
+   * The platform's own order status, verbatim (WooCommerce: `pending`,
+   * `processing`, `on-hold`, `completed`, `cancelled`, `refunded`, `failed`,
+   * `trash`) — `undefined` for a platform/payload with no status concept
+   * (never treated as cancelled). Found live (2026-09-07): a `cancelled`
+   * WooCommerce order was still being synced in as a normal, active CRM
+   * order — this exists so `StorefrontIngestionService` can cancel it
+   * instead.
+   */
+  readonly status?: string;
   /** Integer minor units — the platform's own shipping charge for this order. */
   readonly shippingFeeMinor?: number;
   readonly giftWrap?: NormalizedGiftWrap;

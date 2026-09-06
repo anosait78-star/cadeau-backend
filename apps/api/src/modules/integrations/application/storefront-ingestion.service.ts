@@ -372,6 +372,15 @@ export class StorefrontIngestionService {
         changes: { unmappedVendors },
       });
     }
+    // Found live (2026-09-07): a `cancelled` WooCommerce order was still
+    // being synced in as a normal, active CRM order (`status` was never even
+    // read). Cancel it right after creating it rather than skip creating it
+    // at all — an audited, visible cancelled order beats a silently-dropped
+    // webhook event that looks identical to a genuine failure in the events
+    // list.
+    if (this.isTerminalCancelledStatus(normalized.status)) {
+      await this.orders.cancelForStorefront(principal, order.id);
+    }
     // Address sync never fails order creation — a customer/address problem
     // is enrichment, not a reason to lose a real order (storefront-address-
     // sync D2). The order itself is already committed at this point.
@@ -405,8 +414,25 @@ export class StorefrontIngestionService {
     if (Object.keys(update).length > 0) {
       await this.orders.updateForStorefront(principal, orderId, update);
     }
+    // The order was cancelled on the storefront after it was already synced
+    // in (e.g. the customer cancelled, or a payment ultimately failed) —
+    // cancel it here too, same as the create-time check.
+    if (this.isTerminalCancelledStatus(normalized.status)) {
+      await this.orders.cancelForStorefront(principal, orderId);
+    }
     const customerId = await this.resolveCustomer(principal, normalized.customer);
     await this.trySyncAddress(connection, customerId, normalized.customer);
+  }
+
+  /**
+   * WooCommerce statuses that mean "this order never happened / no longer
+   * counts" — never a reason to skip syncing it silently (the webhook event
+   * still needs a visible, audited outcome), but a reason to cancel the CRM
+   * order right after creating/re-syncing it (storefront-order-sync,
+   * 2026-09-07 incident).
+   */
+  private isTerminalCancelledStatus(status: string | undefined): boolean {
+    return status === "cancelled" || status === "failed" || status === "trash";
   }
 
   /** Swallow-and-audit (D2) — same rationale as {@link trySyncUpdate}. */

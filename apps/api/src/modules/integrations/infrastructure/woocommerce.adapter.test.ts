@@ -112,7 +112,14 @@ describe("WooCommerceAdapter.parseOrder", () => {
       currency: "EGP",
       notes: "Please gift-wrap",
       paidOnline: false,
+      status: "processing",
     });
+  });
+
+  it("captures the order's own status verbatim, defaulting only if it's missing/malformed", () => {
+    expect(adapter.parseOrder(baseOrder({ status: "cancelled" })).status).toBe("cancelled");
+    expect(adapter.parseOrder(baseOrder({ status: "failed" })).status).toBe("failed");
+    expect(adapter.parseOrder(baseOrder({ status: undefined })).status).toBe("processing");
   });
 
   it("throws a clear error when a line item has no sku", () => {

@@ -59,6 +59,7 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     const shippingFeeMinor = this.parseShippingTotal(order);
     const giftWrap = this.parseGiftWrap(order);
     const paidOnline = order["date_paid"] !== null && order["date_paid"] !== undefined;
+    const status = order["status"];
     return {
       externalId,
       placedAt: this.parseDate(order, ["date_created_gmt", "date_created", "date_paid"]),
@@ -69,6 +70,7 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       ...(shippingFeeMinor !== undefined ? { shippingFeeMinor } : {}),
       ...(giftWrap !== undefined ? { giftWrap } : {}),
       paidOnline,
+      status: typeof status === "string" && status.length > 0 ? status : "processing",
     };
   }
 

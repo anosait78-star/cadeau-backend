@@ -215,6 +215,34 @@ describe("OrdersService", () => {
     });
   });
 
+  describe("cancelForStorefront (storefront-order-sync, 2026-09-07 incident)", () => {
+    it("cancels the order via the normal transition path", async () => {
+      await h.service.cancelForStorefront(principal(), ORDER);
+      expect(h.repo.transition).toHaveBeenCalledWith(
+        expect.anything(),
+        ORDER,
+        expect.objectContaining({ toStatus: "cancelled" }),
+      );
+    });
+
+    it("is a no-op when the order is already cancelled", async () => {
+      h.repo.findById.mockResolvedValueOnce(order({ status: "cancelled" }));
+      await h.service.cancelForStorefront(principal(), ORDER);
+      expect(h.repo.transition).not.toHaveBeenCalled();
+    });
+
+    it("swallows an illegal-transition failure instead of throwing", async () => {
+      h.repo.transition.mockRejectedValueOnce(new IllegalTransitionError("delivered", "cancelled"));
+      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toBeUndefined();
+    });
+
+    it("is a no-op when the order doesn't exist", async () => {
+      h.repo.findById.mockResolvedValueOnce(null);
+      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toBeUndefined();
+      expect(h.repo.transition).not.toHaveBeenCalled();
+    });
+  });
+
   describe("update", () => {
     it("emits payment.collected when the collected amount rises", async () => {
       h.repo.findById.mockResolvedValueOnce(order({ collectedAmount: 0 }));

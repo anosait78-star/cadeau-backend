@@ -212,6 +212,28 @@ export class OrdersService {
     return { order: { id: order.id } };
   }
 
+  /**
+   * {@link OrdersIngestionPort.cancelForStorefront} — the storefront itself
+   * reports this order cancelled/failed. Reuses {@link transition} for its
+   * audit trail + stock-release side effects; swallows a not-a-valid-
+   * transition failure (order already cancelled, or already past a point
+   * where cancelling makes sense, e.g. shipped) rather than failing the
+   * caller's ingestion event over it.
+   */
+  async cancelForStorefront(principal: RequestPrincipal, id: string): Promise<void> {
+    const companyId = this.requireTenant(principal);
+    const current = await this.repo.findById(companyId, id);
+    if (current === null || current.status === "cancelled") return;
+    try {
+      await this.transition(principal, id, {
+        toStatus: "cancelled",
+        note: "Cancelled on the storefront.",
+      });
+    } catch {
+      // Not a valid transition from the current status — leave it as is.
+    }
+  }
+
   async transition(
     principal: RequestPrincipal,
     id: string,
