@@ -76,8 +76,12 @@ export interface BostaCity {
 export interface BostaDistrict {
   readonly districtId: string;
   readonly districtName: string;
+  /** Bosta's own Arabic name for the district. */
+  readonly districtNameAr: string | null;
   readonly zoneId: string;
   readonly zoneName: string;
+  /** Bosta's own Arabic name for the zone. */
+  readonly zoneNameAr: string | null;
 }
 
 /** `GET /v1/shipping/bosta/cities` — Bosta's public city catalog. */

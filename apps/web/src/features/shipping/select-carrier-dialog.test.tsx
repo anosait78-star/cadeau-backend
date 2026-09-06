@@ -62,8 +62,10 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
               {
                 districtId: "d1",
                 districtName: "1st Settlement",
+                districtNameAr: null,
                 zoneId: "z1",
                 zoneName: "New Cairo",
+                zoneNameAr: null,
               },
             ],
           }),

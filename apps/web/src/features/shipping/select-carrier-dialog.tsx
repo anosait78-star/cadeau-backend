@@ -179,7 +179,11 @@ export function SelectCarrierDialog({
   useEffect(() => {
     if (bostaDistrictId !== "" || !savedAreaHint || bostaDistricts.length === 0) return;
     const target = canonicalizeArabicName(savedAreaHint);
-    const match = bostaDistricts.find((d) => canonicalizeArabicName(d.districtName) === target);
+    const match = bostaDistricts.find(
+      (d) =>
+        (d.districtNameAr !== null && canonicalizeArabicName(d.districtNameAr) === target) ||
+        canonicalizeArabicName(d.districtName) === target,
+    );
     if (match !== undefined) {
       setBostaZoneId(match.zoneId);
       setBostaDistrictId(match.districtId);
@@ -192,7 +196,7 @@ export function SelectCarrierDialog({
   // city (each carries its own zoneId/zoneName) — no separate endpoint.
   const zones = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const d of bostaDistricts) seen.set(d.zoneId, d.zoneName);
+    for (const d of bostaDistricts) seen.set(d.zoneId, d.zoneNameAr ?? d.zoneName);
     return [...seen.entries()].map(([id, name]) => ({ id, name }));
   }, [bostaDistricts]);
   const districtsInZone = useMemo(
@@ -348,7 +352,7 @@ export function SelectCarrierDialog({
                   disabled={bostaCityId === ""}
                   options={districtsInZone.map((d) => ({
                     value: d.districtId,
-                    label: d.districtName,
+                    label: d.districtNameAr ?? d.districtName,
                   }))}
                 />
               </FormField>
