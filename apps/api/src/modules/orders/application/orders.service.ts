@@ -6,6 +6,7 @@ import type { RequestPrincipal } from "../../../shared/auth/authenticated-reques
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
+import type { OrdersIngestionUpdateInput } from "../../../shared/contracts/orders-ingestion.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type {
   BulkItemResult,
@@ -192,6 +193,23 @@ export class OrdersService {
       });
     }
     return order;
+  }
+
+  /**
+   * {@link OrdersIngestionPort.updateForStorefront} — a later storefront event
+   * (`order.updated`) re-syncing payment/gift-wrap/shipping onto an
+   * already-ingested order. A thin, differently-shaped wrapper over
+   * {@link update} (same audit + `payment.collected` event path); named
+   * distinctly because `update`'s own signature is the orders controller's
+   * public contract.
+   */
+  async updateForStorefront(
+    principal: RequestPrincipal,
+    id: string,
+    data: OrdersIngestionUpdateInput,
+  ): Promise<{ order: { id: string } }> {
+    const order = await this.update(principal, id, data);
+    return { order: { id: order.id } };
   }
 
   async transition(

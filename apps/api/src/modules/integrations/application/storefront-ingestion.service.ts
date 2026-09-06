@@ -13,6 +13,7 @@ import {
   ORDERS_INGESTION,
   type OrdersIngestionItem,
   type OrdersIngestionPort,
+  type OrdersIngestionUpdateInput,
 } from "../../../shared/contracts/orders-ingestion.port";
 import {
   type CatalogProduct,
@@ -99,11 +100,31 @@ export class StorefrontIngestionService {
     @Inject(STOREFRONT_AUDIT) private readonly audit: StorefrontAuditPort,
   ) {}
 
-  async ingestOrder(connection: ResolvedStorefrontConnection, raw: unknown): Promise<IngestResult> {
+  /**
+   * `webhookTopic` is WooCommerce's own `X-WC-Webhook-Topic` header, when the
+   * caller (the controller) could read it — `undefined` for a connection/
+   * platform with no such header (e.g. `platform: "generic"`). Only an
+   * explicit `"order.updated"` enables the update-sync path below; anything
+   * else (missing, or `"order.created"` again) keeps the original D7
+   * behavior — a re-sent event for an already-processed order is a plain
+   * no-op, never guessed into a sync.
+   */
+  async ingestOrder(
+    connection: ResolvedStorefrontConnection,
+    raw: unknown,
+    webhookTopic?: string,
+  ): Promise<IngestResult> {
     const normalized = this.adapters.resolve(connection.platform).parseOrder(raw);
     this.assertOrderShape(normalized);
-    return this.ingest(connection, "order", normalized.externalId, raw, () =>
-      this.processOrder(connection, normalized),
+    return this.ingest(
+      connection,
+      "order",
+      normalized.externalId,
+      raw,
+      () => this.processOrder(connection, normalized),
+      webhookTopic === "order.updated"
+        ? (orderId: string) => this.syncOrderUpdate(connection, orderId, normalized)
+        : undefined,
     );
   }
 
@@ -205,6 +226,7 @@ export class StorefrontIngestionService {
     externalId: string,
     raw: unknown,
     run: () => Promise<string>,
+    syncUpdate?: (internalEntityId: string) => Promise<void>,
   ): Promise<IngestResult> {
     const { event, enqueued } = await this.inbox.enqueue(
       connection.companyId,
@@ -215,8 +237,17 @@ export class StorefrontIngestionService {
     );
     if (!enqueued) {
       // D7: a re-sent event is a no-op once processed; a still-pending/failed
-      // row (e.g. the SKU didn't exist yet) is retried in place.
+      // row (e.g. the SKU didn't exist yet) is retried in place. The one
+      // exception (storefront-order-sync, 2026-09-06): a genuine later
+      // `order.updated` delivery for an already-processed order re-syncs a
+      // deliberately narrow set of mutable fields (payment/gift-wrap/address)
+      // instead of being discarded — `syncUpdate` is only ever provided for
+      // that exact case (see `ingestOrder`), never for a plain re-delivery or
+      // for products.
       if (event.status === "processed" && event.internalEntityId !== null) {
+        if (syncUpdate !== undefined) {
+          await this.trySyncUpdate(connection, event.internalEntityId, syncUpdate);
+        }
         return { entityId: event.internalEntityId, status: "duplicate" };
       }
       await this.inbox.incrementAttempt(connection.companyId, event.id);
@@ -230,6 +261,32 @@ export class StorefrontIngestionService {
       await this.inbox.markFailed(connection.companyId, event.id, this.errorMessage(error));
       await this.connections.touchLastEventAt(connection.companyId, connection.connectionId);
       throw error;
+    }
+  }
+
+  /**
+   * A re-sync failure must never look like the original order ingestion
+   * failed (that order already exists and was already reported `created`) —
+   * so it's recorded to the storefront audit log for staff visibility and
+   * swallowed, rather than flipping the original event to `failed` or
+   * throwing out of the webhook handler.
+   */
+  private async trySyncUpdate(
+    connection: ResolvedStorefrontConnection,
+    internalEntityId: string,
+    syncUpdate: (internalEntityId: string) => Promise<void>,
+  ): Promise<void> {
+    try {
+      await syncUpdate(internalEntityId);
+    } catch (error) {
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_order.resync_failed",
+        entityType: "order",
+        entityId: internalEntityId,
+        changes: { reason: this.errorMessage(error) },
+      });
     }
   }
 
@@ -284,8 +341,74 @@ export class StorefrontIngestionService {
         ? {}
         : { warehouseId: connection.defaultWarehouseId }),
       ...(normalized.notes === undefined ? {} : { notes: normalized.notes }),
+      ...(normalized.shippingFeeMinor === undefined
+        ? {}
+        : { shippingFee: normalized.shippingFeeMinor }),
+      ...(normalized.giftWrap === undefined
+        ? {}
+        : { isGiftWrap: true, giftWrapFeeMinor: normalized.giftWrap.feeMinor }),
+      ...(normalized.paidOnline === true ? { markFullyPaid: true } : {}),
     });
+    // Address sync never fails order creation — a customer/address problem
+    // is enrichment, not a reason to lose a real order (storefront-address-
+    // sync D2). The order itself is already committed at this point.
+    await this.trySyncAddress(connection, customerId, normalized.customer);
     return order.id;
+  }
+
+  /**
+   * A later `order.updated` delivery for an already-processed order
+   * (`ingest`'s update-sync path) — re-syncs only the fields that can
+   * legitimately change after checkout: payment confirmation (a redirect
+   * gateway confirming `date_paid` after the order already exists), a
+   * gift-wrap choice, a shipping-fee correction, and the delivery address.
+   * Deliberately never touches items/pricing/customer identity.
+   */
+  private async syncOrderUpdate(
+    connection: ResolvedStorefrontConnection,
+    orderId: string,
+    normalized: NormalizedOrder,
+  ): Promise<void> {
+    const principal = this.systemPrincipal(connection);
+    const update: OrdersIngestionUpdateInput = {
+      ...(normalized.shippingFeeMinor === undefined
+        ? {}
+        : { shippingFee: normalized.shippingFeeMinor }),
+      ...(normalized.giftWrap === undefined
+        ? {}
+        : { isGiftWrap: true, giftWrapFeeMinor: normalized.giftWrap.feeMinor }),
+      ...(normalized.paidOnline === true ? { markFullyPaid: true } : {}),
+    };
+    if (Object.keys(update).length > 0) {
+      await this.orders.updateForStorefront(principal, orderId, update);
+    }
+    const customerId = await this.resolveCustomer(principal, normalized.customer);
+    await this.trySyncAddress(connection, customerId, normalized.customer);
+  }
+
+  /** Swallow-and-audit (D2) — same rationale as {@link trySyncUpdate}. */
+  private async trySyncAddress(
+    connection: ResolvedStorefrontConnection,
+    customerId: string,
+    customer: NormalizedCustomer,
+  ): Promise<void> {
+    if (customer.address === undefined) return;
+    try {
+      await this.customers.upsertStorefrontAddress(this.systemPrincipal(connection), customerId, {
+        line: customer.address.line,
+        ...(customer.address.city === undefined ? {} : { rawCity: customer.address.city }),
+        ...(customer.address.state === undefined ? {} : { rawState: customer.address.state }),
+      });
+    } catch (error) {
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_customer.address_sync_failed",
+        entityType: "customer",
+        entityId: customerId,
+        changes: { reason: this.errorMessage(error) },
+      });
+    }
   }
 
   private async processProduct(

@@ -20,15 +20,19 @@ type JsonRecord = Record<string, unknown>;
  * `CustomersService` write paths a `GenericJsonAdapter`-fed request would.
  *
  * WooCommerce's payload carries fields the generic contract has no home for
- * (order-level `discount_total`, `shipping_total`, `payment_method`,
- * `total`) — deliberately **not** mapped. The reused `OrdersService.create`
- * computes the order's total from item price × quantity itself (D4: no
- * duplicated business logic), so WooCommerce's own stated total is never the
- * source of truth here; a line's *unit* price is derived from
- * `line_items[].total` (WooCommerce's post-line-discount, pre-tax figure)
- * divided by quantity, which is what actually reaches the CRM order. The raw
- * payload is still preserved untouched in `storefront_webhook_events.payload`
- * for audit/debugging.
+ * (order-level `discount_total`, `payment_method`, `total`) — deliberately
+ * **not** mapped. The reused `OrdersService.create` computes the order's
+ * total from item price × quantity (+ `shippingFee` + gift-wrap fee — see
+ * below) itself (D4: no duplicated business logic), so WooCommerce's own
+ * stated `total` is never the source of truth here; a line's *unit* price is
+ * derived from `line_items[].total` (WooCommerce's post-line-discount,
+ * pre-tax figure) divided by quantity, which is what actually reaches the
+ * CRM order. `shipping_total` (mapped to `shippingFeeMinor`) and the
+ * gift-wrap `fee_lines[]` entry are the two exceptions: they ARE trusted
+ * verbatim, since each is one already-final platform-computed figure with no
+ * per-line CRM equivalent to derive it from. The raw payload is still
+ * preserved untouched in `storefront_webhook_events.payload` for
+ * audit/debugging.
  *
  * Two WooCommerce behaviors are explicitly out of scope for v1 and fail the
  * event with a clear, reprocessable reason rather than silently guessing:
@@ -52,6 +56,9 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     const customer = this.parseCustomer(order, externalId);
     const currency = order["currency"];
     const note = order["customer_note"];
+    const shippingFeeMinor = this.parseShippingTotal(order);
+    const giftWrap = this.parseGiftWrap(order);
+    const paidOnline = order["date_paid"] !== null && order["date_paid"] !== undefined;
     return {
       externalId,
       placedAt: this.parseDate(order, ["date_created_gmt", "date_created", "date_paid"]),
@@ -59,7 +66,47 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       items,
       ...(typeof currency === "string" && currency.length > 0 ? { currency } : {}),
       notes: typeof note === "string" && note.length > 0 ? note : null,
+      ...(shippingFeeMinor !== undefined ? { shippingFeeMinor } : {}),
+      ...(giftWrap !== undefined ? { giftWrap } : {}),
+      paidOnline,
     };
+  }
+
+  /**
+   * WooCommerce's `shipping_total` is a plain decimal string, always present
+   * (defaults to `"0.00"` when the order has no shipping line) — unlike a
+   * line's price, there is no per-item breakdown to derive it from, so it's
+   * trusted verbatim (see class docs).
+   */
+  private parseShippingTotal(order: JsonRecord): number | undefined {
+    const total = order["shipping_total"];
+    if (total === undefined || total === null) return undefined;
+    const minor = this.toMinorUnits(total, "WooCommerce order shipping_total");
+    return minor > 0 ? minor : undefined;
+  }
+
+  /**
+   * The gift-wrap checkout add-on (cadeauegypt.com's own WPCode snippet,
+   * confirmed 2026-09-06) is added as a cart **fee**, not a line item — it
+   * shows up in `fee_lines[]` with a name that always starts with "تغليف"
+   * ("wrap"); the three current variants are "تغليف هدية (عادي/مميز/فاخر)"
+   * but the amount (100/150/200 EGP today) is store-configurable, so only the
+   * name prefix is matched, never a hardcoded amount. `undefined` when the
+   * order has no such fee line (gift wrap wasn't requested) — never fatal.
+   */
+  private parseGiftWrap(order: JsonRecord): { feeMinor: number } | undefined {
+    const feeLines = order["fee_lines"];
+    if (!Array.isArray(feeLines)) return undefined;
+    for (const raw of feeLines) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const fee = raw as JsonRecord;
+      const name = fee["name"];
+      if (typeof name !== "string" || !name.includes("تغليف")) continue;
+      const total = fee["total"];
+      if (total === undefined || total === null) continue;
+      return { feeMinor: this.toMinorUnits(total, "WooCommerce order gift-wrap fee_line") };
+    }
+    return undefined;
   }
 
   parseProduct(raw: unknown): NormalizedProduct {
@@ -207,11 +254,76 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       );
     }
     const email = this.optionalString(billing, "email");
+    const address = this.parseAddress(order, billing, shipping);
     return {
       name,
       phone: this.normalizeEgyptianPhone(phoneRaw.trim()),
       ...(email !== undefined ? { email } : {}),
+      ...(address !== undefined ? { address } : {}),
     };
+  }
+
+  /**
+   * The delivery address. `billing.address_1`/`address_2` are WooCommerce's
+   * own standard fields; `shipping.address_1` takes priority when present
+   * (it's the actual delivery point). The governorate/district, however,
+   * come from cadeauegypt.com's own custom checkout fields
+   * (`_billing_governorate`/`_billing_area`, `_shipping_governorate`/
+   * `_shipping_area`) — saved as **protected** (underscore-prefixed) order
+   * meta, which WooCommerce's REST API hides by default. They only reach
+   * this payload because of the additional `woocommerce_webhook_payload`
+   * snippet added alongside this feature (storefront-address-sync D, agreed
+   * 2026-09-06) that re-injects them into `meta_data[]` for CRM-bound order
+   * webhooks specifically. `undefined` governorate/area (snippet not present,
+   * or the order predates it) never fails the order — the address line alone
+   * still saves.
+   */
+  private parseAddress(
+    order: JsonRecord,
+    billing: JsonRecord,
+    shipping: JsonRecord,
+  ): { line: string; city?: string; state?: string } | undefined {
+    const shippingLine = this.addressLine(shipping);
+    const billingLine = this.addressLine(billing);
+    const line = shippingLine ?? billingLine;
+    if (line === undefined) return undefined;
+    const usingShipping = shippingLine !== undefined;
+    const meta = this.metaMap(order);
+    const state = usingShipping
+      ? (meta.get("_shipping_governorate") ?? meta.get("_billing_governorate"))
+      : meta.get("_billing_governorate");
+    const city = usingShipping
+      ? (meta.get("_shipping_area") ?? meta.get("_billing_area"))
+      : meta.get("_billing_area");
+    return {
+      line,
+      ...(city !== undefined ? { city } : {}),
+      ...(state !== undefined ? { state } : {}),
+    };
+  }
+
+  private addressLine(addr: JsonRecord): string | undefined {
+    const line1 = this.optionalString(addr, "address_1");
+    if (line1 === undefined) return undefined;
+    const line2 = this.optionalString(addr, "address_2");
+    return line2 !== undefined ? `${line1}, ${line2}` : line1;
+  }
+
+  /** Order-level `meta_data[]` as a `key -> string value` map (non-string values skipped). */
+  private metaMap(order: JsonRecord): Map<string, string> {
+    const map = new Map<string, string>();
+    const metaData = order["meta_data"];
+    if (!Array.isArray(metaData)) return map;
+    for (const entry of metaData) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const record = entry as JsonRecord;
+      const key = record["key"];
+      const value = record["value"];
+      if (typeof key === "string" && typeof value === "string" && value.trim().length > 0) {
+        map.set(key, value.trim());
+      }
+    }
+    return map;
   }
 
   /**

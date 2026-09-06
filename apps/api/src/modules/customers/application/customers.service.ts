@@ -4,6 +4,7 @@ import type { RequestPrincipal } from "../../../shared/auth/authenticated-reques
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
+import type { SyncAddressCommand } from "../../../shared/contracts/customers-directory.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type {
   CustomerAddressView,
@@ -343,6 +344,49 @@ export class CustomersService {
     });
     await this.emitCustomerUpdated(companyId, principal.userId, customerId, ["addresses"]);
     return address;
+  }
+
+  /**
+   * {@link CustomersDirectoryPort.upsertStorefrontAddress} — sync a
+   * storefront order's delivery address onto the customer's default address.
+   * `rawState` is matched exactly against `Governorate.nameAr` (the
+   * storefront's own governorate dropdown is a closed, known list — never
+   * fuzzy-matched); no match just leaves `governorateId` unset, it never
+   * fails the sync (storefront-address-sync D2).
+   *
+   * A default address a staff member has already edited (`source: "manual"`)
+   * is never touched — D3. Nothing above this method ever throws for an
+   * ordinary "couldn't fully resolve the address" case; only genuine
+   * infrastructure failures propagate, which the caller (storefront
+   * ingestion) is expected to catch so an address-sync problem never fails
+   * the order it rode in on.
+   */
+  async upsertStorefrontAddress(
+    principal: RequestPrincipal,
+    customerId: string,
+    data: SyncAddressCommand,
+  ): Promise<void> {
+    const companyId = this.requireTenant(principal);
+    const governorateId =
+      data.rawState !== undefined ? await this.repo.findGovernorateIdByNameAr(data.rawState) : null;
+    const existing = await this.repo.listAddresses(companyId, customerId);
+    if (existing === null) return; // customer vanished mid-flight — nothing to sync onto
+    const currentDefault = existing.find((a) => a.isDefault && a.active);
+    if (currentDefault !== undefined && currentDefault.source === "manual") return;
+
+    const payload = {
+      line: data.line,
+      governorateId,
+      rawCity: data.rawCity ?? null,
+      rawState: data.rawState ?? null,
+      source: "storefront" as const,
+      isDefault: true,
+    };
+    if (currentDefault === undefined) {
+      await this.createAddress(principal, customerId, payload);
+    } else {
+      await this.updateAddress(principal, customerId, currentDefault.id, payload);
+    }
   }
 
   // ---- internals -----------------------------------------------------------

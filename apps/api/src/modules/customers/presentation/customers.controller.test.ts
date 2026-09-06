@@ -62,6 +62,9 @@ function address(): CustomerAddressView {
     bostaCityId: null,
     bostaDistrictId: null,
     bostaCityName: null,
+    source: "manual",
+    rawCity: null,
+    rawState: null,
     isDefault: true,
     active: true,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -99,6 +102,7 @@ describe("CustomersController", () => {
         .fn()
         .mockResolvedValue({ data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
       merge: vi.fn().mockResolvedValue({ survivingCustomerId: CUSTOMER, mergedCustomerId: "m1" }),
+      upsertStorefrontAddress: vi.fn().mockResolvedValue(undefined),
     };
     controller = new CustomersController(service as unknown as CustomersService);
   });

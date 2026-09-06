@@ -73,6 +73,8 @@ const ORDER_LIST_SELECT = {
   warehouseId: true,
   subtotal: true,
   shippingFee: true,
+  isGiftWrap: true,
+  giftWrapFeeMinor: true,
   discount: true,
   total: true,
   collectedAmount: true,
@@ -166,11 +168,17 @@ export class OrdersRepository implements OrdersRepositoryPort {
       await this.assertCustomer(tx, actor.companyId, data.customerId);
       await this.assertReferences(tx, actor.companyId, data);
       const lines = await this.resolveItems(tx, actor.companyId, data.items);
-      const money = this.computeMoney(lines, data.shippingFee ?? 0, data.discount ?? 0);
+      const money = this.computeMoney(
+        lines,
+        data.shippingFee ?? 0,
+        data.discount ?? 0,
+        data.giftWrapFeeMinor ?? 0,
+      );
       const orderNumber = await this.issueNumber(tx, actor.companyId);
 
-      const collectedAmount = data.collectedAmount ?? 0;
-      const paymentStatus = data.paymentStatus ?? "unpaid";
+      const collectedAmount =
+        data.markFullyPaid === true ? money.total : (data.collectedAmount ?? 0);
+      const paymentStatus = data.markFullyPaid === true ? "paid" : (data.paymentStatus ?? "unpaid");
       if (collectedAmount < 0 || collectedAmount > money.total) {
         throw new InvalidAmountError("collectedAmount");
       }
@@ -192,6 +200,8 @@ export class OrdersRepository implements OrdersRepositoryPort {
             subtotal: BigInt(money.subtotal),
             shippingFee: BigInt(money.shippingFee),
             discount: BigInt(money.discount),
+            isGiftWrap: data.isGiftWrap ?? false,
+            giftWrapFeeMinor: BigInt(money.giftWrapFeeMinor),
             total: BigInt(money.total),
             collectedAmount: BigInt(collectedAmount),
             paymentStatus,
@@ -235,6 +245,8 @@ export class OrdersRepository implements OrdersRepositoryPort {
           subtotal: true,
           shippingFee: true,
           discount: true,
+          isGiftWrap: true,
+          giftWrapFeeMinor: true,
           total: true,
           collectedAmount: true,
         },
@@ -249,6 +261,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       if (data.governorateId !== undefined) patch["governorateId"] = data.governorateId;
       if (data.followUpState !== undefined) patch["followUpState"] = data.followUpState;
       if (data.notes !== undefined) patch["notes"] = data.notes;
+      if (data.isGiftWrap !== undefined) patch["isGiftWrap"] = data.isGiftWrap;
 
       // Recompute the money block when items or any amount changed.
       let subtotal = Number(current.subtotal);
@@ -261,6 +274,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       }
       const shippingFee = data.shippingFee ?? Number(current.shippingFee);
       const discount = data.discount ?? Number(current.discount);
+      const giftWrapFeeMinor = data.giftWrapFeeMinor ?? Number(current.giftWrapFeeMinor);
       const money = this.computeMoney(
         // computeMoney takes lines; reuse via a synthetic subtotal
         [
@@ -275,14 +289,20 @@ export class OrdersRepository implements OrdersRepositoryPort {
         ],
         shippingFee,
         discount,
+        giftWrapFeeMinor,
       );
       patch["subtotal"] = BigInt(money.subtotal);
       patch["shippingFee"] = BigInt(money.shippingFee);
       patch["discount"] = BigInt(money.discount);
+      patch["giftWrapFeeMinor"] = BigInt(money.giftWrapFeeMinor);
       patch["total"] = BigInt(money.total);
 
       let collectedDelta = 0;
-      if (data.collectedAmount !== undefined) {
+      if (data.markFullyPaid === true) {
+        collectedDelta = money.total - Number(current.collectedAmount);
+        patch["collectedAmount"] = BigInt(money.total);
+        patch["paymentStatus"] = "paid";
+      } else if (data.collectedAmount !== undefined) {
         if (data.collectedAmount < 0) throw new InvalidAmountError("collectedAmount");
         collectedDelta = data.collectedAmount - Number(current.collectedAmount);
         patch["collectedAmount"] = BigInt(data.collectedAmount);
@@ -826,6 +846,8 @@ export class OrdersRepository implements OrdersRepositoryPort {
       itemCount: row._count.items,
       subtotal: Number(row.subtotal),
       shippingFee: Number(row.shippingFee),
+      isGiftWrap: row.isGiftWrap,
+      giftWrapFeeMinor: Number(row.giftWrapFeeMinor),
       discount: Number(row.discount),
       total: Number(row.total),
       collectedAmount: Number(row.collectedAmount),
@@ -952,13 +974,21 @@ export class OrdersRepository implements OrdersRepositoryPort {
     lines: readonly ResolvedLine[],
     shippingFee: number,
     discount: number,
-  ): { subtotal: number; shippingFee: number; discount: number; total: number } {
+    giftWrapFeeMinor = 0,
+  ): {
+    subtotal: number;
+    shippingFee: number;
+    discount: number;
+    giftWrapFeeMinor: number;
+    total: number;
+  } {
     if (shippingFee < 0) throw new InvalidAmountError("shippingFee");
     if (discount < 0) throw new InvalidAmountError("discount");
+    if (giftWrapFeeMinor < 0) throw new InvalidAmountError("giftWrapFeeMinor");
     const subtotal = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
-    const total = subtotal + shippingFee - discount;
+    const total = subtotal + shippingFee + giftWrapFeeMinor - discount;
     if (total < 0) throw new InvalidAmountError("discount");
-    return { subtotal, shippingFee, discount, total };
+    return { subtotal, shippingFee, discount, giftWrapFeeMinor, total };
   }
 
   // ---- internals: stock side effects (decision D2) -------------------------

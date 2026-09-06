@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -113,6 +114,17 @@ export class CreateOrderDto {
   @Min(0)
   discount?: number;
 
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  isGiftWrap?: boolean;
+
+  @ApiPropertyOptional({ example: 0, minimum: 0, description: "Integer minor units." })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  giftWrapFeeMinor?: number;
+
   @ApiPropertyOptional({ enum: PAYMENT_STATUSES, default: "unpaid" })
   @IsOptional()
   @IsIn(PAYMENT_STATUSES)
@@ -181,6 +193,17 @@ export class UpdateOrderDto {
   @IsInt()
   @Min(0)
   discount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isGiftWrap?: boolean;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  giftWrapFeeMinor?: number;
 
   @ApiPropertyOptional({ minimum: 0, description: "COD amount collected, integer minor units." })
   @IsOptional()
@@ -332,12 +355,19 @@ export class ImportOrdersDto {
 
 // ---- Response DTOs ---------------------------------------------------------
 
-/** The money block; all integer minor units. `total = subtotal + shippingFee − discount`. */
+/**
+ * The money block; all integer minor units.
+ * `total = subtotal + shippingFee + giftWrapFeeMinor − discount`.
+ */
 class OrderMoneyFields {
   @ApiProperty({ example: 30000 })
   subtotal!: number;
   @ApiProperty({ example: 5000 })
   shippingFee!: number;
+  @ApiProperty({ example: false })
+  isGiftWrap!: boolean;
+  @ApiProperty({ example: 0 })
+  giftWrapFeeMinor!: number;
   @ApiProperty({ example: 0 })
   discount!: number;
   @ApiProperty({ example: 35000 })
@@ -423,6 +453,8 @@ export class OrderListItemDto extends OrderMoneyFields {
     dto.itemCount = view.itemCount;
     dto.subtotal = view.subtotal;
     dto.shippingFee = view.shippingFee;
+    dto.isGiftWrap = view.isGiftWrap;
+    dto.giftWrapFeeMinor = view.giftWrapFeeMinor;
     dto.discount = view.discount;
     dto.total = view.total;
     dto.collectedAmount = view.collectedAmount;

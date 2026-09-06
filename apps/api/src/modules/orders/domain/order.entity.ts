@@ -25,10 +25,16 @@ export interface OrderItemView {
   readonly warehouseId: string | null;
 }
 
-/** The money block, all integer minor units. `total = subtotal + shippingFee − discount`. */
+/**
+ * The money block, all integer minor units.
+ * `total = subtotal + shippingFee + giftWrapFeeMinor − discount`.
+ */
 export interface OrderMoney {
   readonly subtotal: number;
   readonly shippingFee: number;
+  /** Whether the customer requested gift wrapping. */
+  readonly isGiftWrap: boolean;
+  readonly giftWrapFeeMinor: number;
   readonly discount: number;
   readonly total: number;
   readonly collectedAmount: number;

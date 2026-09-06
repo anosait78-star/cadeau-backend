@@ -52,6 +52,9 @@ function address(extra: Partial<CustomerAddressView> = {}): CustomerAddressView 
     bostaCityId: null,
     bostaDistrictId: null,
     bostaCityName: null,
+    source: "manual",
+    rawCity: null,
+    rawState: null,
     isDefault: false,
     active: true,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -86,6 +89,7 @@ function makeHarness(): Harness {
       .fn()
       .mockResolvedValue({ data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
     merge: vi.fn().mockResolvedValue({ survivingCustomerId: CUSTOMER, mergedCustomerId: "m1" }),
+    findGovernorateIdByNameAr: vi.fn().mockResolvedValue(null),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
@@ -352,6 +356,73 @@ describe("CustomersService — addresses", () => {
     await expect(
       h.service.updateAddress(principal(), CUSTOMER, "a1", { line: "x" }),
     ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("CustomersService — upsertStorefrontAddress (storefront-address-sync)", () => {
+  it("creates a new default 'storefront' address when the customer has none", async () => {
+    h.repo.listAddresses.mockResolvedValue([]);
+    h.repo.findGovernorateIdByNameAr.mockResolvedValue("gov-cairo");
+    await h.service.upsertStorefrontAddress(principal(), CUSTOMER, {
+      line: "12 Nile St",
+      rawCity: "المعادي",
+      rawState: "القاهرة",
+    });
+    expect(h.repo.findGovernorateIdByNameAr).toHaveBeenCalledWith("القاهرة");
+    expect(h.repo.createAddress).toHaveBeenCalledWith(expect.anything(), CUSTOMER, {
+      line: "12 Nile St",
+      governorateId: "gov-cairo",
+      rawCity: "المعادي",
+      rawState: "القاهرة",
+      source: "storefront",
+      isDefault: true,
+    });
+    expect(h.repo.updateAddress).not.toHaveBeenCalled();
+  });
+
+  it("never fails when the governorate name has no match — governorateId stays null", async () => {
+    h.repo.listAddresses.mockResolvedValue([]);
+    h.repo.findGovernorateIdByNameAr.mockResolvedValue(null);
+    await h.service.upsertStorefrontAddress(principal(), CUSTOMER, {
+      line: "12 Nile St",
+      rawState: "Somewhere Unknown",
+    });
+    expect(h.repo.createAddress).toHaveBeenCalledWith(
+      expect.anything(),
+      CUSTOMER,
+      expect.objectContaining({ governorateId: null }),
+    );
+  });
+
+  it("updates the existing default address in place when it is itself 'storefront'-sourced", async () => {
+    h.repo.listAddresses.mockResolvedValue([
+      address({ id: "a-old", isDefault: true, active: true, source: "storefront" }),
+    ]);
+    await h.service.upsertStorefrontAddress(principal(), CUSTOMER, { line: "New St" });
+    expect(h.repo.updateAddress).toHaveBeenCalledWith(
+      expect.anything(),
+      CUSTOMER,
+      "a-old",
+      expect.objectContaining({ line: "New St", source: "storefront", isDefault: true }),
+    );
+    expect(h.repo.createAddress).not.toHaveBeenCalled();
+  });
+
+  it("never touches a default address a staff member already edited ('manual')", async () => {
+    h.repo.listAddresses.mockResolvedValue([
+      address({ id: "a-manual", isDefault: true, active: true, source: "manual" }),
+    ]);
+    await h.service.upsertStorefrontAddress(principal(), CUSTOMER, { line: "New St" });
+    expect(h.repo.createAddress).not.toHaveBeenCalled();
+    expect(h.repo.updateAddress).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the customer is absent", async () => {
+    h.repo.listAddresses.mockResolvedValue(null);
+    await expect(
+      h.service.upsertStorefrontAddress(principal(), CUSTOMER, { line: "x" }),
+    ).resolves.toBeUndefined();
+    expect(h.repo.createAddress).not.toHaveBeenCalled();
   });
 });
 

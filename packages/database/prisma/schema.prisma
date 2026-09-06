@@ -520,6 +520,10 @@ model Governorate {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   countryCode String   @map("country_code")
   name        String
+  /// The governorate's Arabic name, as it appears verbatim in this storefront's
+  /// checkout dropdown (storefront-address-sync) — matched exactly against the
+  /// webhook's `_billing_governorate`/`_shipping_governorate` meta, never fuzzy.
+  nameAr      String?  @map("name_ar")
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -995,6 +999,15 @@ model CustomerAddress {
   bostaDistrictId String? @map("bosta_district_id")
   /// Bosta's create-delivery API requires the city's display name alongside its id.
   bostaCityName   String? @map("bosta_city_name")
+  /// "manual" (staff-entered/verified) or "storefront" (synced from a storefront
+  /// order webhook). A storefront sync never overwrites a "manual" default
+  /// address — see CustomersService.upsertStorefrontAddress.
+  source    String  @default("manual")
+  /// The storefront's own free-text city/district value, unmapped — kept for
+  /// staff review even when it couldn't be matched to a governorate.
+  rawCity   String? @map("raw_city")
+  /// The storefront's own free-text governorate/state value, unmapped.
+  rawState  String? @map("raw_state")
   isDefault     Boolean @default(false) @map("is_default")
   isActive      Boolean @default(true) @map("is_active")
   createdBy     String? @map("created_by") @db.Uuid
@@ -1024,8 +1037,9 @@ model CustomerAddress {
 /// An order (EPIC-11). `orderNumber` is a per-company sequential, human-facing
 /// number (issued via {@link OrderSequence}). `status` is one of the 12 lifecycle
 /// states; `followUpState` is an independent axis. Amounts are integer minor
-/// units: `total = subtotal + shippingFee − discount`, and `collectedAmount` is
-/// the COD money actually taken. The customer is pinned (`RESTRICT`); the assignee
+/// units: `total = subtotal + shippingFee + giftWrapFeeMinor − discount`, and
+/// `collectedAmount` is the COD money actually taken. The customer is pinned
+/// (`RESTRICT`); the assignee
 /// and the EPIC-7 label/reason/governorate references soft-detach (`SET NULL`).
 model Order {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1041,6 +1055,10 @@ model Order {
   warehouseId     String?  @map("warehouse_id") @db.Uuid
   subtotal        BigInt   @default(0)
   shippingFee     BigInt   @default(0) @map("shipping_fee")
+  /// Whether the customer requested gift wrapping (storefront-order-sync).
+  /// `giftWrapFeeMinor` is added into `total` exactly like `shippingFee`.
+  isGiftWrap       Boolean @default(false) @map("is_gift_wrap")
+  giftWrapFeeMinor BigInt  @default(0) @map("gift_wrap_fee_minor")
   discount        BigInt   @default(0)
   total           BigInt   @default(0)
   collectedAmount BigInt   @default(0) @map("collected_amount")

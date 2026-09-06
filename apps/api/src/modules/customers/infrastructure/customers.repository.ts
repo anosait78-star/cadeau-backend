@@ -89,6 +89,9 @@ const ADDRESS_SELECT = {
   bostaCityId: true,
   bostaDistrictId: true,
   bostaCityName: true,
+  source: true,
+  rawCity: true,
+  rawState: true,
   isDefault: true,
   isActive: true,
   createdAt: true,
@@ -119,6 +122,9 @@ type AddressRow = {
   bostaCityId: string | null;
   bostaDistrictId: string | null;
   bostaCityName: string | null;
+  source: string;
+  rawCity: string | null;
+  rawState: string | null;
   isDefault: boolean;
   isActive: boolean;
   createdAt: Date;
@@ -327,6 +333,9 @@ export class CustomersRepository implements CustomersRepositoryPort {
           bostaCityId: data.bostaCityId ?? null,
           bostaDistrictId: data.bostaDistrictId ?? null,
           bostaCityName: data.bostaCityName ?? null,
+          source: data.source ?? "manual",
+          rawCity: data.rawCity ?? null,
+          rawState: data.rawState ?? null,
           isDefault: data.isDefault ?? false,
         }) as Prisma.CustomerAddressUncheckedCreateInput,
         select: ADDRESS_SELECT,
@@ -356,6 +365,9 @@ export class CustomersRepository implements CustomersRepositoryPort {
       if (data.bostaCityId !== undefined) patch["bostaCityId"] = data.bostaCityId;
       if (data.bostaDistrictId !== undefined) patch["bostaDistrictId"] = data.bostaDistrictId;
       if (data.bostaCityName !== undefined) patch["bostaCityName"] = data.bostaCityName;
+      if (data.source !== undefined) patch["source"] = data.source;
+      if (data.rawCity !== undefined) patch["rawCity"] = data.rawCity;
+      if (data.rawState !== undefined) patch["rawState"] = data.rawState;
       if (data.isDefault !== undefined) patch["isDefault"] = data.isDefault;
       if (data.active !== undefined) patch["isActive"] = data.active;
 
@@ -655,6 +667,16 @@ export class CustomersRepository implements CustomersRepositoryPort {
     if (found === null) throw new ReferenceNotFoundError("governorateId");
   }
 
+  async findGovernorateIdByNameAr(nameAr: string): Promise<string | null> {
+    // System reference data (not tenant-scoped) — no RLS tenant binding needed,
+    // same as `assertGovernorate`.
+    const found = await this.prisma.governorate.findFirst({
+      where: { nameAr },
+      select: { id: true },
+    });
+    return found?.id ?? null;
+  }
+
   private toListView(row: CustomerRow): CustomerListView {
     // Masking still requires decrypting the row; what it limits is what the
     // *response* carries, not what the server reads.
@@ -700,6 +722,9 @@ export class CustomersRepository implements CustomersRepositoryPort {
       bostaCityId: row.bostaCityId,
       bostaDistrictId: row.bostaDistrictId,
       bostaCityName: row.bostaCityName,
+      source: row.source === "storefront" ? "storefront" : "manual",
+      rawCity: row.rawCity,
+      rawState: row.rawState,
       isDefault: row.isDefault,
       active: row.isActive,
       createdAt: row.createdAt.toISOString(),

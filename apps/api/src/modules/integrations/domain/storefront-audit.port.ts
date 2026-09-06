@@ -16,11 +16,15 @@ export interface StorefrontAuditRecord {
     | "storefront_event.reprocessed"
     | "storefront_vendor_warehouse_mapping.created"
     | "storefront_vendor_warehouse_mapping.auto_created"
-    | "storefront_vendor_warehouse_mapping.deleted";
+    | "storefront_vendor_warehouse_mapping.deleted"
+    | "storefront_order.resync_failed"
+    | "storefront_customer.address_sync_failed";
   readonly entityType:
     | "storefront_connection"
     | "storefront_webhook_event"
-    | "storefront_vendor_warehouse_mapping";
+    | "storefront_vendor_warehouse_mapping"
+    | "order"
+    | "customer";
   readonly entityId: string;
   readonly changes?: unknown;
 }

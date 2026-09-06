@@ -55,6 +55,10 @@ export interface CreateAddressInput {
   readonly bostaDistrictId?: string | null;
   readonly bostaCityName?: string | null;
   readonly isDefault?: boolean;
+  /** Defaults to "manual" — only `CustomersService.upsertStorefrontAddress` sets "storefront". */
+  readonly source?: "manual" | "storefront";
+  readonly rawCity?: string | null;
+  readonly rawState?: string | null;
 }
 
 /** Partial update for an address. */
@@ -68,6 +72,9 @@ export interface UpdateAddressInput {
   readonly bostaCityName?: string | null;
   readonly isDefault?: boolean;
   readonly active?: boolean;
+  readonly source?: "manual" | "storefront";
+  readonly rawCity?: string | null;
+  readonly rawState?: string | null;
 }
 
 /**
@@ -127,6 +134,13 @@ export interface CustomersRepositoryPort {
     addressId: string,
     data: UpdateAddressInput,
   ): Promise<CustomerAddressView | null>;
+
+  /**
+   * Exact-match lookup by the governorate's Arabic display name (system
+   * reference data, not tenant-scoped — same as {@link findById}'s
+   * `assertGovernorate`). `null` when no governorate has this `nameAr`.
+   */
+  findGovernorateIdByNameAr(nameAr: string): Promise<string | null>;
 
   /**
    * A keyset page of a customer's order history (EPIC-11). Returns `null` if the

@@ -111,6 +111,7 @@ describe("WooCommerceAdapter.parseOrder", () => {
       items: [{ sku: "SKU-001", quantity: 2, unitPriceMinor: 15000 }],
       currency: "EGP",
       notes: "Please gift-wrap",
+      paidOnline: false,
     });
   });
 
@@ -218,6 +219,64 @@ describe("WooCommerceAdapter.parseOrder", () => {
     const order = baseOrder();
     delete order["id"];
     expect(() => adapter.parseOrder(order)).toThrow(/id/);
+  });
+
+  it("reports paidOnline: true only when date_paid is set", () => {
+    expect(adapter.parseOrder(baseOrder({ date_paid: "2026-08-08T10:05:00" })).paidOnline).toBe(
+      true,
+    );
+    expect(adapter.parseOrder(baseOrder({ date_paid: null })).paidOnline).toBe(false);
+    expect(adapter.parseOrder(baseOrder()).paidOnline).toBe(false);
+  });
+
+  it("maps shipping_total to shippingFeeMinor, omitting it when zero/absent", () => {
+    expect(adapter.parseOrder(baseOrder({ shipping_total: "80.00" })).shippingFeeMinor).toBe(8000);
+    expect(
+      adapter.parseOrder(baseOrder({ shipping_total: "0.00" })).shippingFeeMinor,
+    ).toBeUndefined();
+    expect(adapter.parseOrder(baseOrder()).shippingFeeMinor).toBeUndefined();
+  });
+
+  it("extracts the gift-wrap fee_line by its 'تغليف' name prefix, ignoring other fees", () => {
+    const order = baseOrder({
+      fee_lines: [
+        { name: "Payment gateway fee", total: "10.00" },
+        { name: "تغليف هدية (فاخر)", total: "200.00" },
+      ],
+    });
+    expect(adapter.parseOrder(order).giftWrap).toEqual({ feeMinor: 20000 });
+    expect(adapter.parseOrder(baseOrder()).giftWrap).toBeUndefined();
+    expect(adapter.parseOrder(baseOrder({ fee_lines: [] })).giftWrap).toBeUndefined();
+  });
+
+  it("builds the delivery address from shipping first, falling back to billing", () => {
+    const shippingFirst = adapter.parseOrder(
+      baseOrder({
+        shipping: { first_name: "أحمد", last_name: "محمد", address_1: "12 Nile St" },
+        meta_data: [
+          { key: "_shipping_governorate", value: "القاهرة" },
+          { key: "_shipping_area", value: "المعادي" },
+          { key: "_billing_governorate", value: "الجيزة" },
+        ],
+      }),
+    ).customer.address;
+    expect(shippingFirst).toEqual({ line: "12 Nile St", city: "المعادي", state: "القاهرة" });
+
+    const billingFallback = adapter.parseOrder(
+      baseOrder({
+        billing: {
+          first_name: "أحمد",
+          last_name: "محمد",
+          phone: "01001234567",
+          email: "ahmed@example.com",
+          address_1: "5 Tahrir St",
+        },
+        meta_data: [{ key: "_billing_governorate", value: "الجيزة" }],
+      }),
+    ).customer.address;
+    expect(billingFallback).toEqual({ line: "5 Tahrir St", state: "الجيزة" });
+
+    expect(adapter.parseOrder(baseOrder()).customer.address).toBeUndefined();
   });
 });
 

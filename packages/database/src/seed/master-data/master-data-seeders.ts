@@ -60,11 +60,13 @@ const governoratesSeeder: Seeder = {
   async run(tx: SqlExecutor): Promise<SeederResult> {
     let changed = 0;
     for (const country of COUNTRIES) {
-      for (const name of country.governorates) {
+      for (const gov of country.governorates) {
         changed += await tx.$executeRaw`
-          INSERT INTO public.governorates (country_code, name)
-          VALUES (${country.code}, ${name})
-          ON CONFLICT (country_code, name) DO NOTHING
+          INSERT INTO public.governorates (country_code, name, name_ar)
+          VALUES (${country.code}, ${gov.name}, ${gov.nameAr ?? null})
+          ON CONFLICT (country_code, name) DO UPDATE
+            SET name_ar = EXCLUDED.name_ar
+          WHERE public.governorates.name_ar IS DISTINCT FROM EXCLUDED.name_ar
         `;
       }
     }

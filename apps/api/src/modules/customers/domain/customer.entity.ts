@@ -59,6 +59,15 @@ export interface CustomerAddressView {
   readonly bostaCityId: string | null;
   readonly bostaDistrictId: string | null;
   readonly bostaCityName: string | null;
+  /**
+   * "manual" (staff-entered/verified) or "storefront" (synced from an order
+   * webhook). A storefront sync never overwrites a "manual" default address.
+   */
+  readonly source: "manual" | "storefront";
+  /** The storefront's own unmapped city/district text, kept for staff review. */
+  readonly rawCity: string | null;
+  /** The storefront's own unmapped governorate/state text. */
+  readonly rawState: string | null;
   /** At most one address per customer is the default. */
   readonly isDefault: boolean;
   readonly active: boolean;

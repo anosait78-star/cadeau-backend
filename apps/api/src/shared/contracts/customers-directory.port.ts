@@ -17,11 +17,24 @@ export interface CreateCustomerCommand {
 }
 
 /**
- * Shared cross-feature contract for finding/creating a customer by phone. The
- * customers feature implements it (`CustomersService` structurally satisfies
- * this shape, reusing its existing E.164 normalization + blind-index
- * find/create path); storefront-integration consumes it instead of importing
- * `customers` directly (architecture rule `no-cross-feature-imports`).
+ * A storefront's own free-text delivery address (storefront-address-sync).
+ * `rawCity`/`rawState` are kept verbatim for staff review even when they
+ * can't be matched to a governorate — matching is exact-string only (the
+ * storefront's governorate dropdown is a closed, known list), never fuzzy.
+ */
+export interface SyncAddressCommand {
+  readonly line: string;
+  readonly rawCity?: string;
+  readonly rawState?: string;
+}
+
+/**
+ * Shared cross-feature contract for finding/creating a customer by phone (and
+ * syncing their storefront-reported address). The customers feature
+ * implements it (`CustomersService` structurally satisfies this shape,
+ * reusing its existing E.164 normalization + blind-index find/create path);
+ * storefront-integration consumes it instead of importing `customers`
+ * directly (architecture rule `no-cross-feature-imports`).
  */
 export interface CustomersDirectoryPort {
   list(
@@ -32,6 +45,18 @@ export interface CustomersDirectoryPort {
     principal: RequestPrincipal,
     data: CreateCustomerCommand,
   ): Promise<{ customer: DirectoryCustomer; replayed: boolean }>;
+  /**
+   * Never throws on an unmatched/missing governorate, and never overwrites a
+   * customer's existing default address unless that address was itself
+   * `source: "storefront"` (a staff-edited default address is left alone —
+   * storefront-address-sync D3). Swallow-and-log any failure at the call
+   * site: an address-sync problem must never fail the order it rode in on.
+   */
+  upsertStorefrontAddress(
+    principal: RequestPrincipal,
+    customerId: string,
+    data: SyncAddressCommand,
+  ): Promise<void>;
 }
 
 /** DI token for {@link CustomersDirectoryPort}. */

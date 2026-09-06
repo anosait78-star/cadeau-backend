@@ -1,4 +1,4 @@
-import { Body, Controller, HttpStatus, Post, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Headers, HttpStatus, Post, Res, UseGuards } from "@nestjs/common";
 import { ApiBody, ApiOkResponse, ApiOperation, ApiSecurity, ApiTags } from "@nestjs/swagger";
 import type { Response } from "express";
 import { StorefrontIngestionService } from "../application/storefront-ingestion.service";
@@ -58,9 +58,10 @@ export class StorefrontIngestionController {
   async ingestOrder(
     @CurrentStorefrontConnection() connection: ResolvedStorefrontConnection,
     @Body() body: unknown,
+    @Headers("x-wc-webhook-topic") webhookTopic: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<IngestResultDto> {
-    const result = await this.ingestion.ingestOrder(connection, body);
+    const result = await this.ingestion.ingestOrder(connection, body, webhookTopic);
     res.status(result.status === "created" ? HttpStatus.CREATED : HttpStatus.OK);
     return IngestResultDto.from(result);
   }

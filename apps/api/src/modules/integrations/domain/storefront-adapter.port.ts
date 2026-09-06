@@ -24,11 +24,31 @@ export interface NormalizedOrderItem {
   readonly vendorExternalId?: string;
 }
 
+/**
+ * A delivery address as the storefront itself typed it — raw, unmapped free
+ * text. Matching `city`/`state` against internal reference data (a
+ * governorate id) is the customers module's job, not the adapter's
+ * (`no-cross-feature-imports` — the adapter has no business knowing the
+ * `Governorate` schema).
+ */
+export interface NormalizedAddress {
+  readonly line: string;
+  readonly city?: string;
+  readonly state?: string;
+}
+
 export interface NormalizedCustomer {
   readonly name: string;
   /** As typed by the storefront — normalized to E.164 by the customers module. */
   readonly phone: string;
   readonly email?: string | null;
+  readonly address?: NormalizedAddress;
+}
+
+/** A gift-wrap request on an order, and its fee (storefront-order-sync). */
+export interface NormalizedGiftWrap {
+  /** Integer minor units. */
+  readonly feeMinor: number;
 }
 
 export interface NormalizedOrder {
@@ -38,6 +58,18 @@ export interface NormalizedOrder {
   readonly items: readonly NormalizedOrderItem[];
   readonly currency?: string;
   readonly notes?: string | null;
+  /** Integer minor units — the platform's own shipping charge for this order. */
+  readonly shippingFeeMinor?: number;
+  readonly giftWrap?: NormalizedGiftWrap;
+  /**
+   * Whether the platform has confirmed this order is actually paid
+   * (WooCommerce: `date_paid !== null` — true regardless of payment method,
+   * false for an unconfirmed/COD order). The *amount* collected is never
+   * taken from the platform's own total (D4: WooCommerce's stated total is
+   * not trusted) — `StorefrontIngestionService` derives it from the same
+   * line/shipping/gift-wrap figures it already computes.
+   */
+  readonly paidOnline?: boolean;
 }
 
 export interface NormalizedProduct {

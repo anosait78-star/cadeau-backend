@@ -56,7 +56,7 @@ function makeHarness() {
     findActiveByKeyPrefix: vi.fn(),
     touchLastEventAt: vi.fn().mockResolvedValue(undefined),
   };
-  const orders = { create: vi.fn() };
+  const orders = { create: vi.fn(), updateForStorefront: vi.fn() };
   const products = {
     findVariantBySku: vi.fn(),
     create: vi.fn(),
@@ -71,7 +71,11 @@ function makeHarness() {
     setVariantWarehouse: vi.fn(),
     createWarehouse: vi.fn(),
   };
-  const customers = { list: vi.fn(), create: vi.fn() };
+  const customers = {
+    list: vi.fn(),
+    create: vi.fn(),
+    upsertStorefrontAddress: vi.fn().mockResolvedValue(undefined),
+  };
   const vendorWarehouses = {
     findWarehouseId: vi.fn(),
     list: vi.fn(),
@@ -221,6 +225,81 @@ describe("StorefrontIngestionService.ingestOrder", () => {
     expect(result).toEqual({ entityId: "order-existing", status: "duplicate" });
     expect(h.orders.create).not.toHaveBeenCalled();
     expect(h.products.findVariantBySku).not.toHaveBeenCalled();
+  });
+
+  it("does NOT resync an already-processed order when no webhookTopic is given (D7 unchanged)", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "processed", internalEntityId: "order-existing" },
+      enqueued: false,
+    });
+
+    await h.service.ingestOrder(CONNECTION, ORDER_PAYLOAD);
+
+    expect(h.orders.updateForStorefront).not.toHaveBeenCalled();
+  });
+
+  it("does NOT resync a re-sent 'order.created' delivery for an already-processed order", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "processed", internalEntityId: "order-existing" },
+      enqueued: false,
+    });
+
+    await h.service.ingestOrder(CONNECTION, ORDER_PAYLOAD, "order.created");
+
+    expect(h.orders.updateForStorefront).not.toHaveBeenCalled();
+  });
+
+  it("re-syncs payment/gift-wrap/shipping onto an already-processed order on 'order.updated'", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "processed", internalEntityId: "order-existing" },
+      enqueued: false,
+    });
+    h.customers.list.mockResolvedValue({ data: [{ id: "existing-cust" }], page: emptyPage().page });
+
+    const result = await h.service.ingestOrder(
+      CONNECTION,
+      {
+        ...ORDER_PAYLOAD,
+        shippingFeeMinor: 8000,
+        giftWrap: { feeMinor: 20000 },
+        paidOnline: true,
+      },
+      "order.updated",
+    );
+
+    expect(result).toEqual({ entityId: "order-existing", status: "duplicate" });
+    expect(h.orders.updateForStorefront).toHaveBeenCalledWith(expect.anything(), "order-existing", {
+      shippingFee: 8000,
+      isGiftWrap: true,
+      giftWrapFeeMinor: 20000,
+      markFullyPaid: true,
+    });
+    // The order itself is never re-created/re-priced on a resync.
+    expect(h.orders.create).not.toHaveBeenCalled();
+  });
+
+  it("records a resync failure to the audit log without throwing or failing the original event", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "processed", internalEntityId: "order-existing" },
+      enqueued: false,
+    });
+    h.customers.list.mockResolvedValue({ data: [{ id: "existing-cust" }], page: emptyPage().page });
+    h.orders.updateForStorefront.mockRejectedValue(new Error("boom"));
+
+    const result = await h.service.ingestOrder(
+      CONNECTION,
+      { ...ORDER_PAYLOAD, paidOnline: true },
+      "order.updated",
+    );
+
+    expect(result).toEqual({ entityId: "order-existing", status: "duplicate" });
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "storefront_order.resync_failed",
+        entityId: "order-existing",
+      }),
+    );
+    expect(h.inbox.markFailed).not.toHaveBeenCalled();
   });
 
   it("retries a previously-failed event in place rather than treating it as a duplicate", async () => {

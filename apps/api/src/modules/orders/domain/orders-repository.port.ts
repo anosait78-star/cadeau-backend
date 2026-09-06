@@ -43,8 +43,20 @@ export interface CreateOrderInput {
   readonly followUpState?: FollowUpState;
   readonly shippingFee?: number;
   readonly discount?: number;
+  /** Whether the customer requested gift wrapping; `giftWrapFeeMinor` adds into `total`. */
+  readonly isGiftWrap?: boolean;
+  readonly giftWrapFeeMinor?: number;
   readonly collectedAmount?: number;
   readonly paymentStatus?: PaymentStatus;
+  /**
+   * Set `collectedAmount`/`paymentStatus` to "fully paid" from whatever
+   * `total` this create computes, instead of a caller-supplied figure —
+   * for a storefront order confirmed paid at checkout, where the caller
+   * (storefront-integration) has no independent way to know `total` ahead of
+   * this call (it's computed here, from resolved item prices). Overrides
+   * `collectedAmount`/`paymentStatus` when both are given.
+   */
+  readonly markFullyPaid?: boolean;
   readonly notes?: string | null;
   readonly items: readonly CreateOrderItemInput[];
   readonly idempotencyKey?: string | null;
@@ -59,7 +71,11 @@ export interface UpdateOrderInput {
   readonly followUpState?: FollowUpState;
   readonly shippingFee?: number;
   readonly discount?: number;
+  readonly isGiftWrap?: boolean;
+  readonly giftWrapFeeMinor?: number;
   readonly collectedAmount?: number;
+  /** Same as {@link CreateOrderInput.markFullyPaid}, applied to the recomputed `total`. */
+  readonly markFullyPaid?: boolean;
   readonly notes?: string | null;
   readonly items?: readonly CreateOrderItemInput[];
 }

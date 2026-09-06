@@ -20,11 +20,35 @@ export interface OrdersIngestionInput {
   readonly warehouseId?: string | null;
   readonly notes?: string | null;
   readonly items: readonly OrdersIngestionItem[];
+  readonly shippingFee?: number;
+  readonly isGiftWrap?: boolean;
+  readonly giftWrapFeeMinor?: number;
+  /**
+   * The storefront confirmed this order paid at checkout (WooCommerce:
+   * `date_paid !== null`) — `collectedAmount`/`paymentStatus` are set from
+   * whatever `total` this create computes, never a figure guessed here
+   * (D4: no duplicated business logic).
+   */
+  readonly markFullyPaid?: boolean;
 }
 
 /**
- * Shared cross-feature contract for creating an order from outside the
- * orders feature. The orders feature implements it (`OrdersService.create`
+ * The mutable fields a later storefront event (`order.updated`) can re-sync
+ * onto an already-ingested order — deliberately narrow: never items/pricing,
+ * only facts that can legitimately change after checkout (payment
+ * confirmation on a redirect gateway, a gift-wrap choice, a shipping-fee
+ * correction). See `StorefrontIngestionService`'s update-sync path.
+ */
+export interface OrdersIngestionUpdateInput {
+  readonly shippingFee?: number;
+  readonly isGiftWrap?: boolean;
+  readonly giftWrapFeeMinor?: number;
+  readonly markFullyPaid?: boolean;
+}
+
+/**
+ * Shared cross-feature contract for creating/updating an order from outside
+ * the orders feature. The orders feature implements it (`OrdersService`
  * structurally satisfies this shape); storefront-integration consumes it
  * instead of importing `orders` directly (architecture rule
  * `no-cross-feature-imports` — same pattern as {@link SessionReissuePort}).
@@ -34,6 +58,17 @@ export interface OrdersIngestionPort {
     principal: RequestPrincipal,
     data: OrdersIngestionInput,
   ): Promise<{ order: { id: string }; replayed: boolean }>;
+  /**
+   * Named distinctly from `OrdersService.update` (same class, `useExisting`
+   * binding, D — orders-ingestion.port): that method's public signature/return
+   * shape is the orders controller's own contract and must not be reshaped
+   * for this narrower internal caller.
+   */
+  updateForStorefront(
+    principal: RequestPrincipal,
+    orderId: string,
+    data: OrdersIngestionUpdateInput,
+  ): Promise<{ order: { id: string } }>;
 }
 
 /** DI token for {@link OrdersIngestionPort}. */
