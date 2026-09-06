@@ -19,6 +19,8 @@ const ORDER: OrderListItem = {
   itemCount: 2,
   subtotal: 30000,
   shippingFee: 5000,
+  isGiftWrap: false,
+  giftWrapFeeMinor: 0,
   discount: 0,
   total: 35000,
   collectedAmount: 0,

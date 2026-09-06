@@ -34,6 +34,8 @@ export type PaymentStatus = "unpaid" | "partial" | "paid";
 export interface OrderMoney {
   readonly subtotal: number;
   readonly shippingFee: number;
+  readonly isGiftWrap: boolean;
+  readonly giftWrapFeeMinor: number;
   readonly discount: number;
   readonly total: number;
   readonly collectedAmount: number;

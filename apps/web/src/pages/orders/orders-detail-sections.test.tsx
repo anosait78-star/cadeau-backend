@@ -27,6 +27,8 @@ const ORDER_DETAIL: OrderDetail = {
   itemCount: 1,
   subtotal: 15000,
   shippingFee: 0,
+  isGiftWrap: false,
+  giftWrapFeeMinor: 0,
   discount: 0,
   total: 15000,
   collectedAmount: 0,

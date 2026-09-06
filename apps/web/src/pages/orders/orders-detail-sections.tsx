@@ -490,6 +490,13 @@ function SummarySection({
             value={formatMoney(detail.shippingFee, locale)}
             ltr
           />
+          {detail.isGiftWrap && (
+            <DetailRow
+              label={t("orders.form.giftWrap")}
+              value={formatMoney(detail.giftWrapFeeMinor, locale)}
+              ltr
+            />
+          )}
           <DetailRow
             label={t("orders.form.discount")}
             value={formatMoney(detail.discount, locale)}
