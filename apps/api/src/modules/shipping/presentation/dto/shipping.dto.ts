@@ -320,17 +320,27 @@ export class BostaDistrictDto {
   districtId!: string;
   @ApiProperty({ example: "1st Settlement - District 10" })
   districtName!: string;
+  @ApiProperty({ example: "الحي الأول", nullable: true, description: "Bosta's own Arabic name." })
+  districtNameAr!: string | null;
   @ApiProperty({ example: "g3jl3V8FMN" })
   zoneId!: string;
   @ApiProperty({ example: "New Cairo" })
   zoneName!: string;
+  @ApiProperty({
+    example: "التجمع الخامس",
+    nullable: true,
+    description: "Bosta's own Arabic name.",
+  })
+  zoneNameAr!: string | null;
 
   static from(view: BostaDistrictView): BostaDistrictDto {
     const dto = new BostaDistrictDto();
     dto.districtId = view.districtId;
     dto.districtName = view.districtName;
+    dto.districtNameAr = view.districtNameAr;
     dto.zoneId = view.zoneId;
     dto.zoneName = view.zoneName;
+    dto.zoneNameAr = view.zoneNameAr;
     return dto;
   }
 }

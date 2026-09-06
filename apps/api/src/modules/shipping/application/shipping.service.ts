@@ -209,8 +209,10 @@ export class ShippingService {
       data?: readonly {
         districtId: string;
         districtName: string;
+        districtOtherName?: string;
         zoneId: string;
         zoneName: string;
+        zoneOtherName?: string;
       }[];
     } = await withErrorMapping(
       () => this.bostaHttpClient.request("GET", `cities/${encodeURIComponent(cityId)}/districts`),
@@ -219,8 +221,10 @@ export class ShippingService {
     const districts = (response.data ?? []).map((d) => ({
       districtId: d.districtId,
       districtName: d.districtName,
+      districtNameAr: d.districtOtherName ?? null,
       zoneId: d.zoneId,
       zoneName: d.zoneName,
+      zoneNameAr: d.zoneOtherName ?? null,
     }));
     this.bostaCatalog.set(cacheKey, districts);
     return districts;

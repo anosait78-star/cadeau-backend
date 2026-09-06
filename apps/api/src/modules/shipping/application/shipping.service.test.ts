@@ -516,11 +516,47 @@ describe("ShippingService.listBostaCities / listBostaDistricts", () => {
 
     const districts = await h.service.listBostaDistricts(principal(), "c1");
     expect(districts).toEqual([
-      { districtId: "d1", districtName: "1st Settlement", zoneId: "z1", zoneName: "New Cairo" },
+      {
+        districtId: "d1",
+        districtName: "1st Settlement",
+        districtNameAr: null,
+        zoneId: "z1",
+        zoneName: "New Cairo",
+        zoneNameAr: null,
+      },
     ]);
 
     await h.service.listBostaDistricts(principal(), "c1");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps Bosta's own districtOtherName/zoneOtherName to the Arabic fields (confirmed live, 2026-09-06)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      bostaResponse(200, {
+        data: [
+          {
+            districtId: "v3Hvi-ywnDy",
+            districtName: "Ashmoun",
+            districtOtherName: "اشمون",
+            zoneId: "8Ir5_0TQio_",
+            zoneName: "Ashmoun",
+            zoneOtherName: "اشمون",
+          },
+        ],
+      }),
+    );
+
+    const districts = await h.service.listBostaDistricts(principal(), "c1");
+    expect(districts).toEqual([
+      {
+        districtId: "v3Hvi-ywnDy",
+        districtName: "Ashmoun",
+        districtNameAr: "اشمون",
+        zoneId: "8Ir5_0TQio_",
+        zoneName: "Ashmoun",
+        zoneNameAr: "اشمون",
+      },
+    ]);
   });
 
   it("maps a Bosta outage while fetching the catalog to 503", async () => {
