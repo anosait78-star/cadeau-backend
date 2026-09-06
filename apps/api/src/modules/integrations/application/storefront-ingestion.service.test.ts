@@ -13,7 +13,6 @@ import type { StorefrontWebhookInboxPort } from "../domain/storefront-webhook-in
 import type { VendorWarehouseMappingsRepositoryPort } from "../domain/vendor-warehouse-mappings-repository.port";
 import {
   DuplicateVendorMappingError,
-  MissingVendorIdError,
   UnknownSkuError,
   VendorNotMappedError,
 } from "../domain/storefront.errors";
@@ -408,30 +407,41 @@ describe("StorefrontIngestionService.ingestOrder — multi-vendor routing", () =
     );
   });
 
-  it("fails the whole order atomically — never calls orders.create — when one vendor has no mapping", async () => {
+  it("falls back to the connection's default warehouse — and audits it — when one vendor has no mapping (revised 2026-09-07: a real order is never lost over this)", async () => {
     h.products.findVariantBySku.mockResolvedValue({ id: "variant-x", productId: "product-x" });
-    // vendor-A resolves, vendor-B does not: order of items in the payload
-    // puts vendor-A first, so this proves the failure on B stops everything
-    // before any write, not just before B's own line.
+    // vendor-A resolves, vendor-B does not.
     h.vendorWarehouses.findWarehouseId.mockImplementation(
       (_co: string, _conn: string, vendorId: string) =>
         Promise.resolve(vendorId === "vendor-A" ? "wh-A" : null),
     );
+    h.orders.create.mockResolvedValue({ order: { id: "order-mv-1" }, replayed: false });
 
-    await expect(
-      h.service.ingestOrder(CONNECTION, MULTI_VENDOR_ORDER_PAYLOAD),
-    ).rejects.toBeInstanceOf(VendorNotMappedError);
-    expect(h.orders.create).not.toHaveBeenCalled();
-    expect(h.inbox.markFailed).toHaveBeenCalledWith(
-      "co-1",
-      "evt-1",
-      expect.stringContaining("vendor-B"),
+    const result = await h.service.ingestOrder(CONNECTION, MULTI_VENDOR_ORDER_PAYLOAD);
+
+    expect(result).toEqual({ entityId: "order-mv-1", status: "created" });
+    expect(h.orders.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        items: [
+          { variantId: "variant-x", quantity: 1, price: 10000, warehouseId: "wh-A" },
+          // CONNECTION.defaultWarehouseId ("wh-1") — never left unresolved.
+          { variantId: "variant-x", quantity: 2, price: 5000, warehouseId: "wh-1" },
+        ],
+      }),
+    );
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "storefront_order.vendor_fallback_warehouse",
+        entityId: "order-mv-1",
+        changes: { unmappedVendors: ["vendor-B"] },
+      }),
     );
   });
 
-  it("fails atomically when one line in a multi-vendor order carries no vendor id at all", async () => {
+  it("falls back to the default warehouse when one line in a multi-vendor order carries no vendor id at all", async () => {
     h.products.findVariantBySku.mockResolvedValue({ id: "variant-x", productId: "product-x" });
     h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-A");
+    h.orders.create.mockResolvedValue({ order: { id: "order-mv-1" }, replayed: false });
     const payload = {
       ...MULTI_VENDOR_ORDER_PAYLOAD,
       items: [
@@ -440,21 +450,47 @@ describe("StorefrontIngestionService.ingestOrder — multi-vendor routing", () =
       ],
     };
 
-    await expect(h.service.ingestOrder(CONNECTION, payload)).rejects.toBeInstanceOf(
-      MissingVendorIdError,
+    const result = await h.service.ingestOrder(CONNECTION, payload);
+
+    expect(result).toEqual({ entityId: "order-mv-1", status: "created" });
+    expect(h.orders.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        items: [
+          { variantId: "variant-x", quantity: 1, price: 10000, warehouseId: "wh-A" },
+          { variantId: "variant-x", quantity: 2, price: 5000, warehouseId: "wh-1" },
+        ],
+      }),
     );
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ changes: { unmappedVendors: ["sku:SKU-B"] } }),
+    );
+  });
+
+  it("still fails — nothing to fall back to — when the connection has no default warehouse either", async () => {
+    const connectionWithNoDefault = { ...CONNECTION, defaultWarehouseId: null };
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-x", productId: "product-x" });
+    h.vendorWarehouses.findWarehouseId.mockImplementation(
+      (_co: string, _conn: string, vendorId: string) =>
+        Promise.resolve(vendorId === "vendor-A" ? "wh-A" : null),
+    );
+
+    await expect(
+      h.service.ingestOrder(connectionWithNoDefault, MULTI_VENDOR_ORDER_PAYLOAD),
+    ).rejects.toBeInstanceOf(VendorNotMappedError);
     expect(h.orders.create).not.toHaveBeenCalled();
   });
 
   it("succeeds on reprocess once the admin creates the missing mapping (retry after mapping)", async () => {
-    // First delivery: vendor-B unmapped, fails closed.
+    // First delivery: vendor-B unmapped, no default warehouse configured either.
+    const connectionWithNoDefault = { ...CONNECTION, defaultWarehouseId: null };
     h.products.findVariantBySku.mockResolvedValue({ id: "variant-x", productId: "product-x" });
     h.vendorWarehouses.findWarehouseId.mockImplementation(
       (_co: string, _conn: string, vendorId: string) =>
         Promise.resolve(vendorId === "vendor-A" ? "wh-A" : null),
     );
     await expect(
-      h.service.ingestOrder(CONNECTION, MULTI_VENDOR_ORDER_PAYLOAD),
+      h.service.ingestOrder(connectionWithNoDefault, MULTI_VENDOR_ORDER_PAYLOAD),
     ).rejects.toBeInstanceOf(VendorNotMappedError);
     expect(h.orders.create).not.toHaveBeenCalled();
 

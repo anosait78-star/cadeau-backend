@@ -18,6 +18,7 @@ export interface StorefrontAuditRecord {
     | "storefront_vendor_warehouse_mapping.auto_created"
     | "storefront_vendor_warehouse_mapping.deleted"
     | "storefront_order.resync_failed"
+    | "storefront_order.vendor_fallback_warehouse"
     | "storefront_customer.address_sync_failed";
   readonly entityType:
     | "storefront_connection"

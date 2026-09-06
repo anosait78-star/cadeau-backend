@@ -46,7 +46,6 @@ import {
 import { STOREFRONT_AUDIT, type StorefrontAuditPort } from "../domain/storefront-audit.port";
 import {
   DuplicateVendorMappingError,
-  MissingVendorIdError,
   NotReprocessableError,
   UnknownSkuError,
   VendorNotMappedError,
@@ -305,26 +304,40 @@ export class StorefrontIngestionService {
       (line) => line.vendorExternalId !== undefined && line.vendorExternalId.length > 0,
     );
     // Resolve EVERY line (sku → variant, and — for a multi-vendor order —
-    // vendor → warehouse) before calling `orders.create`. Any failure here
-    // throws before a single row is written, so a multi-vendor order with
-    // one unmapped vendor never partially reserves for the others (D6:
-    // atomic all-or-nothing).
+    // vendor → warehouse) before calling `orders.create`, so an unresolvable
+    // SKU still fails the whole order atomically. A line whose vendor is
+    // missing or not yet mapped, though, no longer fails the order (revised
+    // 2026-09-07, replacing the original D6 "atomic all-or-nothing" stance
+    // after a real paid order was lost this way): it falls back to the
+    // connection's own default warehouse ("مخزن كادو") instead, and the
+    // fallback is recorded to the audit log so staff can map the vendor and
+    // move the stock later — a wrong-but-visible warehouse beats losing a
+    // real, paid customer order outright. Only when even the connection has
+    // no default warehouse configured does this remain unresolvable and
+    // throw (a real configuration gap, not a per-order one).
     const items: OrdersIngestionItem[] = [];
+    const unmappedVendors: string[] = [];
     for (const line of normalized.items) {
       const variant = await this.products.findVariantBySku(principal, line.sku);
       if (variant === null) throw new UnknownSkuError(line.sku);
       let warehouseId: string | undefined;
       if (isMultiVendor) {
-        if (line.vendorExternalId === undefined || line.vendorExternalId.length === 0) {
-          throw new MissingVendorIdError(line.sku);
+        const mapped =
+          line.vendorExternalId !== undefined && line.vendorExternalId.length > 0
+            ? await this.vendorWarehouses.findWarehouseId(
+                connection.companyId,
+                connection.connectionId,
+                line.vendorExternalId,
+              )
+            : null;
+        if (mapped !== null) {
+          warehouseId = mapped;
+        } else if (connection.defaultWarehouseId !== null) {
+          warehouseId = connection.defaultWarehouseId;
+          unmappedVendors.push(line.vendorExternalId ?? `sku:${line.sku}`);
+        } else {
+          throw new VendorNotMappedError(line.vendorExternalId ?? line.sku);
         }
-        const mapped = await this.vendorWarehouses.findWarehouseId(
-          connection.companyId,
-          connection.connectionId,
-          line.vendorExternalId,
-        );
-        if (mapped === null) throw new VendorNotMappedError(line.vendorExternalId);
-        warehouseId = mapped;
       }
       items.push({
         variantId: variant.id,
@@ -349,6 +362,16 @@ export class StorefrontIngestionService {
         : { isGiftWrap: true, giftWrapFeeMinor: normalized.giftWrap.feeMinor }),
       ...(normalized.paidOnline === true ? { markFullyPaid: true } : {}),
     });
+    if (unmappedVendors.length > 0) {
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_order.vendor_fallback_warehouse",
+        entityType: "order",
+        entityId: order.id,
+        changes: { unmappedVendors },
+      });
+    }
     // Address sync never fails order creation — a customer/address problem
     // is enrichment, not a reason to lose a real order (storefront-address-
     // sync D2). The order itself is already committed at this point.
