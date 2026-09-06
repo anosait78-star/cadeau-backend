@@ -41,6 +41,12 @@ export interface CustomerAddress {
   readonly bostaCityId: string | null;
   readonly bostaDistrictId: string | null;
   readonly bostaCityName: string | null;
+  /** 'storefront' addresses are synced from an order webhook, never overwritten once staff-edited. */
+  readonly source: "manual" | "storefront";
+  /** The storefront's own unmapped district/area text. */
+  readonly rawCity: string | null;
+  /** The storefront's own unmapped governorate text. */
+  readonly rawState: string | null;
   readonly isDefault: boolean;
   readonly active: boolean;
   readonly createdAt: string;

@@ -615,8 +615,14 @@ function CustomerDetailExpansion({
                     <span className="text-xs text-muted-foreground">
                       {t("customers.address.field.governorate")}:{" "}
                       {(address.governorateId && governorateNames.get(address.governorateId)) ||
+                        address.rawState ||
                         DASH}{" "}
-                      · {t("customers.address.field.landmark")}: {address.landmark ?? DASH}
+                      · {t("customers.address.field.area")}: {address.rawCity ?? DASH}
+                      {" · "}
+                      {t("customers.address.field.landmark")}: {address.landmark ?? DASH}
+                      {address.source === "storefront"
+                        ? ` · ${t("customers.address.source.storefront")}`
+                        : ""}
                     </span>
                   </div>
                   <PermissionGate permission="customers.manage">

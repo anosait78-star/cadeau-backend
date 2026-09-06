@@ -67,6 +67,10 @@ export function SelectCarrierDialog({
   const [bostaDistrictId, setBostaDistrictId] = useState("");
   const [addressLine, setAddressLine] = useState("");
   const [landmark, setLandmark] = useState("");
+  // Reference-only hint for picking the right Bosta city/district below — the
+  // storefront's own free-text governorate/area, never sent to the carrier.
+  const [savedGovernorateHint, setSavedGovernorateHint] = useState<string | null>(null);
+  const [savedAreaHint, setSavedAreaHint] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [goodsValue, setGoodsValue] = useState("");
   const [recipientFirstName, setRecipientFirstName] = useState("");
@@ -84,6 +88,8 @@ export function SelectCarrierDialog({
     setBostaDistrictId("");
     setAddressLine("");
     setLandmark("");
+    setSavedGovernorateHint(null);
+    setSavedAreaHint(null);
     setNotes("");
     setGoodsValue("");
     setRecipientFirstName("");
@@ -113,6 +119,8 @@ export function SelectCarrierDialog({
         if (saved !== undefined) {
           setAddressLine(saved.line);
           setLandmark(saved.landmark ?? "");
+          setSavedGovernorateHint(saved.rawState);
+          setSavedAreaHint(saved.rawCity);
         }
       })
       .catch(() => undefined);
@@ -235,6 +243,13 @@ export function SelectCarrierDialog({
         {selected === "bosta" ? (
           <div className="flex flex-col gap-3 rounded-md border border-border p-3">
             <p className="text-sm font-medium">{t("customers.shippingInfo.title")}</p>
+            {savedGovernorateHint !== null || savedAreaHint !== null ? (
+              <p className="text-xs text-muted-foreground">
+                {t("shipping.selectCarrier.storefrontHint")}
+                {": "}
+                {[savedGovernorateHint, savedAreaHint].filter(Boolean).join(" — ")}
+              </p>
+            ) : null}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <FormField
                 label={t("customers.address.field.bostaCity")}
