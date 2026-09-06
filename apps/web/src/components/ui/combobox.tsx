@@ -76,7 +76,18 @@ export function Combobox({
             placeholder={searchPlaceholder ?? t("combobox.search")}
             className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
           />
-          <Command.List className="max-h-60 overflow-auto p-1">
+          <Command.List
+            className="max-h-60 overflow-auto overscroll-contain p-1"
+            // A Combobox opened from inside a Modal renders its list through a
+            // separate portal (PopoverContent) outside the Modal's own DOM
+            // subtree. Radix Dialog's scroll lock listens for wheel/touch at
+            // the document level and, not recognizing this portaled list as
+            // part of the dialog, blocks scrolling in it — stopping
+            // propagation here keeps the event from ever reaching that
+            // listener, so the list scrolls normally everywhere it's used.
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
             <Command.Empty className="px-2 py-4 text-center text-sm text-muted-foreground">
               {emptyText ?? t("combobox.empty")}
             </Command.Empty>

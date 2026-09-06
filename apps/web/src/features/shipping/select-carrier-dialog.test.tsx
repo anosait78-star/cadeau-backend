@@ -263,6 +263,79 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
     expect(screen.getByLabelText("Governorate")).toBeEnabled();
   });
 
+  it("matches a common Arabic spelling variant (trailing ة vs ه) — same place, not a guess", async () => {
+    // Bosta spells it "المنوفيه" (ه); the storefront's own checkout dropdown
+    // spells it "المنوفية" (ة) — same governorate, real-world discrepancy
+    // confirmed in production (2026-09-06).
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/shipping/carriers")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                key: "bosta",
+                connected: true,
+                pickupLocationWarning: false,
+                connectedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/shipping/bosta/cities")) {
+        return Promise.resolve(
+          json(200, { data: [{ id: "c1", name: "Menofia", nameAr: "المنوفيه" }] }),
+        );
+      }
+      if (url.includes("/shipping/bosta/cities/") && url.includes("/districts")) {
+        return Promise.resolve(json(200, { data: [] }));
+      }
+      if (url.match(/\/customers\/cust-1$/) && method === "GET") {
+        return Promise.resolve(
+          json(200, {
+            id: "cust-1",
+            name: "Naruto Uzumaki",
+            phone: "+201065685435",
+            email: null,
+            notes: null,
+            active: true,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            ordersCount: 0,
+            totalSpent: 0,
+            lastOrderAt: null,
+            addresses: [
+              {
+                id: "addr-1",
+                customerId: "cust-1",
+                line: "x",
+                landmark: null,
+                notes: null,
+                governorateId: null,
+                bostaCityId: null,
+                bostaDistrictId: null,
+                bostaCityName: null,
+                source: "storefront",
+                rawCity: null,
+                rawState: "المنوفية",
+                isDefault: true,
+                active: true,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(json(404, { error: { code: "NOT_FOUND", statusCode: 404 } }));
+    });
+
+    renderDialog(() => {});
+    await waitFor(() => expect(screen.getByLabelText("Governorate")).toHaveTextContent("المنوفيه"));
+  });
+
   it("prefills the recipient name from the customer, and lets the zone narrow the district list", async () => {
     const user = userEvent.setup();
     renderDialog(() => {});

@@ -23,6 +23,27 @@ import {
 const DASH = "—";
 
 /**
+ * Canonicalizes an Arabic place name for comparison only (never for
+ * storage/display) — collapses spelling variants that are the same place
+ * spelled two ways, never two different places into one:
+ *  - trailing ة/ه (e.g. Bosta's "المنوفيه" vs the storefront's "المنوفية")
+ *  - أ/إ/آ → ا, ى → ي (common alternate spellings)
+ *  - diacritics (tashkeel) and the ـ tatweel elongation character
+ *  - repeated whitespace
+ * This is still an exact-match gate, not fuzzy search: two genuinely
+ * different names never canonicalize to the same string.
+ */
+function canonicalizeArabicName(value: string): string {
+  return value
+    .trim()
+    .replace(/[ً-ْـ]/g, "") // tashkeel + tatweel
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/\s+/g, " ");
+}
+
+/**
  * The "select a carrier" step between clicking "Create shipment" and the
  * shipment actually being created (docs request: no more silent
  * auto-dispatch to whichever carrier happens to be connected). Carrier list
@@ -146,15 +167,19 @@ export function SelectCarrierDialog({
   // Staff sees it selected in the same editable dropdown and can correct it.
   useEffect(() => {
     if (bostaCityId !== "" || !savedGovernorateHint || bostaCities.length === 0) return;
-    const target = savedGovernorateHint.trim();
-    const match = bostaCities.find((c) => c.nameAr?.trim() === target || c.name.trim() === target);
+    const target = canonicalizeArabicName(savedGovernorateHint);
+    const match = bostaCities.find(
+      (c) =>
+        (c.nameAr !== null && canonicalizeArabicName(c.nameAr) === target) ||
+        canonicalizeArabicName(c.name) === target,
+    );
     if (match !== undefined) setBostaCityId(match.id);
   }, [bostaCities, savedGovernorateHint, bostaCityId]);
 
   useEffect(() => {
     if (bostaDistrictId !== "" || !savedAreaHint || bostaDistricts.length === 0) return;
-    const target = savedAreaHint.trim();
-    const match = bostaDistricts.find((d) => d.districtName.trim() === target);
+    const target = canonicalizeArabicName(savedAreaHint);
+    const match = bostaDistricts.find((d) => canonicalizeArabicName(d.districtName) === target);
     if (match !== undefined) {
       setBostaZoneId(match.zoneId);
       setBostaDistrictId(match.districtId);
