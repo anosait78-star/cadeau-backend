@@ -17,6 +17,8 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { useToast } from "@/components/toast/toast";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
+import { FormField } from "@/components/ui/form-field";
 import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -144,6 +146,14 @@ function OrdersScreen(): ReactNode {
   // The floating "send a WhatsApp message?" prompt, offered right after a
   // single order's status lands on one of WHATSAPP_STATUSES.
   const [waPrompt, setWaPrompt] = useState<OrderListItem | null>(null);
+  // A cancellation always needs a reason (server-enforced) — this app never
+  // had anywhere to pick one, so cancelling silently only ever failed
+  // (confirmed live, 2026-09-07). Holds the order id(s) awaiting a reason;
+  // `null` when the modal is closed.
+  const [cancelling, setCancelling] = useState<string[] | null>(null);
+  const [cancelReasonId, setCancelReasonId] = useState("");
+  const [cancelReasons, setCancelReasons] = useState<{ id: string; name: string }[]>([]);
+  const [cancelPending, setCancelPending] = useState(false);
   // The order id whose WhatsApp send is currently in flight (the customer
   // phone lookup) — drives the spinner + disables that one button so a slow
   // network can't be double-clicked into two tabs.
@@ -275,7 +285,7 @@ function OrdersScreen(): ReactNode {
 
   const onBulkStatus = async (toStatus: OrderStatus): Promise<void> => {
     if (toStatus === "cancelled") {
-      flash(t("orders.reasonRequired"));
+      setCancelling([...selection.selectedIds]);
       return;
     }
     // The WhatsApp prompt only ever targets one order — capture it (if the
@@ -295,6 +305,41 @@ function OrdersScreen(): ReactNode {
       }
     } catch (error) {
       flash(saveErrorText(error, t));
+    }
+  };
+
+  // Reasons load once, the first time the cancel modal opens (mirrors
+  // `ReasonsPanel`'s own fetch) — not on every mount, since most sessions
+  // never cancel an order.
+  useEffect(() => {
+    if (cancelling === null || cancelReasons.length > 0) return;
+    void listMasterDataItems("order-reasons", { active: true, filters: { kind: "cancellation" } })
+      .then((page) => {
+        setCancelReasons(
+          page.data.map((item) => ({ id: item.id, name: String(item["name"] ?? "") })),
+        );
+      })
+      .catch(() => {
+        /* the Combobox just stays empty; the confirm button is still usable via retry */
+      });
+  }, [cancelling, cancelReasons.length]);
+
+  const confirmCancel = async (): Promise<void> => {
+    if (cancelling === null || cancelReasonId === "") return;
+    setCancelPending(true);
+    try {
+      const { results } = await bulkStatus(cancelling, "cancelled", cancelReasonId);
+      const failed = results.filter((r) => !r.ok);
+      selection.clear();
+      setCancelling(null);
+      setCancelReasonId("");
+      flash(failed.length > 0 ? t("orders.saveFailed") : t("orders.saved"));
+      void load();
+      void refreshCounts();
+    } catch (error) {
+      flash(saveErrorText(error, t));
+    } finally {
+      setCancelPending(false);
     }
   };
 
@@ -596,7 +641,7 @@ function OrdersScreen(): ReactNode {
                     t={t}
                     onOpenDetail={setSelectedOrder}
                     onTransition={onTransition}
-                    onCancelRequiresReason={() => flash(t("orders.reasonRequired"))}
+                    onCancelRequiresReason={() => setCancelling([row.id])}
                   />
                 </div>
               )}
@@ -691,6 +736,59 @@ function OrdersScreen(): ReactNode {
           onDismiss={() => setWaPrompt(null)}
         />
       ) : null}
+
+      <Modal
+        open={cancelling !== null}
+        onOpenChange={(next) => {
+          if (!next && !cancelPending) {
+            setCancelling(null);
+            setCancelReasonId("");
+          }
+        }}
+        title={t("orders.cancelModal.title")}
+        closeLabel={t("orders.cancelModal.cancel")}
+        size="sm"
+      >
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
+          <FormField
+            label={t("orders.cancelModal.reasonLabel")}
+            htmlFor="cancel-order-reason"
+            required
+          >
+            <Combobox
+              id="cancel-order-reason"
+              ariaLabel={t("orders.cancelModal.reasonLabel")}
+              value={cancelReasonId}
+              onChange={setCancelReasonId}
+              disabled={cancelPending}
+              placeholder={t("orders.cancelModal.reasonPlaceholder")}
+              options={cancelReasons.map((r) => ({ value: r.id, label: r.name }))}
+            />
+          </FormField>
+        </div>
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={cancelPending}
+            onClick={() => {
+              setCancelling(null);
+              setCancelReasonId("");
+            }}
+          >
+            {t("orders.cancelModal.cancel")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={cancelReasonId === "" || cancelPending}
+            onClick={() => void confirmCancel()}
+          >
+            {cancelPending ? <Spinner className="h-4 w-4" /> : t("orders.cancelModal.confirm")}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
