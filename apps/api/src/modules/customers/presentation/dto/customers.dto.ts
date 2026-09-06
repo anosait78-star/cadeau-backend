@@ -386,6 +386,18 @@ export class CustomerAddressDto {
   @ApiProperty({ nullable: true, description: "Bosta's city display name." })
   bostaCityName!: string | null;
 
+  @ApiProperty({
+    enum: ["manual", "storefront"],
+    description: "'storefront' addresses are never overwritten once staff-edited.",
+  })
+  source!: "manual" | "storefront";
+
+  @ApiProperty({ nullable: true, description: "The storefront's own unmapped district/area text." })
+  rawCity!: string | null;
+
+  @ApiProperty({ nullable: true, description: "The storefront's own unmapped governorate text." })
+  rawState!: string | null;
+
   @ApiProperty({ description: "At most one per customer." })
   isDefault!: boolean;
 
@@ -409,6 +421,9 @@ export class CustomerAddressDto {
     dto.bostaCityId = view.bostaCityId;
     dto.bostaDistrictId = view.bostaDistrictId;
     dto.bostaCityName = view.bostaCityName;
+    dto.source = view.source;
+    dto.rawCity = view.rawCity;
+    dto.rawState = view.rawState;
     dto.isDefault = view.isDefault;
     dto.active = view.active;
     dto.createdAt = view.createdAt;
