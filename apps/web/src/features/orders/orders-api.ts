@@ -289,6 +289,28 @@ export function listOrderVendorGroups(
   return apiFetch(`/orders/${id}/vendor-groups`);
 }
 
+/**
+ * `POST /v1/orders/{orderId}/vendor-groups/{groupId}/status` — set a vendor
+ * group's status in **either** direction. The manager-level counterpart to the
+ * vendor's own forward-only route: a vendor who marked a group delivered by
+ * mistake cannot undo it themselves.
+ *
+ * Requires `orders.vendor_groups.override`, which is seeded into the Owner and
+ * Manager templates only — plain `orders.manage` is deliberately not enough,
+ * so callers must gate the control on that capability. `422` when `toStatus`
+ * is the status the group already holds; `409` if it changed underneath us.
+ */
+export function overrideVendorGroupStatus(
+  orderId: string,
+  groupId: string,
+  toStatus: VendorGroupStatus,
+): Promise<OrderVendorGroup> {
+  return apiFetch<OrderVendorGroup>(`/orders/${orderId}/vendor-groups/${groupId}/status`, {
+    method: "POST",
+    body: { toStatus },
+  });
+}
+
 /** A parsed order line from smart-paste. */
 export interface ParsedItem {
   readonly name: string;

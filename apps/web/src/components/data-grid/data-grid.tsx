@@ -38,6 +38,7 @@ export function DataGrid<T>({
   emptyState,
   columnVisibility,
   rowClassName,
+  rowProps,
   maxHeightClassName = "max-h-[70vh]",
   sortHintLabel = "Sorts loaded rows only",
 }: DataGridProps<T>): ReactNode {
@@ -158,6 +159,7 @@ export function DataGrid<T>({
                     onRowClick={onRowClick}
                     rowActions={rowActions}
                     rowClassName={rowClassName?.(row)}
+                    rowProps={rowProps?.(row)}
                     focused={focusedId === null ? rowId === rowIds[0] : focusedId === rowId}
                     onFocusRow={setFocusedId}
                   />

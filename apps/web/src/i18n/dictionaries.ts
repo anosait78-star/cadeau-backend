@@ -1100,6 +1100,16 @@ export const en = {
   "vendor.group.status.ready": "Ready",
   "vendor.group.status.delivered": "Delivered",
 
+  "orders.vendorGroups.setStatus": "Change status",
+  "orders.vendorGroups.overrideHint": "Managers can correct a vendor's status in either direction.",
+  "orders.vendorGroups.confirmBack.title": "Move this vendor group backward?",
+  "orders.vendorGroups.confirmBack.description":
+    "The vendor already marked it {{from}}. Moving it back to {{to}} is recorded against your name.",
+  "orders.vendorGroups.confirmBack.yes": "Yes, move it back",
+  "orders.vendorGroups.confirmBack.no": "Keep it as is",
+  "orders.vendorGroups.moved": "Vendor group moved to {{status}}.",
+  "orders.vendorGroups.moveFailed": "Couldn't change the status. Please try again.",
+
   "vendor.nav.label": "Vendor navigation",
   "vendor.nav.home": "Home",
   "vendor.nav.orders": "Orders",
@@ -1126,6 +1136,14 @@ export const en = {
   "vendor.orderDetail.field.warehouse": "Warehouse",
   "vendor.orderDetail.items.title": "My items",
   "vendor.orderDetail.status.title": "Status",
+
+  "vendor.status.more": "Move to a later status",
+  "vendor.orders.dragHint": "Tip: drag an order onto a status to move it there.",
+  "vendor.orders.dropHere": "Drop to move here",
+  "vendor.orders.board.empty": "No orders here",
+  "vendor.orders.moved": "Order #{{order}} moved to {{status}}.",
+  "vendor.orders.moveFailed": "Couldn't move the order. It's back where it was.",
+  "vendor.orders.panelClose": "Close order",
 
   "vendor.products.title": "My products",
   "vendor.products.subtitle": "Only the products stocked in your own warehouse.",
@@ -2221,6 +2239,16 @@ export const ar: Record<TranslationKey, string> = {
   "vendor.group.status.ready": "جاهز",
   "vendor.group.status.delivered": "تم التسليم",
 
+  "orders.vendorGroups.setStatus": "تغيير الحالة",
+  "orders.vendorGroups.overrideHint": "يستطيع المدير تصحيح حالة التاجر في الاتجاهين.",
+  "orders.vendorGroups.confirmBack.title": "إرجاع مجموعة التاجر خطوة للخلف؟",
+  "orders.vendorGroups.confirmBack.description":
+    "التاجر حدّدها بالفعل كـ«{{from}}». إرجاعها إلى «{{to}}» يُسجَّل باسمك.",
+  "orders.vendorGroups.confirmBack.yes": "نعم، أرجِعها",
+  "orders.vendorGroups.confirmBack.no": "اتركها كما هي",
+  "orders.vendorGroups.moved": "تم نقل مجموعة التاجر إلى {{status}}.",
+  "orders.vendorGroups.moveFailed": "تعذّر تغيير الحالة. حاول مرة أخرى.",
+
   "vendor.nav.label": "قائمة تنقّل التاجر",
   "vendor.nav.home": "الرئيسية",
   "vendor.nav.orders": "الطلبات",
@@ -2246,6 +2274,14 @@ export const ar: Record<TranslationKey, string> = {
   "vendor.orderDetail.field.warehouse": "المستودع",
   "vendor.orderDetail.items.title": "منتجاتي",
   "vendor.orderDetail.status.title": "الحالة",
+
+  "vendor.status.more": "النقل إلى حالة لاحقة",
+  "vendor.orders.dragHint": "تلميح: اسحب الطلب وأفلته على أي حالة لنقله إليها.",
+  "vendor.orders.dropHere": "أفلت هنا للنقل",
+  "vendor.orders.board.empty": "لا توجد طلبات هنا",
+  "vendor.orders.moved": "تم نقل الطلب رقم {{order}} إلى {{status}}.",
+  "vendor.orders.moveFailed": "تعذّر نقل الطلب، وأُعيد إلى حالته السابقة.",
+  "vendor.orders.panelClose": "إغلاق الطلب",
 
   "vendor.products.title": "منتجاتي",
   "vendor.products.subtitle": "المنتجات الموجودة في مستودعك فقط.",

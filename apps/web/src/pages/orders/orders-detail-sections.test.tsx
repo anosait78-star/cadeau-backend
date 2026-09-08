@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { renderHook } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildOrderDetailSections, useOrderDetailData } from "./orders-detail-sections";
 import type { OrderDetail } from "@/features/orders/orders-api";
@@ -365,5 +366,99 @@ describe("buildOrderDetailSections", () => {
     expect(
       screen.queryByText("orders.detail.vendorTracking.overallStatus"),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("vendor group status override (manager correction)", () => {
+  const GROUP = {
+    id: "g1",
+    orderId: "o1",
+    orderNumber: 1042,
+    warehouseId: "w1",
+    warehouseName: "Store A",
+    warehouseCode: null,
+    vendorMemberId: null,
+    vendorName: null,
+    status: "delivered",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    items: [],
+  };
+
+  function trackingTab(
+    overrides: Partial<Parameters<typeof buildOrderDetailSections>[0]> = {},
+  ): ReturnType<typeof buildOrderDetailSections>[number] | undefined {
+    const sections = buildOrderDetailSections({
+      detail: ORDER_DETAIL,
+      activity: [],
+      vendorGroups: [GROUP],
+      vendorAggregateStatus: "delivered",
+      t,
+      locale: "en",
+      companyId: "co1",
+      onNotify: () => {},
+      onPatch: () => {},
+      ...overrides,
+    });
+    return sections.find((section) => section.key === "vendorTracking");
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("hides the control from a caller who may not override", () => {
+    render(<div>{trackingTab()?.content}</div>);
+    expect(screen.queryByText("orders.vendorGroups.setStatus")).not.toBeInTheDocument();
+  });
+
+  it("shows the control once the caller may override", () => {
+    render(<div>{trackingTab({ onVendorGroupUpdated: () => {} })?.content}</div>);
+    expect(screen.getByText("orders.vendorGroups.setStatus")).toBeInTheDocument();
+  });
+
+  it("confirms before walking a vendor's group backward, then sends the change", async () => {
+    const user = userEvent.setup();
+    const requests: { url: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({ url: String(input), body: JSON.parse(String(init?.body ?? "{}")) });
+        return Promise.resolve(json(200, { ...GROUP, status: "processing" }));
+      }),
+    );
+    const updated: unknown[] = [];
+
+    render(<div>{trackingTab({ onVendorGroupUpdated: (g) => updated.push(g) })?.content}</div>);
+
+    await user.click(screen.getByText("orders.vendorGroups.setStatus"));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "vendor.group.status.processing" }),
+    );
+
+    // Backward moves never fire straight from the menu.
+    expect(requests).toHaveLength(0);
+    expect(screen.getByText("orders.vendorGroups.confirmBack.title")).toBeInTheDocument();
+
+    await user.click(screen.getByText("orders.vendorGroups.confirmBack.yes"));
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]?.url).toContain("/orders/o1/vendor-groups/g1/status");
+    expect(requests[0]?.body).toEqual({ toStatus: "processing" });
+    expect(updated).toHaveLength(1);
+  });
+
+  it("cancelling the confirm leaves the group untouched", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(() => Promise.resolve(json(200, GROUP)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<div>{trackingTab({ onVendorGroupUpdated: () => {} })?.content}</div>);
+
+    await user.click(screen.getByText("orders.vendorGroups.setStatus"));
+    await user.click(await screen.findByRole("menuitem", { name: "vendor.group.status.new" }));
+    await user.click(screen.getByText("orders.vendorGroups.confirmBack.no"));
+
+    await waitFor(() =>
+      expect(screen.queryByText("orders.vendorGroups.confirmBack.title")).not.toBeInTheDocument(),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

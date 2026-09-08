@@ -12,6 +12,7 @@ import { StatusStepper } from "@/components/ui/status-stepper";
 import {
   Check,
   CheckCircle2,
+  ChevronDown,
   Circle,
   ImageOff,
   Loader,
@@ -24,11 +25,19 @@ import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { getCustomer } from "@/features/customers/customers-api";
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
 import { VENDOR_GROUP_STATUSES, type VendorGroupStatus } from "@/features/vendor/vendor-api";
+import { ConfirmDialog } from "@/components/confirm-dialog/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   assignOrder,
   getOrder,
   listOrderActivity,
   listOrderVendorGroups,
+  overrideVendorGroupStatus,
   updateOrder,
   type OrderActivity,
   type OrderDetail,
@@ -82,6 +91,8 @@ export function useOrderDetailData(orderId: string | null): {
   readonly error: boolean;
   readonly reload: () => void;
   readonly setDetail: (detail: OrderDetail) => void;
+  /** Replace one vendor group in place after a manager changed its status. */
+  readonly patchVendorGroup: (group: OrderVendorGroup) => void;
 } {
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [activity, setActivity] = useState<OrderActivity[]>([]);
@@ -133,6 +144,8 @@ export function useOrderDetailData(orderId: string | null): {
     error,
     reload: () => void load(),
     setDetail,
+    patchVendorGroup: (updated: OrderVendorGroup) =>
+      setVendorGroups((prev) => prev.map((g) => (g.id === updated.id ? updated : g))),
   };
 }
 
@@ -756,15 +769,118 @@ function VendorTrackingOverallCard({
   );
 }
 
+/**
+ * The manager's status control for one vendor group (Vendor Accounts): unlike
+ * the vendor's own screen, every one of the four states is offered, because
+ * the whole point is undoing a vendor's mistake — a group marked delivered
+ * that never shipped is only recoverable from here.
+ *
+ * Rendered only for a caller holding `orders.vendor_groups.override` (Owner /
+ * Manager by default). Moving a group **backward** goes through a confirm
+ * step: it contradicts something a vendor already asserted, and the audit
+ * trail records it against the manager's own name.
+ */
+function VendorGroupStatusOverride({
+  group,
+  t,
+  onUpdated,
+  onNotify,
+}: {
+  group: OrderVendorGroup;
+  t: Translate;
+  onUpdated: (group: OrderVendorGroup) => void;
+  onNotify: (text: string) => void;
+}): ReactNode {
+  const [pendingBackward, setPendingBackward] = useState<VendorGroupStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const label = (status: VendorGroupStatus): string =>
+    t(`vendor.group.status.${status}` as TranslationKey);
+
+  const apply = async (to: VendorGroupStatus): Promise<void> => {
+    setBusy(true);
+    try {
+      onUpdated(await overrideVendorGroupStatus(group.orderId, group.id, to));
+      onNotify(t("orders.vendorGroups.moved", { status: label(to) }));
+    } catch {
+      onNotify(t("orders.vendorGroups.moveFailed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const select = (to: VendorGroupStatus): void => {
+    const current = VENDOR_GROUP_STATUSES.indexOf(group.status as VendorGroupStatus);
+    if (VENDOR_GROUP_STATUSES.indexOf(to) < current) {
+      setPendingBackward(to);
+      return;
+    }
+    void apply(to);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-border/70 pt-2.5">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" disabled={busy} className="gap-1.5">
+            {t("orders.vendorGroups.setStatus")}
+            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {VENDOR_GROUP_STATUSES.map((status) => (
+            <DropdownMenuItem
+              key={status}
+              disabled={status === group.status}
+              onSelect={() => select(status)}
+            >
+              {label(status)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <span className="text-[0.6875rem] text-muted-foreground">
+        {t("orders.vendorGroups.overrideHint")}
+      </span>
+
+      {pendingBackward !== null ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setPendingBackward(null);
+          }}
+          title={t("orders.vendorGroups.confirmBack.title")}
+          description={t("orders.vendorGroups.confirmBack.description", {
+            from: label(group.status as VendorGroupStatus),
+            to: label(pendingBackward),
+          })}
+          confirmLabel={t("orders.vendorGroups.confirmBack.yes")}
+          cancelLabel={t("orders.vendorGroups.confirmBack.no")}
+          destructive
+          onConfirm={async () => {
+            await apply(pendingBackward);
+            setPendingBackward(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 /** One vendor's card: identity, current status, and its 4-stage progress stepper. */
 function VendorGroupCard({
   group,
   locale,
   t,
+  onUpdated,
+  onNotify,
 }: {
   group: OrderVendorGroup;
   locale: string;
   t: Translate;
+  /** Absent when the caller may not override — the control is then not rendered. */
+  onUpdated?: ((group: OrderVendorGroup) => void) | undefined;
+  onNotify?: ((text: string) => void) | undefined;
 }): ReactNode {
   const stageIndex = VENDOR_GROUP_STATUSES.indexOf(group.status as VendorGroupStatus);
   const steps = VENDOR_GROUP_STATUSES.map((status) => ({
@@ -831,6 +947,10 @@ function VendorGroupCard({
       <div className="text-xs text-muted-foreground" dir="ltr">
         {t("orders.detail.vendorTracking.updatedAt")} {formatDateTime(group.updatedAt, locale)}
       </div>
+
+      {onUpdated !== undefined && onNotify !== undefined ? (
+        <VendorGroupStatusOverride group={group} t={t} onUpdated={onUpdated} onNotify={onNotify} />
+      ) : null}
     </div>
   );
 }
@@ -847,11 +967,15 @@ function VendorTrackingSection({
   aggregateStatus,
   locale,
   t,
+  onGroupUpdated,
+  onNotify,
 }: {
   groups: OrderVendorGroup[];
   aggregateStatus: VendorGroupStatus | null;
   locale: string;
   t: Translate;
+  onGroupUpdated?: ((group: OrderVendorGroup) => void) | undefined;
+  onNotify?: ((text: string) => void) | undefined;
 }): ReactNode {
   const deliveredCount = groups.filter((g) => g.status === "delivered").length;
 
@@ -875,7 +999,14 @@ function VendorTrackingSection({
       ) : null}
       <div className="flex flex-col gap-3">
         {groups.map((group) => (
-          <VendorGroupCard key={group.id} group={group} locale={locale} t={t} />
+          <VendorGroupCard
+            key={group.id}
+            group={group}
+            locale={locale}
+            t={t}
+            onUpdated={onGroupUpdated}
+            onNotify={onNotify}
+          />
         ))}
       </div>
     </div>
@@ -1027,6 +1158,7 @@ export function buildOrderDetailSections({
   companyId,
   onNotify,
   onPatch,
+  onVendorGroupUpdated,
 }: {
   detail: OrderDetail;
   activity: OrderActivity[];
@@ -1037,6 +1169,12 @@ export function buildOrderDetailSections({
   companyId: string | null;
   onNotify: (text: string) => void;
   onPatch: (order: OrderDetail) => void;
+  /**
+   * Present only when the caller holds `orders.vendor_groups.override` — its
+   * absence is what hides the per-group status control, so a caller who can
+   * merely read the order never sees an action they cannot perform.
+   */
+  onVendorGroupUpdated?: ((group: OrderVendorGroup) => void) | undefined;
 }): DetailPanelSection[] {
   // Product images live on the vendor-group items (`OrderVendorGroupItem`),
   // not on the order line itself — so when an order is vendor-routed the
@@ -1085,6 +1223,8 @@ export function buildOrderDetailSections({
                 aggregateStatus={vendorAggregateStatus}
                 locale={locale}
                 t={t}
+                onGroupUpdated={onVendorGroupUpdated}
+                onNotify={onVendorGroupUpdated === undefined ? undefined : onNotify}
               />
             ),
           },

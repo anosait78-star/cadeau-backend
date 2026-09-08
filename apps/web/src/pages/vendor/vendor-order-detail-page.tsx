@@ -2,32 +2,30 @@ import { ArrowRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useParams } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
-import { ProductThumb } from "@/components/product-thumb/product-thumb";
 import { StatusBadge } from "@/components/status-badge/status-badge";
 import { useToast } from "@/components/toast/toast";
-import { advanceVendorGroupStatus, NEXT_VENDOR_GROUP_STATUS } from "@/features/vendor/vendor-api";
+import { advanceVendorGroupStatus, type VendorGroupStatus } from "@/features/vendor/vendor-api";
 import { useMyVendorGroups } from "@/features/vendor/use-my-vendor-groups";
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
-import { formatMoney } from "@/lib/format-money";
-import { vendorGroupTotal } from "./vendor-orders-columns";
-
-function formatDateTime(iso: string, locale: string): string {
-  return new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
-}
+import { VendorOrderSummary } from "./vendor-order-summary";
+import { VendorStatusActions } from "./vendor-status-actions";
 
 /**
  * Vendor Order Detail (Vendor Accounts, Phase 7) — the vendor's own slice of
- * one order: their items only, their group's status, and the same
- * `new → processing → ready → delivered` advance control the dashboard used
- * to carry (moved here to match the Company Order Detail's own
- * summary-then-act layout).
+ * one order: their items only, their group's status, and the
+ * `new → processing → ready → delivered` controls.
+ *
+ * Since the orders board gained its side panel, this is the **mobile** path
+ * (and the target of any direct link on any device): desktop opens the same
+ * body, `VendorOrderSummary`, inside `VendorOrderPanel` without leaving the
+ * list. Both render the identical summary and the identical
+ * `VendorStatusActions`, so the two can't drift.
  *
  * No dedicated "get one vendor group" endpoint exists or is needed: this
  * reuses the same `GET /v1/vendor/order-groups` list every other vendor
@@ -43,26 +41,23 @@ export function VendorOrderDetailPage(): ReactNode {
   const toast = useToast();
   const { groupId } = useParams<{ groupId: string }>();
   const { state, reload, patchGroup } = useMyVendorGroups();
-  const [advancing, setAdvancing] = useState(false);
+  const [moving, setMoving] = useState(false);
 
   const group = useMemo(() => {
     if (state.kind !== "ready" || groupId === undefined) return null;
     return state.groups.find((g) => g.id === groupId) ?? null;
   }, [state, groupId]);
 
-  const advance = async (): Promise<void> => {
+  const move = async (to: VendorGroupStatus): Promise<void> => {
     if (group === null) return;
-    const next = NEXT_VENDOR_GROUP_STATUS[group.status];
-    if (next === null) return;
-    setAdvancing(true);
+    setMoving(true);
     try {
-      const updated = await advanceVendorGroupStatus(group.id, next);
-      patchGroup(updated);
+      patchGroup(await advanceVendorGroupStatus(group.id, to));
       toast.show(t("vendor.dashboard.saved"));
     } catch {
       toast.show(t("vendor.dashboard.saveFailed"));
     } finally {
-      setAdvancing(false);
+      setMoving(false);
     }
   };
 
@@ -100,58 +95,18 @@ export function VendorOrderDetailPage(): ReactNode {
             />
           </header>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs text-muted-foreground">
-                {t("vendor.orderDetail.field.warehouse")}
-              </p>
-              <p className="text-sm font-medium">{group.warehouseName}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-3" dir="ltr">
-              <p className="text-xs text-muted-foreground">{t("vendor.dashboard.updatedAt")}</p>
-              <p className="text-sm font-medium">{formatDateTime(group.updatedAt, locale)}</p>
-            </div>
-          </div>
-
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{t("vendor.orderDetail.items.title")}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <ul className="flex flex-col divide-y divide-border">
-                {group.items.map((item) => (
-                  <li key={item.id} className="flex items-center gap-3 py-2.5 text-sm">
-                    <ProductThumb imageUrl={item.imageUrl} size="sm" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-foreground">
-                        {item.nameSnapshot}
-                      </span>
-                      <span className="block text-caption text-muted-foreground" dir="ltr">
-                        × {item.quantity}
-                      </span>
-                    </span>
-                    <span className="shrink-0 tabular-nums" dir="ltr">
-                      {formatMoney(item.price * item.quantity, locale)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <div className="flex items-center justify-between border-t border-border pt-3 text-sm font-semibold">
-                <span>{t("orders.field.total")}</span>
-                <span dir="ltr">{formatMoney(vendorGroupTotal(group), locale)}</span>
-              </div>
+            <CardContent className="pt-5">
+              <VendorOrderSummary group={group} t={t} locale={locale} />
             </CardContent>
           </Card>
 
-          {NEXT_VENDOR_GROUP_STATUS[group.status] !== null ? (
-            <div>
-              <Button disabled={advancing} onClick={() => void advance()}>
-                {t(
-                  `vendor.dashboard.advanceTo.${NEXT_VENDOR_GROUP_STATUS[group.status]}` as TranslationKey,
-                )}
-              </Button>
-            </div>
-          ) : null}
+          <VendorStatusActions
+            status={group.status}
+            disabled={moving}
+            onMove={(to) => void move(to)}
+            t={t}
+          />
         </>
       ) : null}
     </div>

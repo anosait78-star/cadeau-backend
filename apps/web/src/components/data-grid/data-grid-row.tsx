@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { MouseEvent, ReactNode } from "react";
+import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/cn";
 import type { Column, DataGridSelection } from "./types";
@@ -14,6 +14,7 @@ export function DataGridRow<T>({
   onRowClick,
   rowActions,
   rowClassName,
+  rowProps,
   focused,
   onFocusRow,
 }: {
@@ -24,6 +25,7 @@ export function DataGridRow<T>({
   onRowClick?: ((row: T) => void) | undefined;
   rowActions?: ((row: T) => ReactNode) | undefined;
   rowClassName?: string | undefined;
+  rowProps?: HTMLAttributes<HTMLTableRowElement> | undefined;
   focused: boolean;
   onFocusRow: (id: string) => void;
 }): ReactNode {
@@ -47,6 +49,7 @@ export function DataGridRow<T>({
   return (
     <tr
       ref={rowRef}
+      {...rowProps}
       data-row-id={rowId}
       tabIndex={focused ? 0 : -1}
       onFocus={() => onFocusRow(rowId)}

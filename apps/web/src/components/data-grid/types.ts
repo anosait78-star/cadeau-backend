@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 /**
  * `sortable` triggers `onSort` (server refetch). `clientSortable` sorts only
@@ -50,6 +50,11 @@ export interface DataGridProps<T> {
   readonly emptyState: ReactNode;
   readonly columnVisibility?: DataGridColumnVisibility;
   readonly rowClassName?: (row: T) => string | undefined;
+  /**
+   * Extra DOM props spread onto each row's `<tr>` — the escape hatch for
+   * row-level drag and drop, which the grid itself stays ignorant of.
+   */
+  readonly rowProps?: (row: T) => HTMLAttributes<HTMLTableRowElement>;
   readonly maxHeightClassName?: string;
   readonly sortHintLabel?: string;
 }

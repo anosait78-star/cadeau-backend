@@ -390,6 +390,11 @@ function OrdersScreen(): ReactNode {
             patchRow(order);
             detailData.setDetail(order);
           },
+          // Undefined for anyone without the override permission — that is
+          // what keeps the per-vendor status control off the tracking tab.
+          onVendorGroupUpdated: capabilities.has({ permission: "orders.vendor_groups.override" })
+            ? detailData.patchVendorGroup
+            : undefined,
         })
       : [];
 

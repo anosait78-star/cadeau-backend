@@ -2,18 +2,19 @@ import { ArrowDownUp } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { ErrorState } from "@/components/states/error-state";
-import { EmptyState } from "@/components/states/empty-state";
 import { ProductThumb } from "@/components/product-thumb/product-thumb";
 import { StatusBadge } from "@/components/status-badge/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageTitle } from "@/components/layout/page-title";
+import { useToast } from "@/components/toast/toast";
 import { useMyVendorGroups } from "@/features/vendor/use-my-vendor-groups";
+import { useVendorStatusDrag } from "@/features/vendor/use-vendor-status-drag";
 import {
+  advanceVendorGroupStatus,
   VENDOR_GROUP_STATUSES,
   type VendorGroup,
   type VendorGroupStatus,
@@ -21,30 +22,68 @@ import {
 import { VENDOR_GROUP_STATUS_TONE } from "@/features/vendor/vendor-group-status-tones";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import type { TranslationKey } from "@/i18n/dictionaries";
+import type { Translate } from "@/components/i18n/translate-type";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
-import { buildVendorOrderColumns, vendorGroupTotal } from "./vendor-orders-columns";
+import { VendorOrderPanel } from "./vendor-order-panel";
+import { VendorOrdersBoard } from "./vendor-orders-board";
+import { vendorGroupTotal } from "./vendor-orders-columns";
 
 /**
  * Full orders list for the vendor (Vendor Accounts, Phase 7) — search /
- * status filter / sort / desktop grid + mobile cards, matching the Company
- * Orders screen's experience as closely as makes sense at this data scale.
+ * status filter / sort / desktop status-columns board + mobile cards, matching
+ * the Company Orders screen's experience as closely as makes sense at this
+ * data scale.
  * There is no server-side keyset pagination on `/v1/vendor/order-groups`
  * (deliberately: a vendor's own order volume is bounded to one warehouse),
  * so search/filter/sort all run client-side over the one already-scoped
  * fetch — nothing here does the actual isolation; that's the API's job
  * (Phase 3), and is the same call the dashboard and detail screens use.
+ *
+ * On desktop the screen is a small board: clicking an order opens it in a side
+ * panel instead of navigating, and an order can be dragged onto any later
+ * status to move it there. Both need the list to stay on screen, which is
+ * exactly what the full-page detail route took away. Mobile keeps that route —
+ * a side panel on a phone is just a worse full page, and the route also
+ * remains the target of any direct link.
  */
 export function VendorOrdersPage(): ReactNode {
   const { t, locale } = useI18n();
   const isDesktop = useIsDesktop();
   const navigate = useNavigate();
-  const { state, reload } = useMyVendorGroups();
+  const toast = useToast();
+  const { state, reload, patchGroup } = useMyVendorGroups();
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<VendorGroupStatus | "all">("all");
   const [newestFirst, setNewestFirst] = useState(true);
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  // Announced to screen readers after a move — a drag is silent to them, and
+  // the optimistic re-render on its own says nothing either.
+  const [announcement, setAnnouncement] = useState("");
+
+  const statusLabel = (s: VendorGroupStatus): string =>
+    t(`vendor.group.status.${s}` as TranslationKey);
+
+  const announceMoved = (group: VendorGroup, to: VendorGroupStatus): void => {
+    setAnnouncement(
+      t("vendor.orders.moved", { order: group.orderNumber, status: statusLabel(to) }),
+    );
+  };
+
+  const { draggingId, dragProps, dropTarget } = useVendorStatusDrag({
+    patchGroup,
+    // A drag with the panel open would fight the panel's own overlay for the
+    // pointer, so picking an order up dismisses it.
+    onDragStart: () => setOpenGroupId(null),
+    onMoved: announceMoved,
+    onFailed: () => {
+      setAnnouncement(t("vendor.orders.moveFailed"));
+      toast.show(t("vendor.orders.moveFailed"));
+    },
+  });
 
   const counts = useMemo(() => {
     const base: Record<VendorGroupStatus, number> = {
@@ -71,10 +110,31 @@ export function VendorOrdersPage(): ReactNode {
       );
   }, [state, search, status, newestFirst]);
 
-  const columns = useMemo(() => buildVendorOrderColumns({ t, locale }), [t, locale]);
+  const openGroup = useMemo(() => {
+    if (state.kind !== "ready" || openGroupId === null) return null;
+    return state.groups.find((g) => g.id === openGroupId) ?? null;
+  }, [state, openGroupId]);
 
   const openDetail = (group: VendorGroup): void => {
+    if (isDesktop) {
+      setOpenGroupId(group.id);
+      return;
+    }
     void navigate(`/vendor/orders/${group.id}`);
+  };
+
+  /** The panel's own button/menu path — the same move the drag performs. */
+  const moveFromPanel = async (group: VendorGroup, to: VendorGroupStatus): Promise<void> => {
+    setMoving(true);
+    try {
+      patchGroup(await advanceVendorGroupStatus(group.id, to));
+      announceMoved(group, to);
+      toast.show(t("vendor.dashboard.saved"));
+    } catch {
+      toast.show(t("vendor.dashboard.saveFailed"));
+    } finally {
+      setMoving(false);
+    }
   };
 
   return (
@@ -105,41 +165,46 @@ export function VendorOrdersPage(): ReactNode {
         </Button>
       </div>
 
-      <div
-        className="flex flex-wrap gap-1.5 overflow-x-auto rounded-2xl border border-border bg-card p-1.5 shadow-xs"
-        role="tablist"
-        aria-label={t("vendor.dashboard.myOrders")}
-      >
-        <StatusTab
-          label={t("vendor.orders.tabs.all")}
-          active={status === "all"}
-          count={state.kind === "ready" ? state.groups.length : 0}
-          onClick={() => setStatus("all")}
-        />
-        {VENDOR_GROUP_STATUSES.map((s) => (
+      {isDesktop ? null : (
+        <div
+          className="flex flex-wrap gap-1.5 overflow-x-auto rounded-2xl border border-border bg-card p-1.5 shadow-xs"
+          role="tablist"
+          aria-label={t("vendor.dashboard.myOrders")}
+        >
           <StatusTab
-            key={s}
-            label={t(`vendor.group.status.${s}` as TranslationKey)}
-            active={status === s}
-            count={counts[s]}
-            onClick={() => setStatus(s)}
+            label={t("vendor.orders.tabs.all")}
+            active={status === "all"}
+            count={state.kind === "ready" ? state.groups.length : 0}
+            onClick={() => setStatus("all")}
           />
-        ))}
-      </div>
+          {VENDOR_GROUP_STATUSES.map((s) => (
+            <StatusTab
+              key={s}
+              label={statusLabel(s)}
+              active={status === s}
+              count={counts[s]}
+              onClick={() => setStatus(s)}
+            />
+          ))}
+        </div>
+      )}
+
+      {isDesktop ? (
+        <p className="text-caption text-muted-foreground">{t("vendor.orders.dragHint")}</p>
+      ) : null}
 
       {state.kind === "error" ? <ErrorState onRetry={reload} /> : null}
 
       {state.kind !== "error" ? (
         isDesktop ? (
-          <DataGrid<VendorGroup>
-            columns={columns}
-            rows={rows}
-            getRowId={(row) => row.id}
-            loading={state.kind === "loading"}
-            hasMore={false}
-            onLoadMore={() => {}}
-            onRowClick={openDetail}
-            emptyState={<EmptyState title={t("vendor.dashboard.empty")} />}
+          <VendorOrdersBoard
+            groups={rows}
+            draggingId={draggingId}
+            dragProps={dragProps}
+            dropTarget={dropTarget}
+            onOpen={openDetail}
+            t={t}
+            locale={locale}
           />
         ) : (
           <MobileCardList<VendorGroup>
@@ -161,6 +226,22 @@ export function VendorOrdersPage(): ReactNode {
           />
         )
       ) : null}
+
+      <VendorOrderPanel
+        group={openGroup}
+        open={openGroup !== null}
+        onOpenChange={(next) => {
+          if (!next) setOpenGroupId(null);
+        }}
+        onMove={(group, to) => void moveFromPanel(group, to)}
+        busy={moving}
+        t={t}
+        locale={locale}
+      />
+
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
     </div>
   );
 }
@@ -211,7 +292,7 @@ function VendorOrderCard({
   onOpen,
 }: {
   group: VendorGroup;
-  t: (k: TranslationKey) => string;
+  t: Translate;
   locale: string;
   onOpen: () => void;
 }): ReactNode {
