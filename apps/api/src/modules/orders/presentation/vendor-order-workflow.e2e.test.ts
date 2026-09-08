@@ -290,9 +290,10 @@ describe("Vendor Order workflow (e2e) — Phases 1–6, 8", () => {
         .send({ toStatus });
     }
 
-    // Illegal skip is rejected before any legal move happens.
-    const skip = await advance(vendorAToken, vendorAGroup.id, "ready");
-    expect(skip.status).toBe(422);
+    // Backward is rejected before any legal move happens — that is the
+    // manager's job (step 8b), never the vendor's.
+    const backward = await advance(vendorAToken, vendorAGroup.id, "new");
+    expect(backward.status).toBe(422);
 
     const toProcessing = await advance(vendorAToken, vendorAGroup.id, "processing");
     expect(toProcessing.status).toBe(200);
@@ -306,9 +307,51 @@ describe("Vendor Order workflow (e2e) — Phases 1–6, 8", () => {
     expect(toDelivered.status).toBe(200);
     expect(toDelivered.body.status).toBe("delivered");
 
-    // Terminal: no further move is legal.
+    // Terminal: no further move is legal for the vendor.
     const pastTerminal = await advance(vendorAToken, vendorAGroup.id, "ready");
     expect(pastTerminal.status).toBe(422);
+
+    // ---- 8b. A manager corrects Vendor A, then Vendor B skips ahead ------
+    // Vendor A marked delivered by mistake. Only a holder of
+    // `orders.vendor_groups.override` (Owner/Manager) can walk that back.
+    const overrideUrl = `/v1/orders/${orderId}/vendor-groups/${vendorAGroup.id}/status`;
+
+    const vendorCannotOverride = await request(server())
+      .post(overrideUrl)
+      .set("Authorization", auth(vendorAToken))
+      .send({ toStatus: "processing" });
+    expect(vendorCannotOverride.status).toBe(403);
+
+    const rolledBack = await request(server())
+      .post(overrideUrl)
+      .set("Authorization", auth(ownerToken))
+      .send({ toStatus: "processing" });
+    expect(rolledBack.status).toBe(200);
+    expect(rolledBack.body.status).toBe("processing");
+
+    // A no-op override changes nothing and is refused.
+    const noop = await request(server())
+      .post(overrideUrl)
+      .set("Authorization", auth(ownerToken))
+      .send({ toStatus: "processing" });
+    expect(noop.status).toBe(422);
+
+    // Back to delivered so the tracking assertions below read as before.
+    const reDelivered = await advance(vendorAToken, vendorAGroup.id, "delivered");
+    expect(reDelivered.status).toBe(200);
+
+    // Vendor B packed and handed over in one go: new → delivered directly,
+    // then back to "new" via the manager so step 9's aggregate is unchanged.
+    const bSkipped = await advance(vendorBToken, groupW2.id, "delivered");
+    expect(bSkipped.status).toBe(200);
+    expect(bSkipped.body.status).toBe("delivered");
+
+    const bReset = await request(server())
+      .post(`/v1/orders/${orderId}/vendor-groups/${groupW2.id}/status`)
+      .set("Authorization", auth(ownerToken))
+      .send({ toStatus: "new" });
+    expect(bReset.status).toBe(200);
+    expect(bReset.body.status).toBe("new");
 
     // ---- 9. Company tracking reflects each vendor's real status ----------
     const finalGroups = await request(server())
@@ -343,12 +386,28 @@ describe("Vendor Order workflow (e2e) — Phases 1–6, 8", () => {
     const vendorActivity = (
       activity.body.data as { kind: string; fromValue: string; toValue: string; note: string }[]
     ).filter((a) => a.kind === "vendor_status_changed");
+    // Newest first, one row per transition — a manager's correction is
+    // recorded in exactly the same log as the vendor's own move, so the
+    // history reads as one story rather than two.
     expect(vendorActivity.map((a) => `${a.fromValue}->${a.toValue}`)).toEqual([
+      "delivered->new", // manager reset Store B (8b)
+      "new->delivered", // Vendor B skipped every state at once (8b)
+      "processing->delivered", // Vendor A re-finished after the rollback (8b)
+      "delivered->processing", // manager walked Vendor A back (8b)
       "ready->delivered",
       "processing->ready",
       "new->processing",
-    ]); // newest first, one row per Vendor A transition
-    expect(vendorActivity.every((a) => a.note === "Store A")).toBe(true);
+    ]);
+    // Each row names its own warehouse, whoever moved it.
+    expect(vendorActivity.map((a) => a.note)).toEqual([
+      "Store B",
+      "Store B",
+      "Store A",
+      "Store A",
+      "Store A",
+      "Store A",
+      "Store A",
+    ]);
 
     // ---- 10. Tampering with another vendor's groupId is rejected ---------
     const crossVendor = await advance(vendorBToken, vendorAGroup.id, "processing");

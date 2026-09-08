@@ -111,6 +111,16 @@ export const PERMISSIONS: readonly PermissionDef[] = [
     description: "Assign orders to team members; see every order in the company",
     feature: "orders",
   },
+  // Correcting a vendor's own group status is split out from `orders.manage`
+  // (Vendor Accounts): a vendor may only move their group forward, so undoing a
+  // mistake — a group marked delivered that never shipped — needs an actor above
+  // them. Seeded only into the Owner and Manager templates, but it is an
+  // ordinary catalog key: an Owner may grant it to anyone else deliberately.
+  {
+    key: "orders.vendor_groups.override",
+    description: "Set any vendor group's status, including moving it backward",
+    feature: "orders",
+  },
 ];
 
 /** Every permission key — the Owner template grants all of them. */

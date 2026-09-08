@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateVendorOrderStatus,
-  canTransitionVendorGroup,
+  canOverrideVendorGroupStatus,
+  canVendorAdvance,
   isValidVendorGroupStatus,
   nextVendorGroupStates,
   VENDOR_GROUP_STATUSES,
@@ -14,32 +15,50 @@ describe("vendor group status machine (Vendor Accounts, Phase 3)", () => {
     expect(isValidVendorGroupStatus("nope")).toBe(false);
   });
 
-  it("allows only the single next step forward", () => {
-    expect(canTransitionVendorGroup("new", "processing")).toBe(true);
-    expect(canTransitionVendorGroup("processing", "ready")).toBe(true);
-    expect(canTransitionVendorGroup("ready", "delivered")).toBe(true);
+  it("lets a vendor take the next step forward", () => {
+    expect(canVendorAdvance("new", "processing")).toBe(true);
+    expect(canVendorAdvance("processing", "ready")).toBe(true);
+    expect(canVendorAdvance("ready", "delivered")).toBe(true);
   });
 
-  it("forbids skipping ahead", () => {
-    expect(canTransitionVendorGroup("new", "ready")).toBe(false);
-    expect(canTransitionVendorGroup("new", "delivered")).toBe(false);
-    expect(canTransitionVendorGroup("processing", "delivered")).toBe(false);
+  it("lets a vendor skip ahead any distance", () => {
+    expect(canVendorAdvance("new", "ready")).toBe(true);
+    expect(canVendorAdvance("new", "delivered")).toBe(true);
+    expect(canVendorAdvance("processing", "delivered")).toBe(true);
   });
 
-  it("forbids moving backward", () => {
-    expect(canTransitionVendorGroup("processing", "new")).toBe(false);
-    expect(canTransitionVendorGroup("ready", "processing")).toBe(false);
-    expect(canTransitionVendorGroup("delivered", "ready")).toBe(false);
+  it("forbids a vendor from moving backward", () => {
+    expect(canVendorAdvance("processing", "new")).toBe(false);
+    expect(canVendorAdvance("ready", "processing")).toBe(false);
+    expect(canVendorAdvance("delivered", "new")).toBe(false);
   });
 
-  it("treats delivered as terminal", () => {
+  it("forbids a vendor from re-setting the status it is already in", () => {
+    for (const status of VENDOR_GROUP_STATUSES) {
+      expect(canVendorAdvance(status, status)).toBe(false);
+    }
+  });
+
+  it("treats delivered as terminal for a vendor", () => {
     expect(nextVendorGroupStates("delivered")).toHaveLength(0);
   });
 
-  it("exposes exactly the next reachable state for each non-terminal status", () => {
-    expect(nextVendorGroupStates("new")).toEqual(["processing"]);
-    expect(nextVendorGroupStates("processing")).toEqual(["ready"]);
+  it("exposes every forward state a vendor may drop onto", () => {
+    expect(nextVendorGroupStates("new")).toEqual(["processing", "ready", "delivered"]);
+    expect(nextVendorGroupStates("processing")).toEqual(["ready", "delivered"]);
     expect(nextVendorGroupStates("ready")).toEqual(["delivered"]);
+  });
+
+  it("lets a manager override in either direction", () => {
+    expect(canOverrideVendorGroupStatus("delivered", "new")).toBe(true);
+    expect(canOverrideVendorGroupStatus("ready", "processing")).toBe(true);
+    expect(canOverrideVendorGroupStatus("new", "delivered")).toBe(true);
+  });
+
+  it("rejects a manager override that changes nothing", () => {
+    for (const status of VENDOR_GROUP_STATUSES) {
+      expect(canOverrideVendorGroupStatus(status, status)).toBe(false);
+    }
   });
 });
 

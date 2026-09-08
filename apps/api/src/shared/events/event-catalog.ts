@@ -179,11 +179,12 @@ export interface EventPayloads {
     readonly assigneeId: string | null;
   };
   /**
-   * A vendor advanced their own order-vendor-group status
-   * (Vendor Accounts, Phase 3): `new → processing → ready → delivered`. Ids
-   * only, no PII. Not yet subscribed to by anything — a future notification
-   * dispatcher (Vendor Order Notifications) can react without any change to
-   * this event's emitter.
+   * An order-vendor-group's status changed (Vendor Accounts, Phase 3). Ids
+   * only, no PII. Emitted for both movers: a vendor advancing their own group
+   * forward (`override: false`) and a company manager correcting one in either
+   * direction (`override: true`) — a subscriber that only cares about genuine
+   * vendor progress must filter on that flag, since an override may move the
+   * group backward. Not yet subscribed to by anything.
    */
   "order_vendor_group.status_changed": {
     readonly orderId: string;
@@ -191,6 +192,8 @@ export interface EventPayloads {
     readonly warehouseId: string;
     readonly fromStatus: string;
     readonly toStatus: string;
+    /** True when a company manager set this, not the vendor themselves. */
+    readonly override: boolean;
   };
   /**
    * Money was collected against an order (EPIC-11 emits it on a COD collection;

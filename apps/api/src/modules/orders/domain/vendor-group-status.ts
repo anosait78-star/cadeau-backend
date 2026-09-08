@@ -2,11 +2,22 @@
  * The vendor group status machine (Vendor Accounts, Phase 3,
  * docs/api/orders.md). Purely organizational — no stock effect, no reason
  * requirement, unlike the Parent Order machine in {@link ./order-status}.
- * Strictly forward, one step at a time, no skipping and no reverse: a vendor
- * group always starts at `"new"` (set only by the Parent Order's own
- * `processing` transition — see `OrdersRepository.materializeVendorGroups`)
- * and a vendor advances it themselves, one step per call, until `"delivered"`
- * (terminal).
+ *
+ * Two rules live here, because two very different actors move these groups:
+ *
+ * - A **vendor** moves their own group **forward only**, but may jump any
+ *   distance ahead ({@link canVendorAdvance}). The original rule was one step
+ *   at a time; it was relaxed on the product owner's call, because a vendor who
+ *   packed and handed over an order in one go should not have to click through
+ *   the states they already passed. Going backward stays closed to them — that
+ *   would mean un-saying something they already did.
+ * - A **company manager** may set any state, in either direction
+ *   ({@link canOverrideVendorGroupStatus}), to correct a vendor's mistake.
+ *   Gated by the `orders.vendor_groups.override` permission, not by this
+ *   module — the domain only says what is representable, never who may do it.
+ *
+ * A vendor group always starts at `"new"` (set only by the Parent Order's own
+ * `processing` transition — see `OrdersRepository.materializeVendorGroups`).
  */
 
 /** The 4 vendor group lifecycle states, in lifecycle order. */
@@ -14,30 +25,39 @@ export const VENDOR_GROUP_STATUSES = ["new", "processing", "ready", "delivered"]
 
 export type VendorGroupStatus = (typeof VENDOR_GROUP_STATUSES)[number];
 
-/**
- * The legal transitions: each state may only advance to the single next state
- * in the sequence. `"delivered"` is terminal (empty set) — matches the user's
- * explicit rule ("جديد → جاهز ممنوع", no jumping ahead and no going back).
- */
-const TRANSITIONS: Readonly<Record<VendorGroupStatus, readonly VendorGroupStatus[]>> = {
-  new: ["processing"],
-  processing: ["ready"],
-  ready: ["delivered"],
-  delivered: [],
-};
+/** A status's position in the lifecycle. */
+function rank(status: VendorGroupStatus): number {
+  return VENDOR_GROUP_STATUSES.indexOf(status);
+}
 
 export function isValidVendorGroupStatus(value: string): value is VendorGroupStatus {
   return (VENDOR_GROUP_STATUSES as readonly string[]).includes(value);
 }
 
-/** Whether `to` is the single legal next state from `from`. */
-export function canTransitionVendorGroup(from: VendorGroupStatus, to: VendorGroupStatus): boolean {
-  return TRANSITIONS[from].includes(to);
+/**
+ * Whether a **vendor** may move their own group from `from` to `to`: strictly
+ * forward, any distance (`new → delivered` is legal), never backward and never
+ * a no-op. `"delivered"` is terminal for them.
+ */
+export function canVendorAdvance(from: VendorGroupStatus, to: VendorGroupStatus): boolean {
+  return rank(to) > rank(from);
 }
 
-/** The states reachable from `from` (for the UI's allowed-transition hints). */
+/**
+ * Whether a **company manager** holding `orders.vendor_groups.override` may set
+ * the group from `from` to `to`. Any real change in either direction; only a
+ * no-op is rejected, so the audit trail never carries an empty transition.
+ */
+export function canOverrideVendorGroupStatus(
+  from: VendorGroupStatus,
+  to: VendorGroupStatus,
+): boolean {
+  return from !== to;
+}
+
+/** The states a vendor may advance to from `from` (for the UI's drop targets). */
 export function nextVendorGroupStates(from: VendorGroupStatus): readonly VendorGroupStatus[] {
-  return TRANSITIONS[from];
+  return VENDOR_GROUP_STATUSES.filter((status) => canVendorAdvance(from, status));
 }
 
 /**
@@ -63,7 +83,7 @@ export function aggregateVendorOrderStatus(
   if (groups.length === 0) return null;
   const ranks = groups
     .map((g) => VENDOR_GROUP_STATUSES.indexOf(g.status as VendorGroupStatus))
-    .filter((rank) => rank !== -1); // ignore any row in an unrecognized status, defensively
+    .filter((r) => r !== -1); // ignore any row in an unrecognized status, defensively
   if (ranks.length === 0) return null;
   return VENDOR_GROUP_STATUSES[Math.min(...ranks)]!;
 }

@@ -29,21 +29,22 @@ lists with deep-linking, and a pivotal `collectedAmount`. Follows
 
 ## Endpoints (delivered)
 
-| Method | Path                                 | Purpose                                                                                               | Permission      |
-| ------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------- | --------------- |
-| GET    | `/v1/orders`                         | List (keyset + filters + deep-linking).                                                               | `orders.read`   |
-| GET    | `/v1/orders/status-counts`           | Per-status counts for the status tabs.                                                                | `orders.read`   |
-| POST   | `/v1/orders`                         | Create an order (now accepts `warehouseId`, `paymentStatus`, `collectedAmount`). `Idempotency-Key`.   | `orders.manage` |
-| GET    | `/v1/orders/{orderId}`               | Detail (items + money).                                                                               | `orders.read`   |
-| PATCH  | `/v1/orders/{orderId}`               | Edit order fields (incl. `collectedAmount`).                                                          | `orders.manage` |
-| POST   | `/v1/orders/{orderId}/status`        | Transition status (state machine).                                                                    | `orders.manage` |
-| POST   | `/v1/orders/{orderId}/assign`        | Assign to a member (`null` unassigns).                                                                | `orders.manage` |
-| POST   | `/v1/orders/bulk/status`             | Bulk status change (per-item results).                                                                | `orders.manage` |
-| POST   | `/v1/orders/bulk/assign`             | Bulk assignment (per-item results).                                                                   | `orders.manage` |
-| POST   | `/v1/orders/parse`                   | Deterministic smart-paste → draft fields.                                                             | `orders.manage` |
-| POST   | `/v1/orders/import`                  | Import CSV with column mapping.                                                                       | `orders.manage` |
-| GET    | `/v1/orders/{orderId}/activity`      | Activity log (keyset).                                                                                | `orders.read`   |
-| GET    | `/v1/orders/{orderId}/vendor-groups` | The order's items grouped by warehouse (Vendor Accounts, Phase 2/3) — the company-side tracking view. | `orders.read`   |
+| Method | Path                                                  | Purpose                                                                                                   | Permission                      |
+| ------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| GET    | `/v1/orders`                                          | List (keyset + filters + deep-linking).                                                                   | `orders.read`                   |
+| GET    | `/v1/orders/status-counts`                            | Per-status counts for the status tabs.                                                                    | `orders.read`                   |
+| POST   | `/v1/orders`                                          | Create an order (now accepts `warehouseId`, `paymentStatus`, `collectedAmount`). `Idempotency-Key`.       | `orders.manage`                 |
+| GET    | `/v1/orders/{orderId}`                                | Detail (items + money).                                                                                   | `orders.read`                   |
+| PATCH  | `/v1/orders/{orderId}`                                | Edit order fields (incl. `collectedAmount`).                                                              | `orders.manage`                 |
+| POST   | `/v1/orders/{orderId}/status`                         | Transition status (state machine).                                                                        | `orders.manage`                 |
+| POST   | `/v1/orders/{orderId}/assign`                         | Assign to a member (`null` unassigns).                                                                    | `orders.manage`                 |
+| POST   | `/v1/orders/bulk/status`                              | Bulk status change (per-item results).                                                                    | `orders.manage`                 |
+| POST   | `/v1/orders/bulk/assign`                              | Bulk assignment (per-item results).                                                                       | `orders.manage`                 |
+| POST   | `/v1/orders/parse`                                    | Deterministic smart-paste → draft fields.                                                                 | `orders.manage`                 |
+| POST   | `/v1/orders/import`                                   | Import CSV with column mapping.                                                                           | `orders.manage`                 |
+| GET    | `/v1/orders/{orderId}/activity`                       | Activity log (keyset).                                                                                    | `orders.read`                   |
+| GET    | `/v1/orders/{orderId}/vendor-groups`                  | The order's items grouped by warehouse (Vendor Accounts, Phase 2/3) — the company-side tracking view.     | `orders.read`                   |
+| POST   | `/v1/orders/{orderId}/vendor-groups/{groupId}/status` | Set any vendor group's status, in either direction — the manager-level correction of a vendor's own move. | `orders.vendor_groups.override` |
 
 **Plus** on the customers module (the inherited EPIC-10 debt, decision D5):
 `GET /v1/customers/{id}/orders`, `POST /v1/customers/merge`, the `hasOrders`
@@ -55,10 +56,10 @@ filter and the `-ordersCount` / `-totalSpent` sorts.
 [tenancy.md](./tenancy.md)). Authorization is ownership-based, resolved fresh
 per call from the caller's own `role = "vendor"` membership:
 
-| Method | Path                                       | Purpose                                                                                                                                                                                              |
-| ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/vendor/order-groups`                  | My vendor groups, across every order, newest first.                                                                                                                                                  |
-| POST   | `/v1/vendor/order-groups/{groupId}/status` | Advance one of my groups by one step (`new → processing → ready → delivered`). Illegal jump/skip → `422`; someone else's group, or no vendor membership → `404`; a concurrent double-submit → `409`. |
+| Method | Path                                       | Purpose                                                                                                                                                                                                                                                     |
+| ------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/vendor/order-groups`                  | My vendor groups, across every order, newest first.                                                                                                                                                                                                         |
+| POST   | `/v1/vendor/order-groups/{groupId}/status` | Advance one of my groups **forward** along `new → processing → ready → delivered`, any distance ahead (`new → delivered` is legal). Backward or a no-op → `422`; someone else's group, or no vendor membership → `404`; a concurrent double-submit → `409`. |
 
 ## List parameters
 
@@ -99,9 +100,18 @@ future notification dispatcher can react without any change to the emitter.
   Parent Order rule — `canTransition`/`stockEffectOf` are untouched. An order
   with no `warehouseId`-routed items (every order before this feature, and
   every non-multi-vendor order since) still resolves to zero groups. A vendor
-  group's own status machine (`new → processing → ready → delivered`, one
-  step at a time, no skip, no reverse) is separate from the Parent Order's —
-  see the vendor self-service table above. Parent Order cancel/return does
+  group's own status machine (`new → processing → ready → delivered`) is
+  separate from the Parent Order's — see the vendor self-service table above.
+  A **vendor** moves their own group forward only, but may jump any distance
+  ahead: a vendor who packed and handed the order over in one go sets
+  `"delivered"` directly instead of clicking through states already passed.
+  Backward is closed to them; correcting a mistake (a group marked
+  `delivered` that never shipped) is a **manager** action via
+  `POST /v1/orders/{orderId}/vendor-groups/{groupId}/status`, gated by
+  `orders.vendor_groups.override` — seeded into the Owner and Manager
+  templates only, so a Store Manager's plain `orders.manage` is deliberately
+  not enough. Both routes emit `order_vendor_group.status_changed` with an
+  `override` flag telling the two apart, and audit the same way. Parent Order cancel/return does
   **not** cascade onto open vendor groups (deferred to a later phase), and no
   Parent Order transition is gated on vendor-group completion.
 - **Aggregate vendor order status (Vendor Accounts, Phase 8):**

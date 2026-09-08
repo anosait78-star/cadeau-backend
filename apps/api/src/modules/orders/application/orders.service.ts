@@ -18,7 +18,8 @@ import type {
 } from "../domain/order.entity";
 import type { OrderStatus } from "../domain/order-status";
 import {
-  canTransitionVendorGroup,
+  canOverrideVendorGroupStatus,
+  canVendorAdvance,
   isValidVendorGroupStatus,
   type VendorGroupStatus,
 } from "../domain/vendor-group-status";
@@ -445,13 +446,18 @@ export class OrdersService {
   }
 
   /**
-   * Advance one of the caller's own vendor groups by exactly one step
-   * (`new → processing → ready → delivered`). 404s (never leaks existence)
-   * when the caller isn't an active vendor, or the group belongs to a
-   * different warehouse than theirs — same convention as `getOne`. An
-   * illegal jump/skip maps to `422` via the existing `IllegalTransitionError`
-   * → `mapError` path, reused as-is. A concurrent double-submit that already
-   * moved the group past `fromStatus` is a `409` (nothing to apply twice).
+   * Advance one of the caller's own vendor groups forward along
+   * `new → processing → ready → delivered`, any distance ahead: a vendor who
+   * packed and handed over an order in one go sets `"delivered"` directly
+   * rather than clicking through the states they already passed. Backward is
+   * still closed to them — that is {@link overrideVendorGroupStatus}'s job.
+   *
+   * 404s (never leaks existence) when the caller isn't an active vendor, or
+   * the group belongs to a different warehouse than theirs — same convention
+   * as `getOne`. A backward or no-op target maps to `422` via the existing
+   * `IllegalTransitionError` → `mapError` path, reused as-is. A concurrent
+   * double-submit that already moved the group past `fromStatus` is a `409`
+   * (nothing to apply twice).
    */
   async updateMyVendorGroupStatus(
     principal: RequestPrincipal,
@@ -472,7 +478,7 @@ export class OrdersService {
       ]);
     }
     const from = group.status as VendorGroupStatus;
-    if (!isValidVendorGroupStatus(from) || !canTransitionVendorGroup(from, toStatus)) {
+    if (!isValidVendorGroupStatus(from) || !canVendorAdvance(from, toStatus)) {
       throw this.mapError(new IllegalTransitionError(group.status, toStatus));
     }
 
@@ -501,6 +507,7 @@ export class OrdersService {
         warehouseId,
         from: group.status,
         to: toStatus,
+        override: false,
       },
     });
     await this.events.publish({
@@ -514,6 +521,87 @@ export class OrdersService {
         warehouseId,
         fromStatus: group.status,
         toStatus,
+        override: false,
+      },
+    });
+    return updated;
+  }
+
+  /**
+   * Set **any** vendor group in one of the company's orders to any status, in
+   * either direction (Vendor Accounts). The counterpart to
+   * {@link updateMyVendorGroupStatus}: a vendor can only move forward, so a
+   * group wrongly marked `delivered` can only be walked back by someone above
+   * them. Gated by `orders.vendor_groups.override`, which the catalog seeds
+   * into the Owner and Manager templates only — a Store Manager's plain
+   * `orders.manage` is deliberately not enough.
+   *
+   * `groupId` is verified to belong to `orderId` (and to the caller's tenant)
+   * so a group id from another order can't be steered through this route; a
+   * mismatch is the same `404` as one that never existed. A no-op target is a
+   * `422` — the audit trail never carries an empty transition. A concurrent
+   * change that moved the group off `fromStatus` first is a `409`.
+   */
+  async overrideVendorGroupStatus(
+    principal: RequestPrincipal,
+    orderId: string,
+    groupId: string,
+    toStatus: string,
+  ): Promise<OrderVendorGroupView> {
+    const companyId = this.requireTenant(principal);
+
+    const group = await this.repo.findVendorGroupById(companyId, groupId);
+    if (group === null || group.orderId !== orderId) {
+      throw AppErrors.notFound("Vendor group not found.");
+    }
+    if (!isValidVendorGroupStatus(toStatus)) {
+      throw AppErrors.validation("Request validation failed", [
+        { field: "toStatus", messages: ["toStatus is not a recognized vendor group status."] },
+      ]);
+    }
+    const from = group.status as VendorGroupStatus;
+    if (!isValidVendorGroupStatus(from) || !canOverrideVendorGroupStatus(from, toStatus)) {
+      throw this.mapError(new IllegalTransitionError(group.status, toStatus));
+    }
+
+    const updated = await this.repo.updateVendorGroupStatus(
+      { companyId, actorId: principal.userId },
+      groupId,
+      group.status,
+      toStatus,
+    );
+    if (updated === null) {
+      throw AppErrors.conflict("This vendor group's status already changed — reload and retry.");
+    }
+
+    await this.audit.record({
+      companyId,
+      actorId: principal.userId,
+      action: "order_vendor_group.status_changed",
+      entityType: "order_vendor_group",
+      entityId: groupId,
+      changes: {
+        orderId: group.orderId,
+        warehouseId: group.warehouseId,
+        from: group.status,
+        to: toStatus,
+        // Distinguishes a manager's correction from the vendor's own progress:
+        // without it a backward row is indistinguishable from a vendor bug.
+        override: true,
+      },
+    });
+    await this.events.publish({
+      type: "order_vendor_group.status_changed",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: {
+        orderId: updated.orderId,
+        orderVendorGroupId: groupId,
+        warehouseId: group.warehouseId,
+        fromStatus: group.status,
+        toStatus,
+        override: true,
       },
     });
     return updated;

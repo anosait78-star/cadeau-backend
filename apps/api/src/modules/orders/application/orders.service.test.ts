@@ -546,7 +546,7 @@ describe("OrdersService — updateMyVendorGroupStatus (Vendor Accounts, Phase 3)
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("422s a skipped/illegal jump", async () => {
+  it("lets a vendor skip ahead — a packed-and-handed-over order goes straight to delivered", async () => {
     h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
     h.repo.findVendorGroupById.mockResolvedValueOnce({
       id: "g1",
@@ -554,8 +554,40 @@ describe("OrdersService — updateMyVendorGroupStatus (Vendor Accounts, Phase 3)
       warehouseId: "w1",
       status: "new",
     });
+    h.repo.updateVendorGroupStatus.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      orderNumber: 1042,
+      warehouseId: "w1",
+      warehouseName: "Main",
+      warehouseCode: null,
+      vendorMemberId: null,
+      vendorName: null,
+      status: "delivered",
+      items: [],
+    });
+
+    const updated = await h.service.updateMyVendorGroupStatus(principal(), "g1", "delivered");
+
+    expect(updated.status).toBe("delivered");
+    expect(h.repo.updateVendorGroupStatus).toHaveBeenCalledWith(
+      { companyId: COMPANY, actorId: USER },
+      "g1",
+      "new",
+      "delivered",
+    );
+  });
+
+  it("422s re-setting the status the group is already in", async () => {
+    h.repo.findVendorWarehouseId.mockResolvedValueOnce("w1");
+    h.repo.findVendorGroupById.mockResolvedValueOnce({
+      id: "g1",
+      orderId: "o1",
+      warehouseId: "w1",
+      status: "ready",
+    });
     await expect(
-      h.service.updateMyVendorGroupStatus(principal(), "g1", "delivered"),
+      h.service.updateMyVendorGroupStatus(principal(), "g1", "ready"),
     ).rejects.toMatchObject({ status: 422 });
     expect(h.repo.updateVendorGroupStatus).not.toHaveBeenCalled();
   });
@@ -622,7 +654,13 @@ describe("OrdersService — updateMyVendorGroupStatus (Vendor Accounts, Phase 3)
         action: "order_vendor_group.status_changed",
         entityType: "order_vendor_group",
         entityId: "g1",
-        changes: { orderId: "o1", warehouseId: "w1", from: "new", to: "processing" },
+        changes: {
+          orderId: "o1",
+          warehouseId: "w1",
+          from: "new",
+          to: "processing",
+          override: false,
+        },
       }),
     );
     expect(h.events.publish).toHaveBeenCalledWith(
@@ -634,6 +672,122 @@ describe("OrdersService — updateMyVendorGroupStatus (Vendor Accounts, Phase 3)
           warehouseId: "w1",
           fromStatus: "new",
           toStatus: "processing",
+          override: false,
+        },
+      }),
+    );
+  });
+});
+
+describe("OrdersService — overrideVendorGroupStatus (manager correction)", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+
+  const group = (status: string) => ({
+    id: "g1",
+    orderId: "o1",
+    warehouseId: "w1",
+    status,
+  });
+
+  const moved = (status: string) => ({
+    id: "g1",
+    orderId: "o1",
+    orderNumber: 1042,
+    warehouseId: "w1",
+    warehouseName: "Main",
+    warehouseCode: null,
+    vendorMemberId: null,
+    vendorName: null,
+    status,
+    items: [],
+  });
+
+  it("404s when the group id does not exist in this tenant", async () => {
+    h.repo.findVendorGroupById.mockResolvedValueOnce(null);
+    await expect(
+      h.service.overrideVendorGroupStatus(principal(), "o1", "g9", "new"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("404s when the group belongs to a different order than the one in the path", async () => {
+    h.repo.findVendorGroupById.mockResolvedValueOnce({ ...group("delivered"), orderId: "other" });
+    await expect(
+      h.service.overrideVendorGroupStatus(principal(), "o1", "g1", "new"),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(h.repo.updateVendorGroupStatus).not.toHaveBeenCalled();
+  });
+
+  it("422s an unrecognized toStatus", async () => {
+    h.repo.findVendorGroupById.mockResolvedValueOnce(group("new"));
+    await expect(
+      h.service.overrideVendorGroupStatus(principal(), "o1", "g1", "not-a-status"),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("422s a no-op, so the audit trail never carries an empty transition", async () => {
+    h.repo.findVendorGroupById.mockResolvedValueOnce(group("ready"));
+    await expect(
+      h.service.overrideVendorGroupStatus(principal(), "o1", "g1", "ready"),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(h.repo.updateVendorGroupStatus).not.toHaveBeenCalled();
+  });
+
+  it("409s when the group moved off the expected status first (concurrent change)", async () => {
+    h.repo.findVendorGroupById.mockResolvedValueOnce(group("delivered"));
+    h.repo.updateVendorGroupStatus.mockResolvedValueOnce(null);
+    await expect(
+      h.service.overrideVendorGroupStatus(principal(), "o1", "g1", "ready"),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("does not need the caller to be a vendor at all", async () => {
+    h.repo.findVendorGroupById.mockResolvedValueOnce(group("delivered"));
+    h.repo.updateVendorGroupStatus.mockResolvedValueOnce(moved("processing"));
+
+    await h.service.overrideVendorGroupStatus(principal(), "o1", "g1", "processing");
+
+    expect(h.repo.findVendorWarehouseId).not.toHaveBeenCalled();
+  });
+
+  it("moves a group backward and marks the change as an override", async () => {
+    h.repo.findVendorGroupById.mockResolvedValueOnce(group("delivered"));
+    h.repo.updateVendorGroupStatus.mockResolvedValueOnce(moved("new"));
+
+    const updated = await h.service.overrideVendorGroupStatus(principal(), "o1", "g1", "new");
+
+    expect(updated.status).toBe("new");
+    expect(h.repo.updateVendorGroupStatus).toHaveBeenCalledWith(
+      { companyId: COMPANY, actorId: USER },
+      "g1",
+      "delivered",
+      "new",
+    );
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "order_vendor_group.status_changed",
+        entityId: "g1",
+        changes: {
+          orderId: "o1",
+          warehouseId: "w1",
+          from: "delivered",
+          to: "new",
+          override: true,
+        },
+      }),
+    );
+    expect(h.events.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "order_vendor_group.status_changed",
+        payload: {
+          orderId: "o1",
+          orderVendorGroupId: "g1",
+          warehouseId: "w1",
+          fromStatus: "delivered",
+          toStatus: "new",
+          override: true,
         },
       }),
     );

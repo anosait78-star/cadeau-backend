@@ -59,6 +59,13 @@ describe("access catalog integrity", () => {
     );
   });
 
+  it("grants the vendor-group status override to Owner and Manager only", () => {
+    const holders = TEMPLATES.filter((t) =>
+      t.permissions.includes("orders.vendor_groups.override"),
+    ).map((t) => t.key);
+    expect(holders.sort()).toEqual(["manager", "owner"]);
+  });
+
   it("ships the AI feature inactive (ADR-004)", () => {
     expect(FEATURES.find((f) => f.key === "ai")?.active).toBe(false);
   });

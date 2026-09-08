@@ -41,11 +41,13 @@ import {
   OrderDto,
   OrderListDto,
   OrderStatusCountsDto,
+  OrderVendorGroupDto,
   OrderVendorGroupListDto,
   ParseOrderDto,
   ParsedDraftDto,
   TransitionOrderDto,
   UpdateOrderDto,
+  UpdateVendorGroupStatusDto,
 } from "./dto/orders.dto";
 
 /** The feature key this module is gated under (access catalog). */
@@ -257,6 +259,27 @@ export class OrdersController {
     @Param("orderId", ParseUUIDPipe) orderId: string,
   ): Promise<OrderVendorGroupListDto> {
     return OrderVendorGroupListDto.from(await this.service.listVendorGroups(principal, orderId));
+  }
+
+  @Post(":orderId/vendor-groups/:groupId/status")
+  @HttpCode(HttpStatus.OK)
+  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.vendor_groups.override" })
+  @ApiOperation({
+    summary: "Set a vendor group's status, in either direction (Vendor Accounts)",
+    description:
+      "Manager-level correction of a vendor's own group — the vendor's own route only moves forward.",
+    operationId: "overrideOrderVendorGroupStatus",
+  })
+  @ApiOkResponse({ type: OrderVendorGroupDto })
+  async overrideVendorGroupStatus(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("orderId", ParseUUIDPipe) orderId: string,
+    @Param("groupId", ParseUUIDPipe) groupId: string,
+    @Body() body: UpdateVendorGroupStatusDto,
+  ): Promise<OrderVendorGroupDto> {
+    return OrderVendorGroupDto.from(
+      await this.service.overrideVendorGroupStatus(principal, orderId, groupId, body.toStatus),
+    );
   }
 
   @Get(":orderId/activity")
