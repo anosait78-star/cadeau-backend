@@ -39,19 +39,56 @@ function makeRepo() {
   const queryRaw = vi.fn().mockResolvedValue([]);
   const create = vi.fn();
   const findFirst = vi.fn();
+  const update = vi.fn();
   const transactionCalls: unknown[] = [];
   const prisma = {
     $transaction: vi.fn((fn: (tx: unknown) => unknown) => {
-      const tx = { $queryRaw: queryRaw, storefrontWebhookEvent: { create, findFirst } };
+      const tx = { $queryRaw: queryRaw, storefrontWebhookEvent: { create, findFirst, update } };
       transactionCalls.push(tx);
       return fn(tx);
     }),
   };
   const repo = new StorefrontWebhookInboxRepository(prisma as unknown as PrismaClient);
-  return { repo, prisma, create, findFirst, transactionCalls };
+  return { repo, prisma, create, findFirst, update, transactionCalls };
 }
 
 describe("StorefrontWebhookInboxRepository.enqueue", () => {
+  /**
+   * Order #31638 (2026-09-12): the first delivery failed while the order was
+   * still awaiting payment, the customer then paid, and WooCommerce
+   * redelivered — but the row kept the original pre-payment snapshot, so
+   * reprocessing it recreated the order unpaid. A replayable row must hold
+   * the freshest payload.
+   */
+  it.each([["pending"], ["failed"]])(
+    "refreshes the stored payload when a %s event is redelivered",
+    async (status) => {
+      const { repo, create, findFirst, update } = makeRepo();
+      create.mockRejectedValue(p2002());
+      findFirst.mockResolvedValue(eventRow({ status }));
+      update.mockResolvedValue(eventRow({ status }));
+
+      const result = await repo.enqueue(COMPANY, CONNECTION, "order", "ext-1", { paid: true });
+
+      expect(result.enqueued).toBe(false);
+      expect(update).toHaveBeenCalledWith({
+        where: { id: "evt-1" },
+        data: { payload: { paid: true } },
+      });
+    },
+  );
+
+  it("leaves a processed event's payload alone — it is history, and reprocess refuses it anyway", async () => {
+    const { repo, create, findFirst, update } = makeRepo();
+    create.mockRejectedValue(p2002());
+    findFirst.mockResolvedValue(eventRow({ status: "processed", internalEntityId: "order-9" }));
+
+    const result = await repo.enqueue(COMPANY, CONNECTION, "order", "ext-1", { paid: true });
+
+    expect(result.enqueued).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it("creates the event and reports enqueued=true on the happy path", async () => {
     const { repo, create } = makeRepo();
     create.mockResolvedValue(eventRow());

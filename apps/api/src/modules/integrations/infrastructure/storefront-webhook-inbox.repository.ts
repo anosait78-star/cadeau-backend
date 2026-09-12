@@ -81,12 +81,30 @@ export class StorefrontWebhookInboxRepository implements StorefrontWebhookInboxP
         // delivery, or two of a product's webhooks racing each other), so this
         // lookup runs in a fresh transaction, never the one the create() just
         // poisoned.
-        const existing = await this.tenantTx(companyId, (tx) =>
-          tx.storefrontWebhookEvent.findFirst({
+        // A redelivery of an event that has NOT been processed yet carries a
+        // fresher snapshot than the one on file, so replace the stored
+        // payload (2026-09-12). Found live: order #31638's first delivery
+        // failed on its phone number while the order was still `pending`; the
+        // customer then paid, and WooCommerce redelivered — but the row kept
+        // the original pre-payment snapshot, so reprocessing it after the
+        // phone fix recreated the order unpaid. A row that will be replayed
+        // must hold the latest truth, not the first thing ever received.
+        //
+        // A `processed` row is left exactly as it was: it is history at that
+        // point (reprocess refuses it — `NotReprocessableError`), and a later
+        // `order.updated` for it goes through `syncOrderUpdate` instead.
+        const existing = await this.tenantTx(companyId, async (tx) => {
+          const row = await tx.storefrontWebhookEvent.findFirst({
             where: { connectionId, eventType, externalId },
             select: EVENT_SELECT,
-          }),
-        );
+          });
+          if (row === null || row.status === "processed") return row;
+          await tx.storefrontWebhookEvent.update({
+            where: { id: row.id },
+            data: { payload: payload as Prisma.InputJsonValue },
+          });
+          return row;
+        });
         if (existing !== null) return { event: this.toView(existing), enqueued: false };
       }
       throw error;
