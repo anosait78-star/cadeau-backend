@@ -231,6 +231,39 @@ describe("StorefrontIngestionService.ingestOrder", () => {
     );
   });
 
+  /**
+   * Policy, 2026-09-12: an unusable phone must never cost the order. The
+   * order is created against a placeholder customer, and the audit row is
+   * what tells staff to go fix it — PII-free, so the number itself stays in
+   * the storefront event where it already lives.
+   */
+  it("audits an order whose phone had to be replaced by a placeholder", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.customers.list.mockResolvedValue(emptyPage());
+    h.customers.create.mockResolvedValue({ customer: { id: "cust-1" }, replayed: false });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
+
+    await h.service.ingestOrder(CONNECTION, {
+      ...ORDER_PAYLOAD,
+      customer: { name: "Ahmed", phone: "+9990000031638", phonePlaceholder: true },
+    });
+
+    expect(h.orders.create).toHaveBeenCalled();
+    const recorded = h.audit.record.mock.calls.map((c) => c[0].action);
+    expect(recorded).toContain("storefront_order.placeholder_phone");
+    const row = h.audit.record.mock.calls.find(
+      (c) => c[0].action === "storefront_order.placeholder_phone",
+    )?.[0];
+    // PII-free (privacy-model §6): the row carries ids, never the number.
+    const serialized = JSON.stringify(row.changes);
+    expect(serialized).not.toContain("+999");
+    expect(serialized.replace(/[^0-9]/g, "").length).toBeLessThan(7);
+  });
+
   it("never cancels an order for an ordinary status (processing/completed/etc)", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },

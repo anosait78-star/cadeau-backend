@@ -11,6 +11,14 @@ import { StorefrontPayloadMappingError } from "../domain/storefront.errors";
 type JsonRecord = Record<string, unknown>;
 
 /**
+ * The shape `customers/domain/phone.ts` will accept: `+`, a non-zero country
+ * code, 8-15 digits total. Mirrored here (not imported — the customers module
+ * is reached only through its port) so this adapter can tell whether the
+ * number it produced will survive that gate, and fall back if not.
+ */
+const E164 = /^\+[1-9]\d{7,14}$/;
+
+/**
  * Translates a raw WooCommerce REST webhook payload (`order.created`,
  * `order.updated`, `product.created`, `product.updated` — WooCommerce's own
  * Order/Product resource shape, unmodified) into this system's generic
@@ -247,19 +255,19 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
         `WooCommerce order ${externalId}: billing/shipping name is missing.`,
       );
     }
-    const phoneRaw =
-      this.optionalString(billing, "phone") ?? this.optionalString(shipping, "phone");
-    if (phoneRaw === undefined || phoneRaw.trim().length === 0) {
-      throw new StorefrontPayloadMappingError(
-        `WooCommerce order ${externalId}: billing.phone (and shipping.phone) are both missing — ` +
-          "a phone number is required to match/create the customer.",
-      );
-    }
+    // A missing or unusable phone no longer throws (2026-09-12): it used to
+    // reject the whole webhook, which is how real orders were lost. See
+    // `resolvePhone`.
+    const phone = this.resolvePhone(
+      this.optionalString(billing, "phone") ?? this.optionalString(shipping, "phone"),
+      externalId,
+    );
     const email = this.optionalString(billing, "email");
     const address = this.parseAddress(order, billing, shipping);
     return {
       name,
-      phone: this.normalizeEgyptianPhone(phoneRaw.trim()),
+      phone: phone.value,
+      ...(phone.placeholder ? { phonePlaceholder: true } : {}),
       ...(email !== undefined ? { email } : {}),
       ...(address !== undefined ? { address } : {}),
     };
@@ -340,8 +348,90 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
    * (already has a `+`, a different length/shape) is passed through
    * unchanged and left for the CRM's own validation to accept or reject.
    */
+  /**
+   * Best-effort conversion of an Egyptian number to the E.164 form the
+   * customers module demands. That module deliberately rejects a bare
+   * national number (`customers/domain/phone.ts`) because interpreting one
+   * needs a country and a company has no country setting yet — which makes
+   * this adapter, the only WooCommerce-and-therefore-Egypt-aware link in the
+   * chain, responsible for supplying the country code.
+   *
+   * The original version tested the raw string against `/^0\d{10}$/` and
+   * passed everything else through untouched, so a real order was lost
+   * (#31638, 2026-09-11) over a number typed `201001234567` — correct, just
+   * missing its `+`. Checkout fields are free text: shoppers type spaces,
+   * dashes, Arabic-Indic digits, a leading `00`, or drop the trunk `0`. Each
+   * of those is recognisable with certainty, so each is handled.
+   *
+   * Anything still unrecognised is returned unchanged, never guessed at: a
+   * non-Egyptian number must reach the customers module intact and be judged
+   * there. `resolvePhone` is what keeps an unrecognised one from costing the
+   * order.
+   */
   private normalizeEgyptianPhone(phone: string): string {
-    return /^0\d{10}$/.test(phone) ? `+20${phone.slice(1)}` : phone;
+    const cleaned = this.toAsciiDigits(phone).replace(/[\s\-().]/g, "");
+    if (cleaned.startsWith("+")) return cleaned;
+    // `00` is the international access code, so `0020…` is already an
+    // international number — not a national one that happens to start `0`.
+    if (cleaned.startsWith("00")) return `+${cleaned.slice(2)}`;
+    // `20` + a 10-digit subscriber number: international, missing only its
+    // `+`. The length test keeps this from swallowing a national number that
+    // merely starts with `20` — those are 11 digits and begin with `0`.
+    if (/^20\d{10}$/.test(cleaned)) return `+${cleaned}`;
+    // The two national spellings: with the trunk `0`, and without it.
+    if (/^0\d{10}$/.test(cleaned)) return `+20${cleaned.slice(1)}`;
+    if (/^1\d{9}$/.test(cleaned)) return `+20${cleaned}`;
+    return phone;
+  }
+
+  /**
+   * Arabic-Indic (`٠١٢…`) and Extended Arabic-Indic (`۰۱۲…`) digits mapped to
+   * ASCII. An Arabic storefront gets these from any shopper whose keyboard
+   * produces them, and every pattern above expects ASCII.
+   */
+  private toAsciiDigits(value: string): string {
+    return value.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (d) =>
+      String((d.codePointAt(0) ?? 0) & 0xf),
+    );
+  }
+
+  /**
+   * The order's phone, or a placeholder that lets the order through anyway.
+   *
+   * A missing or unparseable phone used to throw, which rejected the whole
+   * webhook and lost the order — the customers module treats the phone as the
+   * customer's identity key and will not accept a non-E.164 value. Policy
+   * call (2026-09-12): never lose an order over a phone. The same reasoning
+   * as the vendor-warehouse fallback — a wrong-but-visible record beats a
+   * real customer order that silently never arrived.
+   *
+   * The cost is deliberate and worth stating: the placeholder becomes that
+   * customer's identity, so two bad-phone orders from the same real person
+   * become two customer records. Staff fix it from the storefront event,
+   * which still holds the number exactly as it was typed.
+   */
+  private resolvePhone(
+    raw: string | undefined,
+    externalId: string,
+  ): { value: string; placeholder: boolean } {
+    if (raw !== undefined && raw.trim().length > 0) {
+      const normalized = this.normalizeEgyptianPhone(raw.trim());
+      if (E164.test(normalized)) return { value: normalized, placeholder: false };
+    }
+    return { value: this.placeholderPhone(externalId), placeholder: true };
+  }
+
+  /**
+   * A unique, deliberately-not-real stand-in for an unusable phone. `+999` is
+   * an ITU-reserved country code, so this can never collide with a genuine
+   * number and reads as obviously synthetic in the customers list.
+   *
+   * Derived from the order id rather than random so a retried delivery of the
+   * same order resolves to the same customer instead of a fresh duplicate.
+   */
+  private placeholderPhone(externalId: string): string {
+    const digits = externalId.replace(/\D/g, "").slice(-10).padStart(10, "0");
+    return `+999${digits}`;
   }
 
   private fullName(record: JsonRecord): string | undefined {

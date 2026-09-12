@@ -41,6 +41,17 @@ export interface NormalizedCustomer {
   readonly name: string;
   /** As typed by the storefront — normalized to E.164 by the customers module. */
   readonly phone: string;
+  /**
+   * The storefront's phone was missing or could not be made into a valid
+   * E.164 number, and {@link phone} is a synthesized placeholder standing in
+   * for it so the order is never rejected over a phone (2026-09-12 policy
+   * call, after order #31638 was lost to a number typed without its `+`).
+   *
+   * Absent on the overwhelming majority of orders. When set, the caller is
+   * expected to audit it: the customer record it produces is deliberately
+   * wrong-but-visible, and staff need to know to go fix it.
+   */
+  readonly phonePlaceholder?: boolean;
   readonly email?: string | null;
   readonly address?: NormalizedAddress;
 }

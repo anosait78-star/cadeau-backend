@@ -133,12 +133,26 @@ describe("WooCommerceAdapter.parseOrder", () => {
     expect(() => adapter.parseOrder(order)).toThrow(/name is missing/);
   });
 
-  it("throws a clear error when both billing and shipping phone are missing", () => {
-    const order = baseOrder({
-      billing: { first_name: "أحمد", last_name: "محمد" },
-      shipping: {},
-    });
-    expect(() => adapter.parseOrder(order)).toThrow(/phone/);
+  /**
+   * Order #31638 (2026-09-11) was lost to a number typed exactly like this —
+   * correct, just missing its `+`. Every spelling below is one a real
+   * checkout field produces, and each used to be passed through untouched
+   * and then rejected by the customers module.
+   */
+  it.each([
+    ["a bare international number missing its +", "201001234567"],
+    ["an international number with the 00 access code", "00201001234567"],
+    ["a local number with spaces", "0100 123 4567"],
+    ["a local number with dashes", "0100-123-4567"],
+    ["a local number in parentheses", "(0100) 123-4567"],
+    ["a national number without its trunk 0", "1001234567"],
+    ["Arabic-Indic digits", "٠١٠٠١٢٣٤٥٦٧"],
+    ["Extended Arabic-Indic digits", "۰۱۰۰۱۲۳۴۵۶۷"],
+  ])("normalizes %s to E.164", (_label, typed) => {
+    const order = baseOrder({ billing: { phone: typed } });
+    const customer = adapter.parseOrder(order).customer;
+    expect(customer.phone).toBe("+201001234567");
+    expect(customer.phonePlaceholder).toBeUndefined();
   });
 
   it("falls back to shipping.phone when billing.phone is absent", () => {
@@ -146,7 +160,9 @@ describe("WooCommerceAdapter.parseOrder", () => {
       billing: { first_name: "أحمد", last_name: "محمد" },
       shipping: { phone: "01009998888" },
     });
-    expect(adapter.parseOrder(order).customer.phone).toBe("+201009998888");
+    const customer = adapter.parseOrder(order).customer;
+    expect(customer.phone).toBe("+201009998888");
+    expect(customer.phonePlaceholder).toBeUndefined();
   });
 
   it("normalizes a local Egyptian mobile number (01xxxxxxxxx) to +20", () => {
@@ -159,9 +175,37 @@ describe("WooCommerceAdapter.parseOrder", () => {
     expect(adapter.parseOrder(order).customer.phone).toBe("+201001234567");
   });
 
-  it("leaves a phone number that isn't a bare Egyptian local number unchanged", () => {
+  it("reads 0044… as the international access code, not a local number", () => {
     const order = baseOrder({ billing: { phone: "0044123456789" } });
-    expect(adapter.parseOrder(order).customer.phone).toBe("0044123456789");
+    expect(adapter.parseOrder(order).customer.phone).toBe("+44123456789");
+  });
+
+  /**
+   * The 2026-09-12 policy call: never reject an order over its phone. These
+   * two cases used to throw, which rejected the whole webhook and lost a real
+   * order. They now yield a placeholder and a flag for the caller to audit.
+   */
+  it.each([
+    ["is missing entirely", undefined],
+    ["is blank", "   "],
+    ["is too short to be a phone number", "123"],
+    ["is not a number at all", "لا يوجد"],
+  ])("still produces an order when the phone %s", (_label, typed) => {
+    const billing =
+      typed === undefined
+        ? { first_name: "أحمد", last_name: "محمد" }
+        : { first_name: "أحمد", last_name: "محمد", phone: typed };
+    const order = baseOrder({ billing, shipping: {} });
+    const customer = adapter.parseOrder(order).customer;
+    expect(customer.phonePlaceholder).toBe(true);
+    // Reserved +999 country code — can never collide with a real number.
+    expect(customer.phone).toBe("+9990000004321");
+  });
+
+  it("derives the placeholder from the order id, so a redelivery is the same customer", () => {
+    const first = adapter.parseOrder(baseOrder({ billing: { first_name: "أ", last_name: "م" } }));
+    const again = adapter.parseOrder(baseOrder({ billing: { first_name: "أ", last_name: "م" } }));
+    expect(first.customer.phone).toBe(again.customer.phone);
   });
 
   it("maps multiple line items", () => {

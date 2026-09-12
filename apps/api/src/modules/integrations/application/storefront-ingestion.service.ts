@@ -362,6 +362,21 @@ export class StorefrontIngestionService {
         : { isGiftWrap: true, giftWrapFeeMinor: normalized.giftWrap.feeMinor }),
       ...(normalized.paidOnline === true ? { markFullyPaid: true } : {}),
     });
+    // The phone was missing or unusable and a placeholder stands in for it,
+    // so this order exists instead of being rejected (2026-09-12). Recorded
+    // PII-free — no phone, typed or synthesized: the storefront event still
+    // holds the number exactly as the shopper entered it, which is where
+    // staff go to fix the customer.
+    if (normalized.customer.phonePlaceholder === true) {
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_order.placeholder_phone",
+        entityType: "order",
+        entityId: order.id,
+        changes: { customerId, externalOrderId: normalized.externalId },
+      });
+    }
     if (unmappedVendors.length > 0) {
       await this.audit.record({
         companyId: connection.companyId,

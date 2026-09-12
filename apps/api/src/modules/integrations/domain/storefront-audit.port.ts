@@ -21,6 +21,8 @@ export interface StorefrontAuditRecord {
     | "storefront_order.vendor_fallback_warehouse"
     /** The CRM refused a storefront-reported cancellation (2026-09-12). */
     | "storefront_order.cancel_skipped"
+    /** The order's phone was unusable; a placeholder stood in (2026-09-12). */
+    | "storefront_order.placeholder_phone"
     | "storefront_customer.address_sync_failed";
   readonly entityType:
     | "storefront_connection"
