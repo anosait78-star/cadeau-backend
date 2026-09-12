@@ -72,13 +72,32 @@ export interface OrdersIngestionPort {
   /**
    * Cancels an order the storefront itself reports as cancelled/failed —
    * found live (2026-09-07): a cancelled WooCommerce order was still being
-   * synced in as a normal, active CRM order. A no-op (never throws) when the
-   * order is already cancelled, or when cancelling isn't a valid transition
-   * from its current status (e.g. already shipped) — a resync must never
-   * fail the whole event over this.
+   * synced in as a normal, active CRM order. Cancelling is legitimately
+   * impossible for some orders (already cancelled, or already past the point
+   * where it is a legal transition, e.g. shipped); those return `skipped`
+   * rather than throwing, so a resync never fails the whole event over an
+   * outcome the state machine considers normal. Anything *else* going wrong
+   * does throw — that is the point of the distinction.
+   *
+   * It reports the outcome rather than swallowing it (2026-09-12 incident):
+   * the original `Promise<void>` made "cancelled" and "silently gave up"
+   * indistinguishable, which is exactly how a missing cancel reason hid a
+   * total failure of this path for every storefront cancellation. Callers
+   * are expected to record a `skipped` outcome where staff can see it.
    */
-  cancelForStorefront(principal: RequestPrincipal, orderId: string): Promise<void>;
+  cancelForStorefront(
+    principal: RequestPrincipal,
+    orderId: string,
+  ): Promise<StorefrontCancelOutcome>;
 }
+
+/**
+ * What {@link OrdersIngestionPort.cancelForStorefront} did. `skipped` carries
+ * a short, PII-free `reason` fit for an audit-log row.
+ */
+export type StorefrontCancelOutcome =
+  | { readonly status: "cancelled" }
+  | { readonly status: "skipped"; readonly reason: string };
 
 /** DI token for {@link OrdersIngestionPort}. */
 export const ORDERS_INGESTION = Symbol("ORDERS_INGESTION");

@@ -19,6 +19,8 @@ export interface StorefrontAuditRecord {
     | "storefront_vendor_warehouse_mapping.deleted"
     | "storefront_order.resync_failed"
     | "storefront_order.vendor_fallback_warehouse"
+    /** The CRM refused a storefront-reported cancellation (2026-09-12). */
+    | "storefront_order.cancel_skipped"
     | "storefront_customer.address_sync_failed";
   readonly entityType:
     | "storefront_connection"

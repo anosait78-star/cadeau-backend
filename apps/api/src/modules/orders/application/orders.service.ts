@@ -6,7 +6,10 @@ import type { RequestPrincipal } from "../../../shared/auth/authenticated-reques
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
-import type { OrdersIngestionUpdateInput } from "../../../shared/contracts/orders-ingestion.port";
+import type {
+  OrdersIngestionUpdateInput,
+  StorefrontCancelOutcome,
+} from "../../../shared/contracts/orders-ingestion.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import type {
   BulkItemResult,
@@ -16,7 +19,7 @@ import type {
   OrderView,
   StatusChangeResult,
 } from "../domain/order.entity";
-import type { OrderStatus } from "../domain/order-status";
+import { canTransition, type OrderStatus } from "../domain/order-status";
 import {
   canOverrideVendorGroupStatus,
   canVendorAdvance,
@@ -216,23 +219,47 @@ export class OrdersService {
   /**
    * {@link OrdersIngestionPort.cancelForStorefront} — the storefront itself
    * reports this order cancelled/failed. Reuses {@link transition} for its
-   * audit trail + stock-release side effects; swallows a not-a-valid-
-   * transition failure (order already cancelled, or already past a point
-   * where cancelling makes sense, e.g. shipped) rather than failing the
-   * caller's ingestion event over it.
+   * audit trail + stock-release side effects.
+   *
+   * A `reasonId` is mandatory, not optional garnish: `requiresReason` makes
+   * the repository reject any cancel without a `cancel`-kind reason. The
+   * original version of this method passed none and wrapped the call in a
+   * bare `catch {}`, so *every* storefront cancellation threw
+   * `ReasonRequiredError` and was silently discarded — orders cancelled by
+   * the customer stayed active in the CRM with no trace anywhere
+   * (2026-09-12 incident). Hence both halves of the fix: supply the reserved
+   * reason, and drop the blanket `catch` in favour of asking the state
+   * machine up front whether cancelling is legal at all — the one outcome
+   * that is genuinely expected (an already-shipped order) is now *reported*
+   * to the caller as `skipped` instead of vanishing, and anything else
+   * throws.
    */
-  async cancelForStorefront(principal: RequestPrincipal, id: string): Promise<void> {
+  async cancelForStorefront(
+    principal: RequestPrincipal,
+    id: string,
+  ): Promise<StorefrontCancelOutcome> {
     const companyId = this.requireTenant(principal);
     const current = await this.repo.findById(companyId, id);
-    if (current === null || current.status === "cancelled") return;
-    try {
-      await this.transition(principal, id, {
-        toStatus: "cancelled",
-        note: "Cancelled on the storefront.",
-      });
-    } catch {
-      // Not a valid transition from the current status — leave it as is.
+    if (current === null) return { status: "skipped", reason: "Order not found." };
+    if (current.status === "cancelled") return { status: "cancelled" };
+    // Asked of the state machine directly rather than inferred from a thrown
+    // error: `transition` maps domain errors into `AppException`s, and
+    // string-matching those is exactly the kind of catch-all that hid this
+    // bug. Everything that still throws below is genuinely unexpected and
+    // must surface.
+    if (!canTransition(current.status, "cancelled")) {
+      return {
+        status: "skipped",
+        reason: `Cancelling is not a legal transition from "${current.status}".`,
+      };
     }
+    const reasonId = await this.repo.ensureStorefrontCancelReasonId(companyId);
+    await this.transition(principal, id, {
+      toStatus: "cancelled",
+      reasonId,
+      note: "Cancelled on the storefront.",
+    });
+    return { status: "cancelled" };
   }
 
   async transition(

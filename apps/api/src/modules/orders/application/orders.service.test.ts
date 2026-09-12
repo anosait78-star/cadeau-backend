@@ -18,6 +18,7 @@ import { OrdersService } from "./orders.service";
 const COMPANY = "11111111-1111-1111-1111-111111111111";
 const USER = "22222222-2222-2222-2222-222222222222";
 const ORDER = "33333333-3333-3333-3333-333333333333";
+const CANCEL_REASON = "44444444-4444-4444-4444-444444444444";
 const CUSTOMER = "44444444-4444-4444-4444-444444444444";
 
 function principal(overrides: Partial<RequestPrincipal> = {}): RequestPrincipal {
@@ -91,6 +92,7 @@ function makeHarness(features: string[] = ["orders", "inventory"]): Harness {
     create: vi.fn().mockResolvedValue({ order: order(), replayed: false }),
     update: vi.fn().mockResolvedValue(order()),
     transition: vi.fn().mockResolvedValue(change),
+    ensureStorefrontCancelReasonId: vi.fn().mockResolvedValue(CANCEL_REASON),
     assign: vi.fn().mockResolvedValue(order({ assigneeId: USER })),
     bulkTransition: vi
       .fn()
@@ -217,7 +219,9 @@ describe("OrdersService", () => {
 
   describe("cancelForStorefront (storefront-order-sync, 2026-09-07 incident)", () => {
     it("cancels the order via the normal transition path", async () => {
-      await h.service.cancelForStorefront(principal(), ORDER);
+      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toEqual({
+        status: "cancelled",
+      });
       expect(h.repo.transition).toHaveBeenCalledWith(
         expect.anything(),
         ORDER,
@@ -225,20 +229,57 @@ describe("OrdersService", () => {
       );
     });
 
-    it("is a no-op when the order is already cancelled", async () => {
-      h.repo.findById.mockResolvedValueOnce(order({ status: "cancelled" }));
+    /**
+     * The 2026-09-12 regression: cancelling *requires* a `cancel`-kind reason
+     * (`requiresReason` → `assertCancelReason`), this method passed none, and
+     * a bare `catch {}` ate the resulting `ReasonRequiredError` — so every
+     * storefront cancellation silently did nothing. Asserting the reason is
+     * actually supplied is the whole point of this test.
+     */
+    it("supplies the reserved cancel reason, without which the repository refuses", async () => {
       await h.service.cancelForStorefront(principal(), ORDER);
+      expect(h.repo.ensureStorefrontCancelReasonId).toHaveBeenCalledWith(COMPANY);
+      expect(h.repo.transition).toHaveBeenCalledWith(
+        expect.anything(),
+        ORDER,
+        expect.objectContaining({ toStatus: "cancelled", reasonId: CANCEL_REASON }),
+      );
+    });
+
+    it("reports an already-cancelled order as cancelled without transitioning", async () => {
+      h.repo.findById.mockResolvedValueOnce(order({ status: "cancelled" }));
+      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toEqual({
+        status: "cancelled",
+      });
       expect(h.repo.transition).not.toHaveBeenCalled();
     });
 
-    it("swallows an illegal-transition failure instead of throwing", async () => {
-      h.repo.transition.mockRejectedValueOnce(new IllegalTransitionError("delivered", "cancelled"));
-      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toBeUndefined();
+    it("reports skipped — never throws — when cancelling is an illegal transition", async () => {
+      h.repo.findById.mockResolvedValueOnce(order({ status: "shipped" }));
+      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toEqual({
+        status: "skipped",
+        reason: 'Cancelling is not a legal transition from "shipped".',
+      });
+      expect(h.repo.transition).not.toHaveBeenCalled();
     });
 
-    it("is a no-op when the order doesn't exist", async () => {
+    /**
+     * The counterpart to the regression above: a failure that is *not* an
+     * expected refusal must surface, not be swallowed into a false success.
+     */
+    it("propagates an unexpected transition failure instead of swallowing it", async () => {
+      h.repo.transition.mockRejectedValueOnce(new ReasonRequiredError());
+      await expect(h.service.cancelForStorefront(principal(), ORDER)).rejects.toBeInstanceOf(
+        AppException,
+      );
+    });
+
+    it("reports skipped when the order doesn't exist", async () => {
       h.repo.findById.mockResolvedValueOnce(null);
-      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toBeUndefined();
+      await expect(h.service.cancelForStorefront(principal(), ORDER)).resolves.toEqual({
+        status: "skipped",
+        reason: "Order not found.",
+      });
       expect(h.repo.transition).not.toHaveBeenCalled();
     });
   });

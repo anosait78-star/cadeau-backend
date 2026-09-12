@@ -114,6 +114,20 @@ export interface OrdersRepositoryPort {
 
   update(actor: WriteActor, id: string, data: UpdateOrderInput): Promise<OrderView | null>;
 
+  /**
+   * The id of the reserved cancel reason that storefront-driven
+   * cancellations are attributed to, creating it on this tenant on first use
+   * (2026-09-12 incident). Cancelling *requires* a `cancel`-kind reason
+   * (`requiresReason`), and no such reason is guaranteed to exist on a real
+   * tenant — cancel reasons are tenant-editable master data, seeded only in
+   * the demo seed. Without this, every storefront cancellation failed the
+   * reason check. Idempotent across calls: the reason is upserted on its
+   * `(companyId, kind, name)` unique key. Renaming it in master data is
+   * therefore not advisable — the next storefront cancellation recreates the
+   * reserved name alongside the renamed row.
+   */
+  ensureStorefrontCancelReasonId(companyId: string): Promise<string>;
+
   /** Transition status, applying the stock side effect + KPI recompute. */
   transition(
     actor: WriteActor,

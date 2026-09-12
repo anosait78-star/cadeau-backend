@@ -55,6 +55,15 @@ import { ORDERS_PRISMA_CLIENT } from "./prisma-client.provider";
 
 type Tx = Prisma.TransactionClient;
 
+/**
+ * The reserved cancel reason storefront-driven cancellations are attributed
+ * to (2026-09-12 incident). `kind` matches one of the two spellings
+ * `assertCancelReason` accepts; the name is deliberately Arabic and
+ * staff-readable, since it surfaces in the orders UI like any other reason.
+ */
+const STOREFRONT_CANCEL_REASON_KIND = "cancellation";
+const STOREFRONT_CANCEL_REASON_NAME = "ملغي من المتجر";
+
 interface DecodedCursor {
   readonly p: string;
   readonly t: string;
@@ -331,6 +340,39 @@ export class OrdersRepository implements OrdersRepositoryPort {
       const full = await tx.order.findFirstOrThrow({ where: { id }, select: ORDER_DETAIL_SELECT });
       return this.toDetailView(full);
     });
+  }
+
+  /**
+   * {@link OrdersRepositoryPort.ensureStorefrontCancelReasonId}. Upserted
+   * rather than read-then-created so two concurrent storefront cancellations
+   * on a fresh tenant can't race into a unique-key violation.
+   *
+   * `createdBy`/`updatedBy` stay `null`: this row is created by the
+   * storefront sync itself, and the system actor is not a real user id.
+   */
+  async ensureStorefrontCancelReasonId(companyId: string): Promise<string> {
+    const row = await this.tenantTx(companyId, (tx) =>
+      tx.orderReason.upsert({
+        where: {
+          companyId_kind_name: {
+            companyId,
+            kind: STOREFRONT_CANCEL_REASON_KIND,
+            name: STOREFRONT_CANCEL_REASON_NAME,
+          },
+        },
+        create: {
+          companyId,
+          kind: STOREFRONT_CANCEL_REASON_KIND,
+          name: STOREFRONT_CANCEL_REASON_NAME,
+          isActive: true,
+        },
+        // Nothing to change — the upsert exists purely for its race-safe
+        // "create if absent" half.
+        update: {},
+        select: { id: true },
+      }),
+    );
+    return row.id;
   }
 
   async transition(

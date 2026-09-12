@@ -58,7 +58,7 @@ function makeHarness() {
   const orders = {
     create: vi.fn(),
     updateForStorefront: vi.fn(),
-    cancelForStorefront: vi.fn().mockResolvedValue(undefined),
+    cancelForStorefront: vi.fn().mockResolvedValue({ status: "cancelled" }),
   };
   const products = {
     findVariantBySku: vi.fn(),
@@ -194,6 +194,41 @@ describe("StorefrontIngestionService.ingestOrder", () => {
     await h.service.ingestOrder(CONNECTION, { ...ORDER_PAYLOAD, status: "cancelled" });
 
     expect(h.orders.cancelForStorefront).toHaveBeenCalledWith(expect.anything(), "order-1");
+  });
+
+  /**
+   * The CRM legitimately refuses some cancellations (an already-shipped
+   * order). Before 2026-09-12 that refusal — and, as it turned out, a total
+   * failure of the cancel path — left no trace at all; now it is an audit
+   * row staff can act on.
+   */
+  it("audits a cancellation the CRM refused, instead of letting it pass unnoticed", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.customers.list.mockResolvedValue(emptyPage());
+    h.customers.create.mockResolvedValue({ customer: { id: "cust-1" }, replayed: false });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
+    h.orders.cancelForStorefront.mockResolvedValue({
+      status: "skipped",
+      reason: 'Cancelling is not a legal transition from "shipped".',
+    });
+
+    await h.service.ingestOrder(CONNECTION, { ...ORDER_PAYLOAD, status: "cancelled" });
+
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "storefront_order.cancel_skipped",
+        entityType: "order",
+        entityId: "order-1",
+        changes: {
+          storefrontStatus: "cancelled",
+          reason: 'Cancelling is not a legal transition from "shipped".',
+        },
+      }),
+    );
   });
 
   it("never cancels an order for an ordinary status (processing/completed/etc)", async () => {

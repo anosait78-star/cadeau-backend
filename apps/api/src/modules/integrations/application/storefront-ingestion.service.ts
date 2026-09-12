@@ -379,7 +379,7 @@ export class StorefrontIngestionService {
     // webhook event that looks identical to a genuine failure in the events
     // list.
     if (this.isTerminalCancelledStatus(normalized.status)) {
-      await this.orders.cancelForStorefront(principal, order.id);
+      await this.cancelAndAudit(connection, principal, order.id, normalized.status);
     }
     // Address sync never fails order creation — a customer/address problem
     // is enrichment, not a reason to lose a real order (storefront-address-
@@ -418,10 +418,36 @@ export class StorefrontIngestionService {
     // in (e.g. the customer cancelled, or a payment ultimately failed) —
     // cancel it here too, same as the create-time check.
     if (this.isTerminalCancelledStatus(normalized.status)) {
-      await this.orders.cancelForStorefront(principal, orderId);
+      await this.cancelAndAudit(connection, principal, orderId, normalized.status);
     }
     const customerId = await this.resolveCustomer(principal, normalized.customer);
     await this.trySyncAddress(connection, customerId, normalized.customer);
+  }
+
+  /**
+   * Cancel a storefront-cancelled order and make a refusal visible. The CRM
+   * legitimately refuses some cancellations (an already-shipped order can't
+   * go back), and before 2026-09-12 that refusal — along with a total,
+   * every-order failure of this path — was indistinguishable from success
+   * because nothing was recorded anywhere. A `skipped` outcome is now an
+   * audit row staff can act on.
+   */
+  private async cancelAndAudit(
+    connection: ResolvedStorefrontConnection,
+    principal: RequestPrincipal,
+    orderId: string,
+    storefrontStatus: string | undefined,
+  ): Promise<void> {
+    const outcome = await this.orders.cancelForStorefront(principal, orderId);
+    if (outcome.status === "cancelled") return;
+    await this.audit.record({
+      companyId: connection.companyId,
+      actorId: null,
+      action: "storefront_order.cancel_skipped",
+      entityType: "order",
+      entityId: orderId,
+      changes: { storefrontStatus: storefrontStatus ?? null, reason: outcome.reason },
+    });
   }
 
   /**
