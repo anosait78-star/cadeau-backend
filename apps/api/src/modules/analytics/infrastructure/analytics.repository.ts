@@ -243,6 +243,22 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
     });
   }
 
+  /**
+   * What the window collected, what its goods cost, and what was spent.
+   *
+   * Orders are keyed on `created_at`, matching `getBusinessFacts` and the
+   * dashboard's collected figure. `updated_at` is the wrong key here, however
+   * intuitive it looks: `collected_amount` is a running total on the order
+   * row, not a timestamped payment, so summing it by the row's last touch
+   * credits an order's entire lifetime collection to whatever period someone
+   * last changed its status in — an order from months ago, nudged yesterday,
+   * lands whole in this month. That inflated analytics far past the same
+   * measure on the dashboard (2026-09-14). `created_at` is an approximation
+   * too — money is collected after the order is placed, not when — but it is
+   * stable, never double-attributes, and agrees with every other figure on
+   * this page. Finance's cash center still keys on `updated_at`; the two will
+   * only truly agree once a payment-event ledger exists.
+   */
   async getProfitabilityFacts(
     companyId: string,
     window: Window,
@@ -250,11 +266,11 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
     return this.tenantTx(companyId, async (tx) => {
       const [collected, cogsItems, expenses] = await Promise.all([
         tx.order.aggregate({
-          where: { companyId, updatedAt: { gte: window.from, lte: window.to } },
+          where: { companyId, createdAt: { gte: window.from, lte: window.to } },
           _sum: { collectedAmount: true },
         }),
         tx.orderItem.findMany({
-          where: { companyId, order: { updatedAt: { gte: window.from, lte: window.to } } },
+          where: { companyId, order: { createdAt: { gte: window.from, lte: window.to } } },
           select: { costSnapshot: true, quantity: true },
         }),
         tx.expense.aggregate({
@@ -284,7 +300,7 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
       /*
        * One bucketed row per period, from three sources that share no table:
        * what orders collected and what their lines cost (both keyed on the
-       * order's `updated_at`, as `getProfitabilityFacts` does) and what was
+       * order's `created_at`, as `getProfitabilityFacts` does) and what was
        * spent (keyed on the expense's `incurred_at`). A union of three
        * single-source shapes summed per bucket, so a period missing from one
        * source still appears with a zero for it.
@@ -295,23 +311,23 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
                sum(cogs_minor)::bigint AS cogs_minor,
                sum(expenses_minor)::bigint AS expenses_minor
           FROM (
-            SELECT date_trunc(${TRUNC_UNIT[granularity]}, o.updated_at) AS bucket,
+            SELECT date_trunc(${TRUNC_UNIT[granularity]}, o.created_at) AS bucket,
                    sum(o.collected_amount) AS collected_minor,
                    0::bigint AS cogs_minor,
                    0::bigint AS expenses_minor
               FROM public.orders o
              WHERE o.company_id = ${companyId}::uuid
-               AND o.updated_at BETWEEN ${window.from} AND ${window.to}
+               AND o.created_at BETWEEN ${window.from} AND ${window.to}
              GROUP BY bucket
             UNION ALL
-            SELECT date_trunc(${TRUNC_UNIT[granularity]}, o.updated_at) AS bucket,
+            SELECT date_trunc(${TRUNC_UNIT[granularity]}, o.created_at) AS bucket,
                    0::bigint AS collected_minor,
                    sum(oi.cost_snapshot * oi.quantity) AS cogs_minor,
                    0::bigint AS expenses_minor
               FROM public.order_items oi
               JOIN public.orders o ON o.id = oi.order_id
              WHERE oi.company_id = ${companyId}::uuid
-               AND o.updated_at BETWEEN ${window.from} AND ${window.to}
+               AND o.created_at BETWEEN ${window.from} AND ${window.to}
              GROUP BY bucket
             UNION ALL
             SELECT date_trunc(${TRUNC_UNIT[granularity]}, e.incurred_at) AS bucket,

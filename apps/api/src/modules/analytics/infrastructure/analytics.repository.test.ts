@@ -254,6 +254,43 @@ describe("AnalyticsRepository — profitability", () => {
     expect(facts).toEqual({ collectedMinor: 100000, cogsMinor: 6000, expensesMinor: 20000 });
   });
 
+  it("keys collected money and COGS on the order's creation, not its last touch", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]);
+    models.order.aggregate.mockResolvedValueOnce({ _sum: { collectedAmount: 0n } });
+    models.orderItem.findMany.mockResolvedValueOnce([]);
+    models.expense.aggregate.mockResolvedValueOnce({ _sum: { amountMinor: 0n } });
+
+    await repo.getProfitabilityFacts(COMPANY, WINDOW);
+
+    /*
+     * collectedAmount is a running total on the order row, so keying it on
+     * updatedAt would credit an old order's whole lifetime collection to
+     * whichever period it was last edited in.
+     */
+    const range = { gte: WINDOW.from, lte: WINDOW.to };
+    expect(models.order.aggregate.mock.calls[0]![0].where).toEqual({
+      companyId: COMPANY,
+      createdAt: range,
+    });
+    expect(models.orderItem.findMany.mock.calls[0]![0].where).toEqual({
+      companyId: COMPANY,
+      order: { createdAt: range },
+    });
+  });
+
+  it("keys the bucketed series on the order's creation too", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await repo.getProfitabilitySeries(COMPANY, WINDOW, "day");
+
+    const [strings] = queryRaw.mock.calls[1] as [readonly string[], ...unknown[]];
+    const sql = strings.join("?");
+    expect(sql).toContain("o.created_at");
+    expect(sql).not.toContain("o.updated_at");
+  });
+
   it("defaults to zero with no activity", async () => {
     const { repo, models, queryRaw } = makeRepo();
     queryRaw.mockResolvedValueOnce([]);
