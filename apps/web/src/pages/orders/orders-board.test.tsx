@@ -91,11 +91,14 @@ let transitionStatus = 200;
 let orderStatus = "new";
 /** Set per test to give o1 a number within its month. */
 let monthly: number | null = null;
+/** Set per test to change the fixture order's payment state. */
+let paymentStatus = "unpaid";
 
 beforeEach(() => {
   transitionStatus = 200;
   orderStatus = "new";
   monthly = null;
+  paymentStatus = "unpaid";
   localStorage.clear();
   localStorage.setItem("cadeau.locale", "en");
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
@@ -142,7 +145,7 @@ beforeEach(() => {
       const mine = url.includes(`status=${orderStatus}`);
       return Promise.resolve(
         json(200, {
-          data: mine ? [{ ...ORDER_ROW, status: orderStatus }] : [],
+          data: mine ? [{ ...ORDER_ROW, status: orderStatus, paymentStatus }] : [],
           page: { limit: 20, nextCursor: null, hasMore: false },
         }),
       );
@@ -239,6 +242,22 @@ describe("OrdersPage — desktop board", () => {
     // is the fallback: no number for the month, just the plain order number.
     expect(await screen.findByText("#1042/5")).toBeInTheDocument();
   });
+
+  it.each([
+    ["unpaid", "Unpaid"],
+    ["partial", "Partial"],
+    ["paid", "Paid"],
+  ])(
+    "shows a %s order's payment state on the card instead of its item count",
+    async (state, label) => {
+      paymentStatus = state;
+      renderPage();
+      await screen.findByText("#1042");
+      const onCard = within(card());
+      expect(onCard.getByTestId("payment-status")).toHaveTextContent(label);
+      expect(onCard.queryByText(/Items/)).not.toBeInTheDocument();
+    },
+  );
 
   it("moves an order when dropped on a legal status", async () => {
     renderPage();

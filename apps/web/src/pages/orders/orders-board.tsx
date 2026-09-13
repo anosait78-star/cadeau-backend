@@ -19,6 +19,7 @@ import type { StatusDragProps, StatusDropTarget } from "@/hooks/use-status-drag"
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
+import { PaymentBadge } from "./orders-columns";
 import { TRANSITIONS } from "./orders-row-actions";
 import { isWhatsappStatus } from "./orders-whatsapp";
 
@@ -512,9 +513,14 @@ function OrderBoardCard({
           #{order.orderNumber}
           {monthlyNumber !== undefined ? `/${monthlyNumber}` : null}
         </span>
-        <span className="truncate">
-          {order.itemCount} {t("orders.field.items")}
-        </span>
+        {/* Payment state instead of the item count: whether the money is in is
+            what staff act on from a board, and the item count is one click away
+            in the drawer. Same badge as the phone list — paid green, partial
+            orange, unpaid red — so both surfaces read the same. */}
+        <PaymentBadge
+          status={order.paymentStatus}
+          label={t(`orders.payment.${order.paymentStatus}` as TranslationKey)}
+        />
         <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground" dir="ltr">
           {formatMoney(order.total, locale)}
         </span>
