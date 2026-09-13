@@ -6,7 +6,6 @@ import { AuthContext } from "@/auth/auth-context";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { PermissionGate } from "@/components/access/permission-gate";
 import { BulkActionsBar } from "@/components/bulk-actions/bulk-actions-bar";
-import { DataGrid } from "@/components/data-grid/data-grid";
 import { MobileCardList } from "@/components/data-grid/mobile-card-list";
 import { MobileListRow } from "@/components/data-grid/mobile-list-row";
 import { useDataGridSelection } from "@/components/data-grid/use-data-grid-selection";
@@ -51,12 +50,13 @@ import {
 } from "@/components/shell/mobile/mobile-header-context";
 import { useCapabilities } from "@/features/access/use-capabilities";
 import { useIsDesktop } from "@/hooks/use-media-query";
+import { useStatusDrag } from "@/hooks/use-status-drag";
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
-import { buildOrderColumns, PaymentBadge, StatusBadge, type OrderLabel } from "./orders-columns";
+import { PaymentBadge, StatusBadge, type OrderLabel } from "./orders-columns";
 import { OrderForm } from "./orders-create-form";
 import {
   buildOrderDetailHeader,
@@ -64,8 +64,9 @@ import {
   useOrderDetailData,
 } from "./orders-detail-sections";
 import { downloadCsv, ordersToCsv } from "./orders-export";
+import { OrdersBoard } from "./orders-board";
 import { OrdersFilterBar } from "./orders-filter-bar";
-import { OrderRowActions, TRANSITIONS } from "./orders-row-actions";
+import { TRANSITIONS } from "./orders-row-actions";
 import { isWhatsappStatus, openWhatsappForOrder, type WhatsappStatus } from "./orders-whatsapp";
 
 type State =
@@ -80,6 +81,11 @@ type State =
  * `orders.manage` (the API re-checks both — ADR-003). Desktop renders a data
  * grid, mobile an independently-designed card list (ADR-002).
  */
+/** Last-write-wins dedupe by `id`, preserving order. */
+function dedupeById(orders: readonly OrderListItem[]): OrderListItem[] {
+  return [...new Map(orders.map((o) => [o.id, o])).values()];
+}
+
 export function OrdersPage(): ReactNode {
   const { t } = useI18n();
   return (
@@ -115,7 +121,6 @@ function OrdersScreen(): ReactNode {
   const [dateTo, setDateTo] = useState("");
   const [viewFilters, setViewFilters] = useState<ListOptions>({});
   const [paymentFilter, setPaymentFilter] = useState<PaymentStatus | "all">("all");
-  const [sortDesc, setSortDesc] = useState(true);
   const [creating, setCreating] = useState(false);
 
   // On mobile, "new order" is the shell's floating action button rather than a
@@ -177,9 +182,11 @@ function OrdersScreen(): ReactNode {
       ...(dateTo.length > 0 ? { createdAtTo: new Date(`${dateTo}T23:59:59`).toISOString() } : {}),
       ...(status !== "all" ? { status } : {}),
       ...(search.trim().length > 0 ? { q: search.trim() } : {}),
-      ...(sortDesc ? { sort: "-createdAt" } : {}),
+      // Newest first in every column — the board has no sort control, and the
+      // grid header that used to offer one is gone.
+      sort: "-createdAt" as const,
     };
-  }, [viewFilters, dateFrom, dateTo, status, search, sortDesc]);
+  }, [viewFilters, dateFrom, dateTo, status, search]);
 
   const load = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
@@ -192,10 +199,6 @@ function OrdersScreen(): ReactNode {
       setState({ kind: "error" });
     }
   }, [baseQuery]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   useEffect(() => {
     void listMasterDataItems("order-labels", { active: true })
@@ -256,19 +259,7 @@ function OrdersScreen(): ReactNode {
       );
       setCreating(false);
       flash(t("orders.saved"));
-      void load();
-    } catch (error) {
-      flash(saveErrorText(error, t));
-    }
-  };
-
-  const onTransition = async (id: string, toStatus: OrderStatus): Promise<void> => {
-    try {
-      const updated = await transitionOrder(id, { toStatus });
-      patchRow(updated);
-      flash(t("orders.saved"));
-      void refreshCounts();
-      if (isWhatsappStatus(toStatus)) setWaPrompt(toListItem(updated));
+      void reload();
     } catch (error) {
       flash(saveErrorText(error, t));
     }
@@ -282,6 +273,145 @@ function OrdersScreen(): ReactNode {
       /* counts are best-effort */
     }
   }, [status]);
+
+  // ---- board (desktop) ----------------------------------------------------
+  // The board shows every status at once, so it cannot reuse the single
+  // keyset list: paging one combined list would leave columns arbitrarily
+  // incomplete. Instead each column is its own small first page, and the
+  // twelve are fetched in parallel. They land in the SAME `state.items` the
+  // grid uses, bucketed by status at render time — which is what makes an
+  // optimistic move a one-field patch rather than a splice between arrays.
+  const BOARD_PAGE_SIZE = "20";
+  const [boardCursors, setBoardCursors] = useState<Partial<Record<OrderStatus, string | null>>>({});
+  const [loadingColumn, setLoadingColumn] = useState<OrderStatus | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+
+  /** `baseQuery` minus `status` — the board is never filtered to one status. */
+  const boardQuery = useCallback((): ListOptions => {
+    const { status: _status, ...rest } = baseQuery();
+    void _status;
+    return rest;
+  }, [baseQuery]);
+
+  const loadBoard = useCallback(async (): Promise<void> => {
+    setState({ kind: "loading" });
+    const query = boardQuery();
+    try {
+      const [tabs, ...pages] = await Promise.all([
+        orderStatusCounts(query),
+        ...ORDER_STATUSES.map((s) => listOrders({ ...query, status: s, limit: BOARD_PAGE_SIZE })),
+      ]);
+      const cursors: Partial<Record<OrderStatus, string | null>> = {};
+      ORDER_STATUSES.forEach((s, i) => {
+        cursors[s] = pages[i]?.page.nextCursor ?? null;
+      });
+      setState({
+        kind: "ready",
+        // Deduped by id: the twelve column fetches are concurrent, so an order
+        // whose status changes mid-flight can legitimately come back in two of
+        // them. Without this it would render twice, under two different
+        // columns, with the same React key.
+        items: dedupeById(pages.flatMap((page) => page.data)),
+        nextCursor: null,
+      });
+      setBoardCursors(cursors);
+      setCounts(tabs.counts);
+    } catch {
+      setState({ kind: "error" });
+    }
+  }, [boardQuery]);
+
+  /** Reload whichever view is on screen — the board on desktop, the list on a phone. */
+  const reload = useCallback(
+    (): Promise<void> => (isDesktop ? loadBoard() : load()),
+    [isDesktop, loadBoard, load],
+  );
+
+  const loadMoreColumn = async (column: OrderStatus): Promise<void> => {
+    const cursor = boardCursors[column];
+    if (cursor === null || cursor === undefined) return;
+    setLoadingColumn(column);
+    try {
+      const page = await listOrders({
+        ...boardQuery(),
+        status: column,
+        limit: BOARD_PAGE_SIZE,
+        cursor,
+      });
+      setState((s) =>
+        s.kind === "ready" ? { ...s, items: dedupeById([...s.items, ...page.data]) } : s,
+      );
+      setBoardCursors((c) => ({ ...c, [column]: page.page.nextCursor }));
+    } catch {
+      /* leaving the column as it was is the right failure here — the button stays. */
+    } finally {
+      setLoadingColumn(null);
+    }
+  };
+
+  const patchStatus = (id: string, to: OrderStatus): void => {
+    setState((s) =>
+      s.kind === "ready"
+        ? { ...s, items: s.items.map((i) => (i.id === id ? { ...i, status: to } : i)) }
+        : s,
+    );
+  };
+
+  /**
+   * Apply a dropped move optimistically, rolling back to the exact status the
+   * card started in if the server refuses. The refusal is worth showing in
+   * full rather than as a generic failure: entering `processing` reserves
+   * stock and comes back as a shortage the user can actually act on.
+   */
+  const moveOrder = (order: OrderListItem, to: OrderStatus): void => {
+    const before = order.status;
+    patchStatus(order.id, to);
+    void transitionOrder(order.id, { toStatus: to })
+      .then((updated) => {
+        patchRow(updated);
+        setAnnouncement(
+          t("orders.board.moved", {
+            order: order.orderNumber,
+            status: t(`orders.status.${to}` as TranslationKey),
+          }),
+        );
+        void refreshCounts();
+        if (isWhatsappStatus(to)) setWaPrompt(toListItem(updated));
+      })
+      .catch((error: unknown) => {
+        patchStatus(order.id, before);
+        setAnnouncement(t("orders.board.moveFailed"));
+        flash(saveErrorText(error, t));
+      });
+  };
+
+  const canManageOrders = capabilities.has({ permission: "orders.manage" });
+
+  const { draggingId, dragProps, dropTarget } = useStatusDrag<OrderListItem, OrderStatus>({
+    dragType: "application/x-cadeau-order",
+    // The client mirror of the server's state machine. A column that isn't a
+    // legal destination stays inert rather than accepting the drop and then
+    // reporting a 422 the user could not have predicted.
+    canDrop: (order, to) => canManageOrders && TRANSITIONS[order.status].includes(to),
+    onMove: (order, to) => {
+      // Cancelling is the one transition the server refuses without a reason,
+      // so a drop onto this column opens the picker instead of firing. The
+      // optimistic patch is deliberately skipped until the modal confirms —
+      // showing the card as cancelled and then snapping it back if the user
+      // backs out would be worse than waiting.
+      if (to === "cancelled") {
+        setCancelling([order.id]);
+        return;
+      }
+      moveOrder(order, to);
+    },
+  });
+
+  // Declared after `reload` on purpose: it is a `const`, so an effect placed
+  // above it would hit the temporal dead zone on first render.
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   const onBulkStatus = async (toStatus: OrderStatus): Promise<void> => {
     if (toStatus === "cancelled") {
@@ -299,7 +429,7 @@ function OrdersScreen(): ReactNode {
       const failed = results.filter((r) => !r.ok);
       selection.clear();
       flash(failed.length > 0 ? t("orders.saveFailed") : t("orders.saved"));
-      void load();
+      void reload();
       if (promptCandidate !== null && failed.length === 0 && isWhatsappStatus(toStatus)) {
         setWaPrompt({ ...promptCandidate, status: toStatus });
       }
@@ -334,7 +464,7 @@ function OrdersScreen(): ReactNode {
       setCancelling(null);
       setCancelReasonId("");
       flash(failed.length > 0 ? t("orders.saveFailed") : t("orders.saved"));
-      void load();
+      void reload();
       void refreshCounts();
     } catch (error) {
       flash(saveErrorText(error, t));
@@ -350,7 +480,7 @@ function OrdersScreen(): ReactNode {
       const failed = results.filter((r) => !r.ok);
       selection.clear();
       flash(failed.length > 0 ? t("orders.saveFailed") : t("orders.saved"));
-      void load();
+      void reload();
     } catch (error) {
       flash(saveErrorText(error, t));
     }
@@ -404,11 +534,6 @@ function OrdersScreen(): ReactNode {
     detailData.detail !== null
       ? buildOrderDetailHeader({ detail: detailData.detail, locale, t })
       : null;
-
-  const columns = useMemo(
-    () => buildOrderColumns({ t, locale, labelsById }),
-    [t, locale, labelsById],
-  );
 
   const visibleRows = useMemo(() => {
     if (state.kind !== "ready") return [];
@@ -501,46 +626,10 @@ function OrdersScreen(): ReactNode {
         ) : null}
       </header>
 
-      {/* Status tabs with live counts. On a phone the twelve statuses stay on
-          one line and scroll sideways — wrapping them turned the strip into a
-          five-row block that pushed the orders themselves off the screen.
-          Desktop has the width to wrap, so it still does. */}
-      <div
-        className={cn(
-          "flex gap-1.5 rounded-2xl border border-border bg-card p-1.5 shadow-xs",
-          "flex-nowrap overflow-x-auto hide-scrollbar lg:flex-wrap lg:overflow-x-visible",
-        )}
-        role="tablist"
-        aria-label={t("orders.title")}
-      >
-        <StatusTab
-          label={t("orders.tabs.all")}
-          active={status === "all"}
-          count={totalCount}
-          onClick={() => selectStatus("all")}
-        />
-        {ORDER_STATUSES.map((s) => (
-          <StatusTab
-            key={s}
-            label={t(`orders.status.${s}` as TranslationKey)}
-            active={status === s}
-            count={counts[s] ?? 0}
-            onClick={() => selectStatus(s)}
-          />
-        ))}
-      </div>
-
-      <PermissionGate permission="orders.manage">
-        <Modal
-          open={creating}
-          onOpenChange={setCreating}
-          title={t("orders.actions.create")}
-          closeLabel={t("orders.actions.cancel")}
-          size="xl"
-        >
-          <OrderForm onSubmit={onCreate} onCancel={() => setCreating(false)} />
-        </Modal>
-      </PermissionGate>
+      {/* A drag is silent to a screen reader — every move is announced here. */}
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
 
       <OrdersFilterBar
         search={search}
@@ -555,6 +644,49 @@ function OrdersScreen(): ReactNode {
         onReset={resetFilters}
         t={t}
       />
+
+      {/* Status tabs — phone only now. On desktop the board's columns ARE the
+          statuses, so a tab strip above it would be a second, redundant copy of
+          the same axis; on a phone there is no board, so the strip still is the
+          only way to narrow by status. */}
+      {isDesktop ? null : (
+        <div
+          className={cn(
+            "flex gap-1.5 rounded-2xl border border-border bg-card p-1.5 shadow-xs",
+            "flex-nowrap overflow-x-auto hide-scrollbar lg:flex-wrap lg:overflow-x-visible",
+          )}
+          role="tablist"
+          aria-label={t("orders.title")}
+        >
+          <StatusTab
+            label={t("orders.tabs.all")}
+            active={status === "all"}
+            count={totalCount}
+            onClick={() => selectStatus("all")}
+          />
+          {ORDER_STATUSES.map((s) => (
+            <StatusTab
+              key={s}
+              label={t(`orders.status.${s}` as TranslationKey)}
+              active={status === s}
+              count={counts[s] ?? 0}
+              onClick={() => selectStatus(s)}
+            />
+          ))}
+        </div>
+      )}
+
+      <PermissionGate permission="orders.manage">
+        <Modal
+          open={creating}
+          onOpenChange={setCreating}
+          title={t("orders.actions.create")}
+          closeLabel={t("orders.actions.cancel")}
+          size="xl"
+        >
+          <OrderForm onSubmit={onCreate} onCancel={() => setCreating(false)} />
+        </Modal>
+      </PermissionGate>
 
       {/* Full-width table (no more filter sidebar). */}
       <div className="flex min-w-0 flex-col gap-4">
@@ -603,59 +735,32 @@ function OrdersScreen(): ReactNode {
           />
         ) : null}
 
-        {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
+        {state.kind === "error" ? <ErrorState onRetry={() => void reload()} /> : null}
 
         {state.kind !== "error" ? (
           isDesktop ? (
-            <DataGrid<OrderListItem>
-              columns={columns}
-              rows={visibleRows}
-              getRowId={(row) => row.id}
-              loading={state.kind === "loading"}
-              hasMore={state.kind === "ready" && state.nextCursor !== null}
-              onLoadMore={loadMore}
-              sortState={{ key: "createdAt", direction: sortDesc ? "desc" : "asc" }}
-              onSort={(key) => {
-                if (key === "createdAt") {
-                  setSortDesc((v) => !v);
+            <OrdersBoard
+              orders={visibleRows}
+              counts={counts}
+              draggingId={draggingId}
+              dragProps={dragProps}
+              dropTarget={dropTarget}
+              onOpen={setSelectedOrder}
+              hasMore={(column) => (boardCursors[column] ?? null) !== null}
+              onLoadMore={(column) => void loadMoreColumn(column)}
+              loadingMore={loadingColumn}
+              selectedIds={selection.selectedIds}
+              onToggleSelect={selection.onToggle}
+              onChangeStatus={(order, to) => {
+                if (to === "cancelled") {
+                  setCancelling([order.id]);
+                  return;
                 }
+                moveOrder(order, to);
               }}
-              selection={selection}
-              onRowClick={setSelectedOrder}
-              rowActions={(row) => (
-                <div className="flex items-center gap-1">
-                  {isWhatsappStatus(row.status) ? (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 rounded-full bg-[#25D366] text-white hover:bg-[#1ebe57] hover:text-white"
-                      title={t("orders.whatsapp.rowButtonLabel")}
-                      aria-label={t("orders.whatsapp.rowButtonLabel")}
-                      disabled={sendingWhatsappId === row.id}
-                      onClick={() => void sendWhatsapp(row, row.status as WhatsappStatus)}
-                    >
-                      {sendingWhatsappId === row.id ? (
-                        <Spinner className="h-4 w-4 text-white" />
-                      ) : (
-                        <WhatsAppIcon className="h-4 w-4" />
-                      )}
-                    </Button>
-                  ) : null}
-                  <OrderRowActions
-                    order={row}
-                    t={t}
-                    onOpenDetail={setSelectedOrder}
-                    onTransition={onTransition}
-                    onCancelRequiresReason={() => setCancelling([row.id])}
-                  />
-                </div>
-              )}
-              rowClassName={(row) => {
-                const index = visibleRows.findIndex((r) => r.id === row.id);
-                return cn("[&>td]:py-3.5", index % 2 === 1 && "bg-muted/30");
-              }}
-              emptyState={<EmptyState title={t("orders.empty")} />}
-              sortHintLabel={t("orders.grid.sortHint")}
+              canManage={canManageOrders}
+              t={t}
+              locale={locale}
             />
           ) : (
             <MobileCardList<OrderListItem>
@@ -723,7 +828,7 @@ function OrdersScreen(): ReactNode {
             flash(t("shipping.saved"));
             selection.clear();
             setShippingOrder(null);
-            void load();
+            void reload();
           }}
         />
       ) : null}

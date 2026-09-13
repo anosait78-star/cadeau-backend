@@ -103,6 +103,13 @@ export type OrderActivityPage = Page<OrderActivity>;
 /** Query options for the orders list. */
 export interface ListOptions {
   readonly cursor?: string;
+  /**
+   * Page size. The board asks for a small first page per column (twelve
+   * columns load in parallel); the grid leaves it to the server default.
+   * Passed straight through by `buildQuery`, and the server has always
+   * accepted it (`orders/domain/list-query.ts`).
+   */
+  readonly limit?: string;
   readonly q?: string;
   readonly status?: OrderStatus;
   readonly followUpState?: FollowUpState;

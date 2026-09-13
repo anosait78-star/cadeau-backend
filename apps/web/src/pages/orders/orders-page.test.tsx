@@ -309,11 +309,15 @@ describe("OrdersPage", () => {
     expect(screen.getByTestId("status")).toHaveTextContent("New");
   });
 
-  it("shows the status tabs with live counts", async () => {
+  it("shows a column per status, with live counts in the header", async () => {
     renderPage();
     await screen.findByText("#1042");
-    const tab = screen.getByRole("tab", { name: /New/ });
-    expect(tab).toHaveTextContent("1");
+    // The tab strip is gone on desktop: the board's columns ARE the statuses,
+    // and the same counts endpoint now feeds their headers.
+    expect(screen.queryByRole("tab", { name: /New/ })).not.toBeInTheDocument();
+    const column = screen.getByRole("listitem", { name: "New" });
+    expect(within(column).getByText("1")).toBeInTheDocument();
+    expect(screen.getByRole("listitem", { name: "Cancelled" })).toBeInTheDocument();
   });
 
   it("hides the create button without orders.manage", async () => {
@@ -386,17 +390,47 @@ describe("OrdersPage", () => {
     expect(await screen.findByRole("status")).toBeInTheDocument();
   });
 
-  it("the row-actions menu only offers Details (status changes live on the order itself)", async () => {
+  it("offers only the legal next statuses in a card's menu, and applies one", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("#1042");
-    await user.click(screen.getByRole("button", { name: "Row actions" }));
-    expect(await screen.findByRole("menuitem", { name: "Details" })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /Processing/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /Cancelled/ })).not.toBeInTheDocument();
+    // Dragging is pointer-only, so every transition it allows must also be
+    // reachable from here — this menu is the keyboard path.
+    await user.click(screen.getByRole("button", { name: "Change status for order #1042" }));
+    // #1042 is `new`: confirming/processing/cancelled/postponed are legal,
+    // delivered is not.
+    expect(await screen.findByRole("menuitem", { name: "Processing" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delivered" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("menuitem", { name: "Details" }));
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Processing" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/orders\/o1\/status$/),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("sends a card dropped on Cancelled to the reason modal instead of the API", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "Change status for order #1042" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Cancelled" }));
+    // The server refuses a cancel with no reason, so this path must collect
+    // one first rather than firing and failing.
+    expect(await screen.findByRole("dialog", { name: "Cancel order" })).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(([u]) => String(u).match(/\/orders\/o1\/status$/) !== null),
+    ).toHaveLength(0);
+  });
+
+  it("does not offer the status menu without orders.manage", async () => {
+    renderPage(["orders"], ["orders.read"]);
+    await screen.findByText("#1042");
+    expect(
+      screen.queryByRole("button", { name: "Change status for order #1042" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens the create form and blocks submit until a customer and a line exist", async () => {
