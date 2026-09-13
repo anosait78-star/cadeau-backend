@@ -1,5 +1,6 @@
 import { MoreHorizontal } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useRef } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import type { Translate } from "@/components/i18n/translate-type";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,6 +59,75 @@ const BOARD_COLUMNS: readonly OrderStatus[] = [
 ];
 
 /**
+ * How far a wheel event should move a horizontal strip, or `null` to leave the
+ * event alone.
+ *
+ * `null` for a trackpad's own sideways swipe, which already scrolls the strip
+ * correctly and must not be doubled.
+ *
+ * The sign is the part worth pinning down: `scrollLeft` runs 0 → +max in LTR
+ * but 0 → -max in RTL (verified in a browser, not assumed), so an Arabic board
+ * needs the delta flipped. Without it the wheel is dead in one direction and
+ * backwards in the other.
+ */
+export function horizontalWheelDelta({
+  deltaX,
+  deltaY,
+  rtl,
+}: {
+  readonly deltaX: number;
+  readonly deltaY: number;
+  readonly rtl: boolean;
+}): number | null {
+  if (Math.abs(deltaY) <= Math.abs(deltaX)) return null;
+  return rtl ? -deltaY : deltaY;
+}
+
+/**
+ * Let a plain mouse wheel scroll a horizontal strip.
+ *
+ * A wheel without a horizontal axis only ever emits `deltaY`, so the twelve
+ * columns could be reached by dragging the scrollbar or holding Shift and
+ * nothing else — a trackpad worked, a mouse did not.
+ *
+ * Three details this gets right:
+ *
+ * - The listener is attached natively with `passive: false`. React's own
+ *   `onWheel` is registered passive, so `preventDefault` inside it is ignored
+ *   and the page scrolls underneath anyway.
+ * - `scrollLeft` runs 0 → -max in RTL and 0 → +max in LTR (verified in the
+ *   browser, not assumed), so the delta is flipped for Arabic. Without this
+ *   the wheel would be dead in one direction and inverted in the other.
+ * - The page is only prevented from scrolling when the strip actually moved.
+ *   At either end the event falls through, so reaching the last column does
+ *   not trap the wheel and leave the page stuck.
+ */
+function useWheelToHorizontalScroll(): RefObject<HTMLDivElement | null> {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    const onWheel = (event: WheelEvent): void => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      const delta = horizontalWheelDelta({
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        rtl: getComputedStyle(el).direction === "rtl",
+      });
+      if (delta === null) return;
+      const before = el.scrollLeft;
+      el.scrollLeft = before + delta;
+      if (el.scrollLeft !== before) event.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  return ref;
+}
+
+/**
  * The company's desktop orders board: one column per lifecycle status, with
  * orders dragged between them. It replaces the status tab strip + data grid,
  * which showed one status at a time and — more to the point — offered no way
@@ -108,6 +178,7 @@ export function OrdersBoard({
   readonly t: Translate;
   readonly locale: string;
 }): ReactNode {
+  const scrollRef = useWheelToHorizontalScroll();
   const byStatus = {} as Record<OrderStatus, OrderListItem[]>;
   for (const status of ORDER_STATUSES) byStatus[status] = [];
   for (const order of orders) byStatus[order.status].push(order);
@@ -117,6 +188,7 @@ export function OrdersBoard({
     // The horizontal scroll is the whole point at twelve columns; `-mx-1 px-1`
     // stops a column's focus ring from being clipped by the scroll container.
     <div
+      ref={scrollRef}
       className="-mx-1 flex items-start gap-4 overflow-x-auto px-1 pb-2"
       role="list"
       aria-label={t("orders.board.label")}
