@@ -715,6 +715,8 @@ export const en = {
   "orders.detail.vendorTracking.allDelivered.description":
     "Every product is ready for the customer to receive from all vendors",
   "orders.detail.loadingPhone": "Loading phone…",
+  "orders.detail.delivery.title": "Delivery",
+  "orders.detail.delivery.noAddress": "No delivery address on this order.",
   "orders.detail.call": "Call",
   "orders.detail.whatsapp": "WhatsApp",
   "orders.detail.section.financial": "Financial summary",
@@ -1867,6 +1869,8 @@ export const ar: Record<TranslationKey, string> = {
   "orders.detail.vendorTracking.allDelivered.description":
     "كل المنتجات أصبحت جاهزة للاستلام من جميع التجار",
   "orders.detail.loadingPhone": "جاري تحميل رقم الهاتف…",
+  "orders.detail.delivery.title": "التوصيل",
+  "orders.detail.delivery.noAddress": "لا يوجد عنوان توصيل لهذا الطلب.",
   "orders.detail.call": "اتصال",
   "orders.detail.whatsapp": "واتساب",
   "orders.detail.section.financial": "الملخص المالي",

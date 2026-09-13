@@ -35,10 +35,22 @@ export interface NormalizedAddress {
   readonly line: string;
   readonly city?: string;
   readonly state?: string;
+  /**
+   * Who the order is delivered TO — the storefront's shipping name, falling
+   * back to billing (2026-09-13). On a gift order this is the recipient, not
+   * the buyer, which is why it is kept apart from the customer's own name.
+   */
+  readonly recipientName?: string;
 }
 
 export interface NormalizedCustomer {
   readonly name: string;
+  /**
+   * The BILLING name only — the buyer (2026-09-13). The one name a returning
+   * customer's record may be renamed to; `name` falls back to the shipping
+   * name and so can be a gift recipient's.
+   */
+  readonly billingName?: string;
   /** As typed by the storefront — normalized to E.164 by the customers module. */
   readonly phone: string;
   /**

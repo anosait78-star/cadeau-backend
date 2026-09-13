@@ -103,6 +103,7 @@ describe("CustomersController", () => {
         .mockResolvedValue({ data: [], page: { limit: 25, nextCursor: null, hasMore: false } }),
       merge: vi.fn().mockResolvedValue({ survivingCustomerId: CUSTOMER, mergedCustomerId: "m1" }),
       upsertStorefrontAddress: vi.fn().mockResolvedValue(undefined),
+      renameFromStorefront: vi.fn(),
     };
     controller = new CustomersController(service as unknown as CustomersService);
   });

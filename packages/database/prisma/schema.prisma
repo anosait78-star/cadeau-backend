@@ -1000,8 +1000,9 @@ model CustomerAddress {
   /// Bosta's create-delivery API requires the city's display name alongside its id.
   bostaCityName   String? @map("bosta_city_name")
   /// "manual" (staff-entered/verified) or "storefront" (synced from a storefront
-  /// order webhook). A storefront sync never overwrites a "manual" default
-  /// address — see CustomersService.upsertStorefrontAddress.
+  /// order webhook). Since 2026-09-13 a storefront order with a different
+  /// address adds a NEW default and demotes the previous one — manual included
+  /// — so history is kept; see CustomersService.upsertStorefrontAddress.
   source    String  @default("manual")
   /// The storefront's own free-text city/district value, unmapped — kept for
   /// staff review even when it couldn't be matched to a governorate.
@@ -1065,6 +1066,18 @@ model Order {
   /// Derived from collected vs total: `unpaid` / `partial` / `paid`.
   paymentStatus   String   @default("unpaid") @map("payment_status")
   notes           String?
+  /// Delivery snapshot (2026-09-13): who and where this order ships to,
+  /// captured when it was placed so a customer's later address or name change
+  /// can never re-route it. Null on orders from before the snapshot existed
+  /// until the one-time backfill covers them; readers fall back to the
+  /// customer's current default address for those.
+  deliveryName          String? @map("delivery_name")
+  /// AES-256-GCM token of the delivery address line; never plaintext.
+  deliveryLineEncrypted String? @map("delivery_line_encrypted")
+  deliveryLandmark      String? @map("delivery_landmark")
+  /// The storefront's own free-text city/district and governorate, unmapped.
+  deliveryRawCity       String? @map("delivery_raw_city")
+  deliveryRawState      String? @map("delivery_raw_state")
   statusChangedAt DateTime @default(now()) @map("status_changed_at") @db.Timestamptz(6)
   idempotencyKey  String?  @map("idempotency_key")
   createdBy       String?  @map("created_by") @db.Uuid

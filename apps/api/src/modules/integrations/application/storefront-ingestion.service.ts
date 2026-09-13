@@ -14,6 +14,7 @@ import {
   type OrdersIngestionItem,
   type OrdersIngestionPort,
   type OrdersIngestionUpdateInput,
+  type IngestionDeliverySnapshot,
 } from "../../../shared/contracts/orders-ingestion.port";
 import {
   type CatalogProduct,
@@ -347,9 +348,11 @@ export class StorefrontIngestionService {
       });
     }
     const customerId = await this.resolveCustomer(principal, normalized.customer);
+    const delivery = this.deliveryFrom(normalized.customer);
     const { order } = await this.orders.create(principal, {
       customerId,
       items,
+      ...(delivery !== undefined ? { delivery } : {}),
       ...(connection.defaultWarehouseId === null
         ? {}
         : { warehouseId: connection.defaultWarehouseId }),
@@ -400,6 +403,7 @@ export class StorefrontIngestionService {
     // is enrichment, not a reason to lose a real order (storefront-address-
     // sync D2). The order itself is already committed at this point.
     await this.trySyncAddress(connection, customerId, normalized.customer);
+    await this.trySyncName(connection, customerId, normalized.customer);
     return order.id;
   }
 
@@ -417,7 +421,11 @@ export class StorefrontIngestionService {
     normalized: NormalizedOrder,
   ): Promise<void> {
     const principal = this.systemPrincipal(connection);
+    // Refresh the order's own snapshot too: a storefront-side address edit
+    // before shipping should move this order, and only this order.
+    const delivery = this.deliveryFrom(normalized.customer);
     const update: OrdersIngestionUpdateInput = {
+      ...(delivery !== undefined ? { delivery } : {}),
       ...(normalized.shippingFeeMinor === undefined
         ? {}
         : { shippingFee: normalized.shippingFeeMinor }),
@@ -437,6 +445,7 @@ export class StorefrontIngestionService {
     }
     const customerId = await this.resolveCustomer(principal, normalized.customer);
     await this.trySyncAddress(connection, customerId, normalized.customer);
+    await this.trySyncName(connection, customerId, normalized.customer);
   }
 
   /**
@@ -474,6 +483,49 @@ export class StorefrontIngestionService {
    */
   private isTerminalCancelledStatus(status: string | undefined): boolean {
     return status === "cancelled" || status === "failed" || status === "trash";
+  }
+
+  /**
+   * The delivery snapshot to store on the order (2026-09-13): the storefront's
+   * shipping recipient and address, so a gift sent to someone else records
+   * THEIR name. Undefined when the storefront sent no address, which lets the
+   * orders module fall back to the customer's saved default instead.
+   */
+  private deliveryFrom(customer: NormalizedCustomer): IngestionDeliverySnapshot | undefined {
+    if (customer.address === undefined) return undefined;
+    return {
+      name: customer.address.recipientName ?? customer.name,
+      line: customer.address.line,
+      rawCity: customer.address.city ?? null,
+      rawState: customer.address.state ?? null,
+    };
+  }
+
+  /** Swallow-and-audit, like {@link trySyncAddress}: a name problem must never fail the order. */
+  private async trySyncName(
+    connection: ResolvedStorefrontConnection,
+    customerId: string,
+    customer: NormalizedCustomer,
+  ): Promise<void> {
+    // Billing only: on a gift order the shipping name is the RECIPIENT, and
+    // copying it would rename the buyer after whoever they last sent a gift to.
+    if (customer.billingName === undefined) return;
+    try {
+      await this.customers.renameFromStorefront(
+        this.systemPrincipal(connection),
+        customerId,
+        customer.billingName,
+      );
+    } catch (error) {
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_customer.name_sync_failed",
+        entityType: "customer",
+        entityId: customerId,
+        changes: { reason: this.errorMessage(error) },
+      });
+    }
   }
 
   /** Swallow-and-audit (D2) — same rationale as {@link trySyncUpdate}. */

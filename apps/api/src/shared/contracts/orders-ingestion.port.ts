@@ -15,6 +15,19 @@ export interface OrdersIngestionItem {
 }
 
 /** The subset of `CreateOrderInput` the storefront-integration module needs. */
+/**
+ * Who and where a storefront order ships to (2026-09-13) — stored on the order
+ * itself so a returning customer's newer address can never re-route an older
+ * order. Structurally the orders repository's own `DeliverySnapshotInput`.
+ */
+export interface IngestionDeliverySnapshot {
+  readonly name?: string | null;
+  readonly line?: string | null;
+  readonly landmark?: string | null;
+  readonly rawCity?: string | null;
+  readonly rawState?: string | null;
+}
+
 export interface OrdersIngestionInput {
   readonly customerId: string;
   readonly warehouseId?: string | null;
@@ -30,6 +43,7 @@ export interface OrdersIngestionInput {
    * (D4: no duplicated business logic).
    */
   readonly markFullyPaid?: boolean;
+  readonly delivery?: IngestionDeliverySnapshot;
 }
 
 /**
@@ -44,6 +58,7 @@ export interface OrdersIngestionUpdateInput {
   readonly isGiftWrap?: boolean;
   readonly giftWrapFeeMinor?: number;
   readonly markFullyPaid?: boolean;
+  readonly delivery?: IngestionDeliverySnapshot;
 }
 
 /**

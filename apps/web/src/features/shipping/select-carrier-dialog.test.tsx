@@ -32,11 +32,14 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
   let fetchMock: ReturnType<typeof vi.fn>;
   /** What `GET /customers/cust-1` reports — a test sets this to cover the prefill. */
   let customerAddresses: unknown[];
+  /** What `GET /orders/order-1` reports as the order's delivery snapshot; null = no snapshot. */
+  let orderDelivery: unknown;
 
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("cadeau.locale", "en");
     customerAddresses = [];
+    orderDelivery = null;
     fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
@@ -73,6 +76,13 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
       }
       if (url.endsWith("/shipping/bosta/cities")) {
         return Promise.resolve(json(200, { data: [{ id: "c1", name: "Cairo", nameAr: null }] }));
+      }
+      if (url.match(/\/orders\/order-1$/) && method === "GET") {
+        // No route → the order read fails → the dialog falls back to the
+        // customer's saved address. `orderDelivery === null` keeps that path
+        // for every test that predates delivery snapshots.
+        if (orderDelivery === null) return Promise.resolve(json(404, {}));
+        return Promise.resolve(json(200, { id: "order-1", delivery: orderDelivery }));
       }
       if (url.match(/\/customers\/cust-1$/) && method === "GET") {
         return Promise.resolve(
@@ -196,6 +206,45 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
 
     await waitFor(() => expect(screen.getByLabelText("Address")).toHaveValue("5 Tahrir street"));
     expect(screen.getByLabelText("Landmark")).toHaveValue("Above the pharmacy");
+  });
+
+  it("prefills from the ORDER's own delivery snapshot before the customer's newer address", async () => {
+    // The customer's saved default below is their NEWER address; this order
+    // was placed to an older one, for someone else, and must win.
+    orderDelivery = {
+      name: "Mona Hassan",
+      line: "9 Old Maadi road",
+      landmark: "Next to the bakery",
+      rawCity: null,
+      rawState: null,
+    };
+    customerAddresses = [
+      {
+        id: "addr-1",
+        customerId: "cust-1",
+        line: "9 Old Maadi road",
+        landmark: "Next to the bakery",
+        notes: null,
+        governorateId: null,
+        bostaCityId: null,
+        bostaDistrictId: null,
+        bostaCityName: null,
+        isDefault: true,
+        active: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const user = userEvent.setup();
+    renderDialog(() => {});
+
+    await user.click(screen.getByLabelText("Shipping company"));
+    await user.click(await screen.findByRole("option", { name: "bosta" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Address")).toHaveValue("9 Old Maadi road"));
+    // A gift: the receiver is the recipient named on the order, not the customer.
+    expect(screen.getByLabelText("First name")).toHaveValue("Mona");
+    expect(screen.getByLabelText("Landmark")).toHaveValue("Next to the bakery");
   });
 
   it("never crashes when the saved address has no rawState/rawCity at all (pre-sync addresses)", async () => {

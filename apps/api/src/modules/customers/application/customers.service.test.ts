@@ -394,25 +394,53 @@ describe("CustomersService — upsertStorefrontAddress (storefront-address-sync)
     );
   });
 
-  it("updates the existing default address in place when it is itself 'storefront'-sourced", async () => {
+  /**
+   * 2026-09-13: a changed address is a NEW default, never an in-place edit —
+   * an in-place edit kept the old Bosta city/district beside the new street
+   * line, which could ship to the wrong zone — and the old row is kept.
+   */
+  it("replaces a changed default address with a NEW default, keeping the old one", async () => {
     h.repo.listAddresses.mockResolvedValue([
-      address({ id: "a-old", isDefault: true, active: true, source: "storefront" }),
+      address({ id: "a-old", isDefault: true, active: true, source: "storefront", line: "Old St" }),
     ]);
     await h.service.upsertStorefrontAddress(principal(), CUSTOMER, { line: "New St" });
-    expect(h.repo.updateAddress).toHaveBeenCalledWith(
+    expect(h.repo.createAddress).toHaveBeenCalledWith(
       expect.anything(),
       CUSTOMER,
-      "a-old",
       expect.objectContaining({ line: "New St", source: "storefront", isDefault: true }),
     );
-    expect(h.repo.createAddress).not.toHaveBeenCalled();
+    expect(h.repo.updateAddress).not.toHaveBeenCalled();
   });
 
-  it("never touches a default address a staff member already edited ('manual')", async () => {
+  it("replaces a staff-edited ('manual') default too — the latest order wins, by decision", async () => {
     h.repo.listAddresses.mockResolvedValue([
-      address({ id: "a-manual", isDefault: true, active: true, source: "manual" }),
+      address({ id: "a-manual", isDefault: true, active: true, source: "manual", line: "Old St" }),
     ]);
     await h.service.upsertStorefrontAddress(principal(), CUSTOMER, { line: "New St" });
+    expect(h.repo.createAddress).toHaveBeenCalledWith(
+      expect.anything(),
+      CUSTOMER,
+      expect.objectContaining({ line: "New St", isDefault: true }),
+    );
+    expect(h.repo.updateAddress).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing when the storefront sends the address already on file", async () => {
+    h.repo.listAddresses.mockResolvedValue([
+      address({
+        isDefault: true,
+        active: true,
+        line: "12 Nile St",
+        rawCity: "المعادي",
+        rawState: "القاهرة",
+      }),
+    ]);
+    // Whitespace differences alone are the same place: checkout fields are free text.
+    await h.service.upsertStorefrontAddress(principal(), CUSTOMER, {
+      line: "  12   Nile St ",
+      rawCity: "المعادي",
+      rawState: "القاهرة",
+    });
     expect(h.repo.createAddress).not.toHaveBeenCalled();
     expect(h.repo.updateAddress).not.toHaveBeenCalled();
   });
@@ -423,6 +451,21 @@ describe("CustomersService — upsertStorefrontAddress (storefront-address-sync)
       h.service.upsertStorefrontAddress(principal(), CUSTOMER, { line: "x" }),
     ).resolves.toBeUndefined();
     expect(h.repo.createAddress).not.toHaveBeenCalled();
+  });
+});
+
+describe("CustomersService — renameFromStorefront (2026-09-13)", () => {
+  it("takes the name from the latest storefront order", async () => {
+    h.repo.findById.mockResolvedValueOnce({ ...customer(), name: "Old Name", addresses: [] });
+    await h.service.renameFromStorefront(principal(), CUSTOMER, "  New Name ");
+    expect(h.repo.update).toHaveBeenCalledWith(expect.anything(), CUSTOMER, { name: "New Name" });
+  });
+
+  it("writes nothing for an unchanged or blank name", async () => {
+    h.repo.findById.mockResolvedValue({ ...customer(), name: "Same Name", addresses: [] });
+    await h.service.renameFromStorefront(principal(), CUSTOMER, "Same Name");
+    await h.service.renameFromStorefront(principal(), CUSTOMER, "   ");
+    expect(h.repo.update).not.toHaveBeenCalled();
   });
 });
 

@@ -471,6 +471,26 @@ export class OrderListItemDto extends OrderMoneyFields {
 }
 
 /** An order with its items and notes (the detail read). */
+/** Who and where an order ships to, captured when it was placed (2026-09-13). */
+export class OrderDeliveryDto {
+  @ApiProperty({
+    nullable: true,
+    description: "Recipient name — on a gift, the person receiving it.",
+  })
+  name!: string | null;
+  @ApiProperty({ nullable: true, description: "Decrypted delivery address line." })
+  line!: string | null;
+  @ApiProperty({ nullable: true })
+  landmark!: string | null;
+  @ApiProperty({
+    nullable: true,
+    description: "The storefront's own city/district text, unmapped.",
+  })
+  rawCity!: string | null;
+  @ApiProperty({ nullable: true, description: "The storefront's own governorate text, unmapped." })
+  rawState!: string | null;
+}
+
 export class OrderDto extends OrderListItemDto {
   @ApiProperty({ nullable: true })
   notes!: string | null;
@@ -478,10 +498,18 @@ export class OrderDto extends OrderListItemDto {
   @ApiProperty({ type: [OrderItemDto] })
   items!: OrderItemDto[];
 
+  @ApiProperty({
+    type: OrderDeliveryDto,
+    nullable: true,
+    description: "Null on orders from before delivery snapshots existed.",
+  })
+  delivery!: OrderDeliveryDto | null;
+
   static fromDetail(view: OrderView): OrderDto {
     const dto = OrderListItemDto.assignList(new OrderDto(), view);
     dto.notes = view.notes;
     dto.items = view.items.map((i) => OrderItemDto.from(i));
+    dto.delivery = view.delivery ?? null;
     return dto;
   }
 }

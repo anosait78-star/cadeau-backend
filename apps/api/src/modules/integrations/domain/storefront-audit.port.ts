@@ -23,7 +23,9 @@ export interface StorefrontAuditRecord {
     | "storefront_order.cancel_skipped"
     /** The order's phone was unusable; a placeholder stood in (2026-09-12). */
     | "storefront_order.placeholder_phone"
-    | "storefront_customer.address_sync_failed";
+    | "storefront_customer.address_sync_failed"
+    /** Renaming a customer from their latest storefront order failed (2026-09-13). */
+    | "storefront_customer.name_sync_failed";
   readonly entityType:
     | "storefront_connection"
     | "storefront_webhook_event"

@@ -347,19 +347,24 @@ export class CustomersService {
   }
 
   /**
-   * {@link CustomersDirectoryPort.upsertStorefrontAddress} — sync a
-   * storefront order's delivery address onto the customer's default address.
-   * `rawState` is matched exactly against `Governorate.nameAr` (the
-   * storefront's own governorate dropdown is a closed, known list — never
-   * fuzzy-matched); no match just leaves `governorateId` unset, it never
-   * fails the sync (storefront-address-sync D2).
+   * {@link CustomersDirectoryPort.upsertStorefrontAddress} — keep a customer's
+   * default address in step with the address on their latest storefront order.
    *
-   * A default address a staff member has already edited (`source: "manual"`)
-   * is never touched — D3. Nothing above this method ever throws for an
-   * ordinary "couldn't fully resolve the address" case; only genuine
-   * infrastructure failures propagate, which the caller (storefront
-   * ingestion) is expected to catch so an address-sync problem never fails
-   * the order it rode in on.
+   * Revised 2026-09-13. The default used to be updated IN PLACE, and only when
+   * it had itself come from the storefront: a staff-edited ("manual") default
+   * was never touched, and an in-place edit kept the OLD Bosta city/district
+   * ids beside the NEW street line, which could ship to the wrong zone. Now:
+   *
+   * - The same address again (every `order.updated` redelivery, say) is a
+   *   no-op, so re-syncs do not pile up duplicate rows.
+   * - A different address becomes a NEW default and the previous one is kept,
+   *   demoted, as history — a staff-edited one included, by explicit decision:
+   *   the latest order is the best evidence of where the customer is now. The
+   *   new row starts with no Bosta mapping, which is correct: the old mapping
+   *   described a different place.
+   *
+   * Existing orders are unaffected either way: each keeps its own delivery
+   * snapshot, so a customer moving can no longer re-route an older order.
    */
   async upsertStorefrontAddress(
     principal: RequestPrincipal,
@@ -367,26 +372,61 @@ export class CustomersService {
     data: SyncAddressCommand,
   ): Promise<void> {
     const companyId = this.requireTenant(principal);
-    const governorateId =
-      data.rawState !== undefined ? await this.repo.findGovernorateIdByNameAr(data.rawState) : null;
     const existing = await this.repo.listAddresses(companyId, customerId);
     if (existing === null) return; // customer vanished mid-flight — nothing to sync onto
     const currentDefault = existing.find((a) => a.isDefault && a.active);
-    if (currentDefault !== undefined && currentDefault.source === "manual") return;
+    if (currentDefault !== undefined && this.isSameStorefrontAddress(currentDefault, data)) return;
 
-    const payload = {
+    const governorateId =
+      data.rawState !== undefined ? await this.repo.findGovernorateIdByNameAr(data.rawState) : null;
+    await this.createAddress(principal, customerId, {
       line: data.line,
       governorateId,
       rawCity: data.rawCity ?? null,
       rawState: data.rawState ?? null,
-      source: "storefront" as const,
+      source: "storefront",
       isDefault: true,
-    };
-    if (currentDefault === undefined) {
-      await this.createAddress(principal, customerId, payload);
-    } else {
-      await this.updateAddress(principal, customerId, currentDefault.id, payload);
-    }
+    });
+  }
+
+  /**
+   * {@link CustomersDirectoryPort.renameFromStorefront} — take the name from
+   * the customer's latest storefront order. A blank or unchanged name writes
+   * nothing, so a redelivery records no audit noise.
+   */
+  async renameFromStorefront(
+    principal: RequestPrincipal,
+    customerId: string,
+    name: string,
+  ): Promise<void> {
+    const companyId = this.requireTenant(principal);
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return;
+    const current = await this.repo.findById(companyId, customerId);
+    if (current === null || current.name === trimmed) return;
+    await this.update(principal, customerId, { name: trimmed });
+  }
+
+  /**
+   * Whether a storefront address is the one already on file. Whitespace is
+   * normalised because checkout fields are free text; nothing fuzzier — a
+   * genuinely different spelling is a genuinely different place to ship to.
+   */
+  private isSameStorefrontAddress(
+    current: {
+      readonly line: string;
+      readonly rawCity: string | null;
+      readonly rawState: string | null;
+    },
+    incoming: SyncAddressCommand,
+  ): boolean {
+    const norm = (value: string | null | undefined): string =>
+      (value ?? "").trim().replace(/\s+/g, " ");
+    return (
+      norm(current.line) === norm(incoming.line) &&
+      norm(current.rawCity) === norm(incoming.rawCity) &&
+      norm(current.rawState) === norm(incoming.rawState)
+    );
   }
 
   // ---- internals -----------------------------------------------------------

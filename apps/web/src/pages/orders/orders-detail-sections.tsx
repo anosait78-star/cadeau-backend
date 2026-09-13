@@ -397,6 +397,47 @@ function CustomerCard({
   );
 }
 
+/**
+ * Where this order is going — the order's own delivery snapshot, not the
+ * customer's current address (2026-09-13). The two differ exactly when it
+ * matters: a returning customer who has since ordered to somewhere else, or a
+ * gift sent to another person. Orders from before the snapshot existed show
+ * nothing here rather than guess.
+ */
+function DeliveryCard({
+  delivery,
+  t,
+}: {
+  delivery: OrderDetail["delivery"];
+  t: (k: TranslationKey) => string;
+}): ReactNode {
+  if (delivery === undefined || delivery === null) return null;
+  const area = [delivery.rawCity, delivery.rawState]
+    .filter((part): part is string => part !== null && part.length > 0)
+    .join("، ");
+  return (
+    <div className="flex flex-col gap-1 rounded-xl border border-border p-3.5">
+      <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+        {t("orders.detail.delivery.title")}
+      </span>
+      {delivery.name !== null ? (
+        <span className="text-sm font-semibold text-foreground">{delivery.name}</span>
+      ) : null}
+      {delivery.line !== null ? (
+        <span className="text-sm text-foreground">{delivery.line}</span>
+      ) : (
+        <span className="text-sm text-muted-foreground">
+          {t("orders.detail.delivery.noAddress")}
+        </span>
+      )}
+      {delivery.landmark !== null && delivery.landmark.length > 0 ? (
+        <span className="text-xs text-muted-foreground">{delivery.landmark}</span>
+      ) : null}
+      {area.length > 0 ? <span className="text-xs text-muted-foreground">{area}</span> : null}
+    </div>
+  );
+}
+
 /** One compact order line for the summary: image, name, quantity, line total. */
 function SummaryItemRow({
   item,
@@ -467,6 +508,7 @@ function SummarySection({
       <section>
         <SectionHeading label={t("orders.form.customer")} />
         <CustomerCard customerId={detail.customerId} fallbackName={detail.customerName} t={t} />
+        <DeliveryCard delivery={detail.delivery} t={t} />
       </section>
 
       <section>

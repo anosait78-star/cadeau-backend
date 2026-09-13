@@ -321,6 +321,77 @@ describe("BostaCarrierAdapter.createShipment", () => {
     expect(body.dropOffAddress).toMatchObject({ city: "Giza", districtId: "districtId9" });
   });
 
+  /**
+   * 2026-09-13. The order was placed to an older address; the customer has
+   * since ordered to Helwan, which is now their saved default. The shipment
+   * must go where THIS order was placed for, to the person named on it.
+   */
+  it("ships to the order's own delivery snapshot, not the customer's newer default address", async () => {
+    const { adapter } = makeAdapter({
+      order: {
+        customerId: "cust-1",
+        total: 15_000n,
+        collectedAmount: 0n,
+        deliveryName: "Mona Hassan",
+        deliveryLineEncrypted: encrypt("9 Old Maadi road", config.encryption.key),
+        deliveryLandmark: "Next to the bakery",
+      },
+    });
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "T1" } }));
+
+    await adapter.createShipment({
+      companyId: COMPANY,
+      orderId: ORDER,
+      bostaCityId: "c9",
+      bostaDistrictId: "d9",
+      bostaCityName: "Cairo",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body).toMatchObject({
+      dropOffAddress: { firstLine: "9 Old Maadi road", secondLine: "Next to the bakery" },
+      receiver: { firstName: "Mona", lastName: "Hassan" },
+    });
+  });
+
+  it("refuses to borrow the Bosta mapping of a saved address that is a different place", async () => {
+    // Without this guard the order would go to Old Maadi road with HELWAN's
+    // city/district — the wrong delivery zone.
+    const { adapter } = makeAdapter({
+      order: {
+        customerId: "cust-1",
+        total: 15_000n,
+        collectedAmount: 0n,
+        deliveryLineEncrypted: encrypt("9 Old Maadi road", config.encryption.key),
+      },
+    });
+    await expect(
+      adapter.createShipment({ companyId: COMPANY, orderId: ORDER }),
+    ).rejects.toBeInstanceOf(CustomerAddressNotMappedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still borrows the saved mapping when the saved address IS the order's address", async () => {
+    const { adapter } = makeAdapter({
+      order: {
+        customerId: "cust-1",
+        total: 15_000n,
+        collectedAmount: 0n,
+        // Same place, different spacing — checkout text is free-form.
+        deliveryLineEncrypted: encrypt("Helwan  street x ", config.encryption.key),
+      },
+    });
+    fetchMock.mockResolvedValueOnce(json(200, { data: { trackingNumber: "T1" } }));
+
+    await adapter.createShipment({ companyId: COMPANY, orderId: ORDER });
+
+    const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      dropOffAddress: { city: "Helwan", districtId: "districtId1" },
+    });
+  });
+
   it("rejects a COD amount over Bosta's 30,000 EGP cap", async () => {
     const { adapter } = makeAdapter({
       order: { customerId: "cust-1", total: 3_000_001n, collectedAmount: 0n },

@@ -107,7 +107,13 @@ describe("WooCommerceAdapter.parseOrder", () => {
     expect(result).toEqual({
       externalId: "4321",
       placedAt: "2026-08-08T10:00:00.000Z",
-      customer: { name: "أحمد محمد", phone: "+201001234567", email: "ahmed@example.com" },
+      customer: {
+        name: "أحمد محمد",
+        // The buyer, kept apart from any gift recipient (2026-09-13).
+        billingName: "أحمد محمد",
+        phone: "+201001234567",
+        email: "ahmed@example.com",
+      },
       items: [{ sku: "SKU-001", quantity: 2, unitPriceMinor: 15000 }],
       currency: "EGP",
       notes: "Please gift-wrap",
@@ -206,6 +212,35 @@ describe("WooCommerceAdapter.parseOrder", () => {
     const first = adapter.parseOrder(baseOrder({ billing: { first_name: "أ", last_name: "م" } }));
     const again = adapter.parseOrder(baseOrder({ billing: { first_name: "أ", last_name: "م" } }));
     expect(first.customer.phone).toBe(again.customer.phone);
+  });
+
+  /**
+   * 2026-09-13. On a gift order the billing name is the BUYER and the shipping
+   * name is the RECIPIENT. They are kept apart so the customer record is named
+   * after the buyer while the order ships to — and names — the recipient.
+   */
+  it("keeps the buyer (billing) and the recipient (shipping) apart", () => {
+    const order = baseOrder({
+      shipping: { first_name: "منى", last_name: "حسن", address_1: "9 شارع المعادي" },
+    });
+    const customer = adapter.parseOrder(order).customer;
+    expect(customer.name).toBe("أحمد محمد");
+    expect(customer.billingName).toBe("أحمد محمد");
+    expect(customer.address?.line).toBe("9 شارع المعادي");
+    expect(customer.address?.recipientName).toBe("منى حسن");
+  });
+
+  it("falls back to the billing name for the recipient when shipping has none", () => {
+    const order = baseOrder({
+      billing: {
+        first_name: "أحمد",
+        last_name: "محمد",
+        phone: "01001234567",
+        address_1: "12 شارع النيل",
+      },
+      shipping: {},
+    });
+    expect(adapter.parseOrder(order).customer.address?.recipientName).toBe("أحمد محمد");
   });
 
   it("maps multiple line items", () => {
@@ -311,7 +346,12 @@ describe("WooCommerceAdapter.parseOrder", () => {
         ],
       }),
     ).customer.address;
-    expect(shippingFirst).toEqual({ line: "12 Nile St", city: "المعادي", state: "القاهرة" });
+    expect(shippingFirst).toEqual({
+      line: "12 Nile St",
+      city: "المعادي",
+      state: "القاهرة",
+      recipientName: "أحمد محمد",
+    });
 
     const billingFallback = adapter.parseOrder(
       baseOrder({
@@ -325,7 +365,12 @@ describe("WooCommerceAdapter.parseOrder", () => {
         meta_data: [{ key: "_billing_governorate", value: "الجيزة" }],
       }),
     ).customer.address;
-    expect(billingFallback).toEqual({ line: "5 Tahrir St", state: "الجيزة" });
+    // The address came from billing, but shipping still names the recipient.
+    expect(billingFallback).toEqual({
+      line: "5 Tahrir St",
+      state: "الجيزة",
+      recipientName: "أحمد محمد",
+    });
 
     expect(adapter.parseOrder(baseOrder()).customer.address).toBeUndefined();
   });

@@ -52,8 +52,21 @@ import type {
   WriteActor,
 } from "../domain/orders-repository.port";
 import { ORDERS_PRISMA_CLIENT } from "./prisma-client.provider";
+import { decrypt, encrypt } from "@cadeau/crypto";
+import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
+import type { DeliverySnapshotView } from "../domain/order.entity";
+import type { DeliverySnapshotInput } from "../domain/orders-repository.port";
 
 type Tx = Prisma.TransactionClient;
+/** The order columns that hold its delivery snapshot. */
+interface DeliveryColumns {
+  deliveryName: string | null;
+  deliveryLineEncrypted: string | null;
+  deliveryLandmark: string | null;
+  deliveryRawCity: string | null;
+  deliveryRawState: string | null;
+}
+
 /**
  * The business's calendar for "this month" in the board's `50/5` label —
  * Egypt, daylight-saving switch included, which is why the month boundary is
@@ -120,6 +133,11 @@ const ITEM_SELECT = {
 const ORDER_DETAIL_SELECT = {
   ...ORDER_LIST_SELECT,
   notes: true,
+  deliveryName: true,
+  deliveryLineEncrypted: true,
+  deliveryLandmark: true,
+  deliveryRawCity: true,
+  deliveryRawState: true,
   items: { select: ITEM_SELECT, orderBy: { createdAt: "asc" as const } },
 } as const;
 
@@ -142,7 +160,12 @@ type OrderDetailRow = Prisma.OrderGetPayload<{ select: typeof ORDER_DETAIL_SELEC
  */
 @Injectable()
 export class OrdersRepository implements OrdersRepositoryPort {
-  constructor(@Inject(ORDERS_PRISMA_CLIENT) private readonly prisma: PrismaClient) {}
+  constructor(
+    @Inject(ORDERS_PRISMA_CLIENT) private readonly prisma: PrismaClient,
+    // The delivery snapshot's address line is encrypted at rest, like the
+    // customer address it is copied from (2026-09-13).
+    @Inject(APP_CONFIG) private readonly config: InjectedAppConfig,
+  ) {}
 
   async list(companyId: string, query: ParsedOrderListQuery): Promise<KeysetPage<OrderListView>> {
     const limit = clampLimit(query.limit);
@@ -239,6 +262,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       if (replay !== null) return { order: this.toDetailView(replay), replayed: true };
 
       await this.assertCustomer(tx, actor.companyId, data.customerId);
+      const delivery = await this.resolveDelivery(tx, actor.companyId, data);
       await this.assertReferences(tx, actor.companyId, data);
       const lines = await this.resolveItems(tx, actor.companyId, data.items);
       const money = this.computeMoney(
@@ -280,6 +304,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
             paymentStatus,
             notes: data.notes ?? null,
             idempotencyKey: data.idempotencyKey ?? null,
+            ...delivery,
           }) as Prisma.OrderUncheckedCreateInput,
           select: { id: true },
         });
@@ -335,6 +360,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       if (data.followUpState !== undefined) patch["followUpState"] = data.followUpState;
       if (data.notes !== undefined) patch["notes"] = data.notes;
       if (data.isGiftWrap !== undefined) patch["isGiftWrap"] = data.isGiftWrap;
+      if (data.delivery !== undefined) Object.assign(patch, this.deliveryColumns(data.delivery));
 
       // Recompute the money block when items or any amount changed.
       let subtotal = Number(current.subtotal);
@@ -964,11 +990,93 @@ export class OrdersRepository implements OrdersRepositoryPort {
     };
   }
 
+  /**
+   * The snapshot a new order stores. A caller that knows where the order is
+   * going (a storefront webhook) says so; otherwise — a staff-created order —
+   * the customer's current default address and name are copied, so every new
+   * order is pinned to an address from the moment it exists. The address line
+   * is copied as its existing encrypted token: same key, nothing decrypted.
+   */
+  private async resolveDelivery(
+    tx: Tx,
+    companyId: string,
+    data: CreateOrderInput,
+  ): Promise<DeliveryColumns> {
+    if (data.delivery !== undefined) return this.deliveryColumns(data.delivery);
+    // Sequential, not Promise.all: queries on one interactive transaction must
+    // not run concurrently.
+    const customer = await tx.customer.findFirst({
+      where: { id: data.customerId, companyId },
+      select: { name: true },
+    });
+    const address = await tx.customerAddress.findFirst({
+      where: { customerId: data.customerId, companyId, isActive: true, isDefault: true },
+      select: { lineEncrypted: true, landmark: true, rawCity: true, rawState: true },
+    });
+    return {
+      deliveryName: customer?.name ?? null,
+      deliveryLineEncrypted: address?.lineEncrypted ?? null,
+      deliveryLandmark: address?.landmark ?? null,
+      deliveryRawCity: address?.rawCity ?? null,
+      deliveryRawState: address?.rawState ?? null,
+    };
+  }
+
+  /** Order columns for a delivery snapshot; the line is encrypted here, never stored plaintext. */
+  private deliveryColumns(input: DeliverySnapshotInput): DeliveryColumns {
+    const text = (value: string | null | undefined): string | null => {
+      const trimmed = value?.trim();
+      return trimmed === undefined || trimmed.length === 0 ? null : trimmed;
+    };
+    const line = text(input.line);
+    return {
+      deliveryName: text(input.name),
+      deliveryLineEncrypted: line === null ? null : encrypt(line, this.config.encryption.key),
+      deliveryLandmark: text(input.landmark),
+      deliveryRawCity: text(input.rawCity),
+      deliveryRawState: text(input.rawState),
+    };
+  }
+
+  /**
+   * The decrypted snapshot, or null when the order has none. Values are read
+   * through `?? null` because some rows reach this without the columns
+   * selected at all (older fixtures), and an absent column means "no snapshot".
+   */
+  private toDeliveryView(row: Partial<DeliveryColumns>): DeliverySnapshotView | null {
+    const name = row.deliveryName ?? null;
+    const token = row.deliveryLineEncrypted ?? null;
+    const landmark = row.deliveryLandmark ?? null;
+    const rawCity = row.deliveryRawCity ?? null;
+    const rawState = row.deliveryRawState ?? null;
+    if (
+      name === null &&
+      token === null &&
+      landmark === null &&
+      rawCity === null &&
+      rawState === null
+    ) {
+      return null;
+    }
+    let line: string | null = null;
+    if (token !== null) {
+      try {
+        line = decrypt(token, this.config.encryption.key);
+      } catch {
+        // A token under a since-rotated key: show no line rather than fail the
+        // whole order read over one field.
+        line = null;
+      }
+    }
+    return { name, line, landmark, rawCity, rawState };
+  }
+
   private toDetailView(row: OrderDetailRow): OrderView {
     return {
       ...this.toListView(row),
       notes: row.notes,
       items: row.items.map((i) => this.toItemView(i)),
+      delivery: this.toDeliveryView(row),
     };
   }
 

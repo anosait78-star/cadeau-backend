@@ -46,16 +46,29 @@ export interface CustomersDirectoryPort {
     data: CreateCustomerCommand,
   ): Promise<{ customer: DirectoryCustomer; replayed: boolean }>;
   /**
-   * Never throws on an unmatched/missing governorate, and never overwrites a
-   * customer's existing default address unless that address was itself
-   * `source: "storefront"` (a staff-edited default address is left alone —
-   * storefront-address-sync D3). Swallow-and-log any failure at the call
+   * Keep the customer's default address in step with their latest storefront
+   * order. The same address again is a no-op; a different one becomes a NEW
+   * default and the previous one — staff-edited ("manual") included, by
+   * decision on 2026-09-13 — is kept, demoted, as history. Never throws on an
+   * unmatched/missing governorate. Swallow-and-log any failure at the call
    * site: an address-sync problem must never fail the order it rode in on.
    */
   upsertStorefrontAddress(
     principal: RequestPrincipal,
     customerId: string,
     data: SyncAddressCommand,
+  ): Promise<void>;
+  /**
+   * Rename the customer after their latest storefront order (2026-09-13). The
+   * caller passes the BILLING name only: on a gift order the shipping name is
+   * the recipient, and using it would rename the buyer after whoever they last
+   * sent something to. A blank or unchanged name is a no-op. Swallow-and-log
+   * failures at the call site, as with the address.
+   */
+  renameFromStorefront(
+    principal: RequestPrincipal,
+    customerId: string,
+    name: string,
   ): Promise<void>;
 }
 

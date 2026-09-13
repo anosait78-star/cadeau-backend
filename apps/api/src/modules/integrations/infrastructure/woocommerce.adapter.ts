@@ -263,10 +263,12 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       externalId,
     );
     const email = this.optionalString(billing, "email");
+    const billingName = this.fullName(billing);
     const address = this.parseAddress(order, billing, shipping);
     return {
       name,
       phone: phone.value,
+      ...(billingName !== undefined ? { billingName } : {}),
       ...(phone.placeholder ? { phonePlaceholder: true } : {}),
       ...(email !== undefined ? { email } : {}),
       ...(address !== undefined ? { address } : {}),
@@ -292,13 +294,14 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     order: JsonRecord,
     billing: JsonRecord,
     shipping: JsonRecord,
-  ): { line: string; city?: string; state?: string } | undefined {
+  ): { line: string; city?: string; state?: string; recipientName?: string } | undefined {
     const shippingLine = this.addressLine(shipping);
     const billingLine = this.addressLine(billing);
     const line = shippingLine ?? billingLine;
     if (line === undefined) return undefined;
     const usingShipping = shippingLine !== undefined;
     const meta = this.metaMap(order);
+    const recipientName = this.fullName(shipping) ?? this.fullName(billing);
     const state = usingShipping
       ? (meta.get("_shipping_governorate") ?? meta.get("_billing_governorate"))
       : meta.get("_billing_governorate");
@@ -309,6 +312,7 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       line,
       ...(city !== undefined ? { city } : {}),
       ...(state !== undefined ? { state } : {}),
+      ...(recipientName !== undefined ? { recipientName } : {}),
     };
   }
 

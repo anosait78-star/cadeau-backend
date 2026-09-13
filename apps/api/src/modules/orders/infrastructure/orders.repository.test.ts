@@ -1,3 +1,4 @@
+import { getConfig } from "@cadeau/config";
 import { describe, expect, it, vi } from "vitest";
 import { encodeCursor, Prisma, type PrismaClient } from "@cadeau/database";
 import {
@@ -107,6 +108,9 @@ function makeRepo() {
       findMany: vi.fn().mockResolvedValue([]),
     },
     orderLabel: { findFirst: vi.fn().mockResolvedValue({ id: "l1" }) },
+    // A create with no explicit delivery copies the customer's default address
+    // onto the order (2026-09-13). None by default; tests override per call.
+    customerAddress: { findFirst: vi.fn().mockResolvedValue(null) },
     orderReason: { findFirst: vi.fn().mockResolvedValue({ id: "r1" }) },
     governorate: { findFirst: vi.fn().mockResolvedValue({ id: "g1" }) },
     companyMember: {
@@ -153,7 +157,7 @@ function makeRepo() {
   });
   const txHost = { $queryRaw: queryRaw, ...models };
   const prisma = { $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(txHost)) };
-  const repo = new OrdersRepository(prisma as unknown as PrismaClient);
+  const repo = new OrdersRepository(prisma as unknown as PrismaClient, getConfig() as never);
   return { repo, models, queryRaw, lock, level };
 }
 

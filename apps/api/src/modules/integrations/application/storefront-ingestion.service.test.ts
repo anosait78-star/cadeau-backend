@@ -78,6 +78,7 @@ function makeHarness() {
     list: vi.fn(),
     create: vi.fn(),
     upsertStorefrontAddress: vi.fn().mockResolvedValue(undefined),
+    renameFromStorefront: vi.fn().mockResolvedValue(undefined),
   };
   const vendorWarehouses = {
     findWarehouseId: vi.fn(),
@@ -262,6 +263,75 @@ describe("StorefrontIngestionService.ingestOrder", () => {
     const serialized = JSON.stringify(row.changes);
     expect(serialized).not.toContain("+999");
     expect(serialized.replace(/[^0-9]/g, "").length).toBeLessThan(7);
+  });
+
+  /**
+   * 2026-09-13. A gift: the order records who it is going TO (the shipping
+   * recipient) so a later address change can't re-route it, while the
+   * customer record is renamed after who is BUYING (billing).
+   */
+  it("pins the order to the storefront's recipient and address, and renames the buyer from billing", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.customers.list.mockResolvedValue({
+      data: [{ id: "cust-1" }],
+      page: { limit: 1, nextCursor: null, hasMore: false },
+    });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
+
+    await h.service.ingestOrder(CONNECTION, {
+      ...ORDER_PAYLOAD,
+      customer: {
+        name: "Ahmed Ali",
+        billingName: "Ahmed Ali",
+        phone: "+201001234567",
+        address: {
+          line: "5 Tahrir St",
+          city: "Dokki",
+          state: "Giza",
+          recipientName: "Mona Hassan",
+        },
+      },
+    });
+
+    expect(h.orders.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        delivery: { name: "Mona Hassan", line: "5 Tahrir St", rawCity: "Dokki", rawState: "Giza" },
+      }),
+    );
+    expect(h.customers.renameFromStorefront).toHaveBeenCalledWith(
+      expect.anything(),
+      "cust-1",
+      "Ahmed Ali",
+    );
+  });
+
+  it("audits a failed rename instead of failing the order", async () => {
+    h.inbox.enqueue.mockResolvedValue({
+      event: { id: "evt-1", status: "pending", internalEntityId: null },
+      enqueued: true,
+    });
+    h.products.findVariantBySku.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+    h.customers.list.mockResolvedValue({
+      data: [{ id: "cust-1" }],
+      page: { limit: 1, nextCursor: null, hasMore: false },
+    });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
+    h.customers.renameFromStorefront.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(
+      h.service.ingestOrder(CONNECTION, {
+        ...ORDER_PAYLOAD,
+        customer: { name: "Ahmed", billingName: "Ahmed", phone: "+201001234567" },
+      }),
+    ).resolves.toMatchObject({ entityId: "order-1" });
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "storefront_customer.name_sync_failed" }),
+    );
   });
 
   it("never cancels an order for an ordinary status (processing/completed/etc)", async () => {

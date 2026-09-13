@@ -61,7 +61,8 @@ export interface CustomerAddressView {
   readonly bostaCityName: string | null;
   /**
    * "manual" (staff-entered/verified) or "storefront" (synced from an order
-   * webhook). A storefront sync never overwrites a "manual" default address.
+   * webhook). Since 2026-09-13 a storefront order with a different address adds
+   * a new default and demotes the previous one, manual included, keeping it.
    */
   readonly source: "manual" | "storefront";
   /** The storefront's own unmapped city/district text, kept for staff review. */

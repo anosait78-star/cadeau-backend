@@ -85,7 +85,14 @@ export class BostaCarrierAdapter implements CarrierPort {
       await setTenantContext(tx, input.companyId);
       const order = await tx.order.findFirst({
         where: { id: input.orderId, companyId: input.companyId },
-        select: { customerId: true, total: true, collectedAmount: true },
+        select: {
+          customerId: true,
+          total: true,
+          collectedAmount: true,
+          deliveryName: true,
+          deliveryLineEncrypted: true,
+          deliveryLandmark: true,
+        },
       });
       if (order === null) throw new ReferenceNotFoundError("orderId");
 
@@ -122,9 +129,29 @@ export class BostaCarrierAdapter implements CarrierPort {
     // precedence over whatever is saved on the customer's address. Entered
     // fresh every time by design — nothing gets written back onto the
     // address, so this never gets "remembered" for a future shipment.
-    const bostaCityId = input.bostaCityId ?? address?.bostaCityId ?? undefined;
-    const bostaDistrictId = input.bostaDistrictId ?? address?.bostaDistrictId ?? undefined;
-    const bostaCityName = input.bostaCityName ?? address?.bostaCityName ?? undefined;
+    // Where THIS order goes (2026-09-13): its own delivery snapshot, falling
+    // back to the customer's saved default only for an order that predates
+    // snapshots. The saved address may lend its Bosta city/district mapping
+    // only when it is the same place as the order's address — a returning
+    // customer's newer default describes somewhere else, and borrowing its
+    // mapping is exactly how an older order would ship to the wrong zone.
+    const key = this.config.encryption.key;
+    const snapshotLine =
+      typeof order.deliveryLineEncrypted === "string"
+        ? decrypt(order.deliveryLineEncrypted, key)
+        : null;
+    const savedLine =
+      address === null || typeof address.lineEncrypted !== "string"
+        ? null
+        : decrypt(address.lineEncrypted, key);
+    const saved =
+      address !== null && (snapshotLine === null || this.sameAddressLine(savedLine, snapshotLine))
+        ? address
+        : null;
+
+    const bostaCityId = input.bostaCityId ?? saved?.bostaCityId ?? undefined;
+    const bostaDistrictId = input.bostaDistrictId ?? saved?.bostaDistrictId ?? undefined;
+    const bostaCityName = input.bostaCityName ?? saved?.bostaCityName ?? undefined;
     if (bostaCityId === undefined || bostaDistrictId === undefined || bostaCityName === undefined) {
       throw new CustomerAddressNotMappedError(CARRIER);
     }
@@ -133,16 +160,16 @@ export class BostaCarrierAdapter implements CarrierPort {
     const line =
       typedLine !== undefined && typedLine.length > 0
         ? typedLine
-        : address === null
-          ? undefined
-          : decrypt(address.lineEncrypted, this.config.encryption.key);
+        : (snapshotLine ?? (saved === null ? null : savedLine) ?? undefined);
     if (line === undefined || line.length === 0) throw new CustomerAddressMissingError();
 
     const typedLandmark = input.landmark?.trim();
     const landmark =
       typedLandmark !== undefined && typedLandmark.length > 0
         ? typedLandmark
-        : (address?.landmark ?? null);
+        : snapshotLine !== null
+          ? (order.deliveryLandmark ?? null)
+          : (saved?.landmark ?? null);
 
     const codMinor = Math.max(0, Number(order.total) - Number(order.collectedAmount));
     if (codMinor > BOSTA_MAX_COD_MINOR) {
@@ -150,11 +177,17 @@ export class BostaCarrierAdapter implements CarrierPort {
     }
 
     const phone = decrypt(customer.phoneEncrypted, this.config.encryption.key);
-    const [derivedFirstName, ...derivedRest] = customer.name.trim().split(/\s+/);
+    // The receiver defaults to the order's own recipient (on a gift, the person
+    // it is going to), then to the customer's name for an older order.
+    const receiverSourceName =
+      typeof order.deliveryName === "string" && order.deliveryName.trim().length > 0
+        ? order.deliveryName
+        : customer.name;
+    const [derivedFirstName, ...derivedRest] = receiverSourceName.trim().split(/\s+/);
     // Recipient name is entered fresh per shipment (never persisted) and
-    // defaults to a split of the customer's own name when left blank.
+    // defaults to a split of the recipient's name when left blank.
     const receiverFirstName =
-      input.recipientFirstName?.trim() || (derivedFirstName ?? customer.name);
+      input.recipientFirstName?.trim() || (derivedFirstName ?? receiverSourceName);
     const receiverLastName = input.recipientLastName?.trim() || derivedRest.join(" ");
 
     const notes =
@@ -195,6 +228,19 @@ export class BostaCarrierAdapter implements CarrierPort {
     );
 
     return { trackingNumber: response.data.trackingNumber, carrier: CARRIER };
+  }
+
+  /**
+   * Whether a saved address line is the same place as an order's snapshot
+   * line. Whitespace-normalised only: checkout text varies in spacing, but a
+   * different spelling is treated as a different place — refusing to borrow a
+   * Bosta mapping is recoverable (staff pick the zone), shipping to the wrong
+   * zone is not.
+   */
+  private sameAddressLine(saved: string | null, snapshot: string): boolean {
+    if (saved === null) return false;
+    const norm = (value: string): string => value.trim().replace(/\s+/g, " ");
+    return norm(saved) === norm(snapshot);
   }
 
   async getTracking(companyId: string, trackingNumber: string): Promise<CarrierTrackingInfo> {

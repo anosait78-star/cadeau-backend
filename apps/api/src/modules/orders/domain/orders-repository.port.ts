@@ -33,6 +33,20 @@ export interface CreateOrderItemInput {
 }
 
 /** Fields accepted when creating an order. */
+/**
+ * The delivery snapshot to store on an order (2026-09-13). `line` is plaintext
+ * here; the repository encrypts it. Omit the whole object on create to copy the
+ * customer's current default address and name instead, so a staff-created
+ * order is pinned to an address from the moment it exists too.
+ */
+export interface DeliverySnapshotInput {
+  readonly name?: string | null;
+  readonly line?: string | null;
+  readonly landmark?: string | null;
+  readonly rawCity?: string | null;
+  readonly rawState?: string | null;
+}
+
 export interface CreateOrderInput {
   readonly customerId: string;
   readonly warehouseId?: string | null;
@@ -58,6 +72,7 @@ export interface CreateOrderInput {
    */
   readonly markFullyPaid?: boolean;
   readonly notes?: string | null;
+  readonly delivery?: DeliverySnapshotInput;
   readonly items: readonly CreateOrderItemInput[];
   readonly idempotencyKey?: string | null;
 }
@@ -77,6 +92,8 @@ export interface UpdateOrderInput {
   /** Same as {@link CreateOrderInput.markFullyPaid}, applied to the recomputed `total`. */
   readonly markFullyPaid?: boolean;
   readonly notes?: string | null;
+  /** Replaces the order's delivery snapshot (storefront `order.updated` re-sync). */
+  readonly delivery?: DeliverySnapshotInput;
   readonly items?: readonly CreateOrderItemInput[];
 }
 

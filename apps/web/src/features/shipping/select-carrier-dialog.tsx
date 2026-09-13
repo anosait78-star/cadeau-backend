@@ -7,6 +7,7 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { getCustomer } from "@/features/customers/customers-api";
+import { getOrder } from "@/features/orders/orders-api";
 import { useI18n } from "@/i18n/i18n-provider";
 import { ApiError } from "@/lib/api-client";
 import { shipmentErrorText } from "./shipment-error-text";
@@ -125,27 +126,41 @@ export function SelectCarrierDialog({
       })
       .catch(() => setCarriers([]))
       .finally(() => setCarriersLoaded(true));
-    // The recipient name defaults to a split of the customer's own name, and
-    // the address to whatever the customer happens to have saved — both are
-    // convenience prefills the user is free to overwrite, not values the
-    // shipment is bound to. A customer with no saved address just starts blank.
-    void getCustomer(customerId)
-      .then((customer) => {
-        const [first, ...rest] = customer.name.trim().split(/\s+/);
+    // Prefill, in order of trust: the ORDER's own delivery snapshot — who and
+    // where this order was actually placed for (2026-09-13) — then, for an
+    // order that predates snapshots, the customer's saved default address.
+    // Prefilling from the customer first would suggest a returning customer's
+    // NEWEST address for an order placed to an older one. Both are convenience
+    // prefills the user can overwrite, not values the shipment is bound to; a
+    // failed read just leaves the form blank.
+    void Promise.allSettled([getOrder(orderId), getCustomer(customerId)]).then(
+      ([orderResult, customerResult]) => {
+        const delivery =
+          orderResult.status === "fulfilled" ? (orderResult.value.delivery ?? null) : null;
+        const customer = customerResult.status === "fulfilled" ? customerResult.value : null;
+        const name = delivery?.name ?? customer?.name ?? "";
+        const [first, ...rest] = name.trim().split(/\s+/);
         setRecipientFirstName(first ?? "");
         setRecipientLastName(rest.join(" "));
+        if (delivery !== null && delivery.line !== null) {
+          setAddressLine(delivery.line);
+          setLandmark(delivery.landmark ?? "");
+          setSavedGovernorateHint(delivery.rawState);
+          setSavedAreaHint(delivery.rawCity);
+          return;
+        }
         const saved =
-          customer.addresses.find((a) => a.isDefault && a.active) ??
-          customer.addresses.find((a) => a.active);
+          customer?.addresses.find((a) => a.isDefault && a.active) ??
+          customer?.addresses.find((a) => a.active);
         if (saved !== undefined) {
           setAddressLine(saved.line);
           setLandmark(saved.landmark ?? "");
           setSavedGovernorateHint(saved.rawState);
           setSavedAreaHint(saved.rawCity);
         }
-      })
-      .catch(() => undefined);
-  }, [open, customerId]);
+      },
+    );
+  }, [open, orderId, customerId]);
 
   useEffect(() => {
     if (selected !== "bosta") return;

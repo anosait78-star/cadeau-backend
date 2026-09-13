@@ -71,10 +71,25 @@ export interface OrderListItem extends OrderMoney {
   readonly updatedAt: string;
 }
 
+/**
+ * Who and where an order ships to, captured when it arrived (2026-09-13) so a
+ * customer's later address or name change cannot re-route it. Absent or null
+ * on orders from before the snapshot existed.
+ */
+export interface OrderDelivery {
+  /** The recipient — on a gift, the person receiving it, not the buyer. */
+  readonly name: string | null;
+  readonly line: string | null;
+  readonly landmark: string | null;
+  readonly rawCity: string | null;
+  readonly rawState: string | null;
+}
+
 /** A single order read: the header plus its items and notes. */
 export interface OrderDetail extends OrderListItem {
   readonly notes: string | null;
   readonly items: OrderItem[];
+  readonly delivery?: OrderDelivery | null;
 }
 
 /** One row of the activity log. */

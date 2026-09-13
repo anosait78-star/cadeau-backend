@@ -61,10 +61,25 @@ export interface OrderListView extends OrderMoney {
   readonly updatedAt: string;
 }
 
+/**
+ * Who and where an order ships to (2026-09-13), captured when it was placed so
+ * a customer's later address or name change can never re-route it. `line` is
+ * decrypted. Null when the order predates the snapshot and the backfill has not
+ * covered it — readers then fall back to the customer's saved address.
+ */
+export interface DeliverySnapshotView {
+  readonly name: string | null;
+  readonly line: string | null;
+  readonly landmark: string | null;
+  readonly rawCity: string | null;
+  readonly rawState: string | null;
+}
+
 /** An order as it appears on the detail read: the header plus its items. */
 export interface OrderView extends OrderListView {
   readonly notes: string | null;
   readonly items: readonly OrderItemView[];
+  readonly delivery?: DeliverySnapshotView | null;
 }
 
 /**
