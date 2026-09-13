@@ -2,7 +2,7 @@ import {
   useStatusDrag,
   type StatusDragProps,
   type StatusDropTarget,
-} from "../../hooks/use-status-drag";
+} from "@/hooks/use-status-drag";
 import {
   advanceVendorGroupStatus,
   forwardVendorStatuses,
