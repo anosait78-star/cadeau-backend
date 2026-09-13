@@ -75,11 +75,16 @@ const SUMMARY = {
   ],
 };
 
+/** Suppliers is the last tab now — open it and wait for its list. */
+async function openSuppliers(): Promise<void> {
+  await userEvent.click(screen.getByRole("tab", { name: "Suppliers" }));
+  await screen.findByText("Acme Trading");
+}
+
 const SUPPLIER = "11111111-1111-1111-1111-111111111111";
 const VARIANT = "22222222-2222-2222-2222-222222222222";
 const WAREHOUSE = "33333333-3333-3333-3333-333333333333";
 const PO = "44444444-4444-4444-4444-444444444444";
-const INVOICE = "55555555-5555-5555-5555-555555555555";
 const PO_LINE = "66666666-6666-6666-6666-666666666666";
 
 const SUPPLIERS = {
@@ -171,24 +176,6 @@ const PO_DETAIL = {
   ],
 };
 
-const INVOICE_LIST = {
-  data: [
-    {
-      id: INVOICE,
-      number: 42,
-      orderId: null,
-      subtotalMinor: 10000,
-      vatMinor: 1400,
-      totalMinor: 11400,
-      vatRateBpsSnapshot: 1400,
-      pdfGeneratedAt: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-  ],
-  page: { limit: 25, nextCursor: null, hasMore: false },
-};
-
 const EMPTY_PAGE = { data: [], page: { limit: 25, nextCursor: null, hasMore: false } };
 
 const SUPPLIER_2 = "77777777-7777-7777-7777-777777777777";
@@ -210,32 +197,6 @@ const SUPPLIERS_PAGE_2 = {
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
   ],
-  page: { limit: 25, nextCursor: null, hasMore: false },
-};
-
-const RECON_1 = {
-  id: "recon-1",
-  carrier: "Aramex",
-  statementRef: "STMT-1",
-  periodKey: "2026-01",
-  totalStatementMinor: 10000,
-  totalFeeMinor: 9000,
-  totalVarianceMinor: 1000,
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-};
-const RECON_2 = {
-  ...RECON_1,
-  id: "recon-2",
-  carrier: "Bosta",
-  statementRef: "STMT-2",
-};
-const RECON_PAGE_1 = {
-  data: [RECON_1],
-  page: { limit: 25, nextCursor: "recon-2", hasMore: true },
-};
-const RECON_PAGE_2 = {
-  data: [RECON_2],
   page: { limit: 25, nextCursor: null, hasMore: false },
 };
 
@@ -340,72 +301,6 @@ function buildFetchMock() {
     }
     if (url.includes("/finance/expenses")) return Promise.resolve(json(200, EMPTY_PAGE));
 
-    if (url.includes(`/finance/invoices/${INVOICE}/pdf`)) {
-      return Promise.resolve(
-        new Response(new Blob(["%PDF-1.4"], { type: "application/pdf" }), { status: 200 }),
-      );
-    }
-    if (url.match(/\/finance\/invoices\/[^/]+$/) && method === "GET") {
-      return Promise.resolve(json(200, { ...INVOICE_LIST.data[0], lines: [] }));
-    }
-    if (url.includes("/finance/invoices") && method === "POST") {
-      return Promise.resolve(json(201, { ...INVOICE_LIST.data[0], lines: [] }));
-    }
-    if (url.includes("/finance/invoices")) return Promise.resolve(json(200, INVOICE_LIST));
-
-    if (url.includes("/finance/refunds") && method === "POST") {
-      return Promise.resolve(
-        json(201, {
-          id: "ref1",
-          invoiceId: INVOICE,
-          orderId: null,
-          amountMinor: 500,
-          reason: "damaged",
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        }),
-      );
-    }
-    if (url.includes("/finance/refunds")) return Promise.resolve(json(200, EMPTY_PAGE));
-
-    if (url.includes("/finance/reconciliations") && method === "POST") {
-      return Promise.resolve(
-        json(201, {
-          ...RECON_1,
-          id: "recon-3",
-          lines: [
-            {
-              id: "rl1",
-              shipmentId: "s1",
-              statementAmountMinor: 500,
-              shipmentFeeMinor: 450,
-              varianceMinor: 50,
-            },
-          ],
-        }),
-      );
-    }
-    if (url.includes("/finance/reconciliations") && url.includes("cursor=recon-2")) {
-      return Promise.resolve(json(200, RECON_PAGE_2));
-    }
-    if (url.includes("/finance/reconciliations")) return Promise.resolve(json(200, RECON_PAGE_1));
-
-    if (url.includes("/finance/periods")) {
-      return Promise.resolve(
-        json(200, [
-          {
-            id: "period1",
-            periodKey: "2026-01",
-            status: "open",
-            closedAt: null,
-            closedBy: null,
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          },
-        ]),
-      );
-    }
-
     if (url.includes("/finance/reports/cash-center")) {
       return Promise.resolve(
         json(200, {
@@ -470,20 +365,33 @@ describe("FinancePage", () => {
 
   // ---- Suppliers -----------------------------------------------------------
 
-  it("lists suppliers on the default tab", async () => {
+  it("opens on expenses, then purchase orders, the cash center, and suppliers", async () => {
     renderPage();
-    expect(await screen.findByText("Acme Trading")).toBeInTheDocument();
+    expect(await screen.findByText("No expenses yet.")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Expenses",
+      "Purchase orders",
+      "Cash center & P&L",
+      "Suppliers",
+    ]);
+    expect(screen.getByRole("tab", { name: "Expenses" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("lists suppliers on their tab", async () => {
+    renderPage();
+    await openSuppliers();
+    expect(screen.getByText("Acme Trading")).toBeInTheDocument();
   });
 
   it("hides create without the manage permission", async () => {
     renderPage(["finance"], ["finance.read"]);
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
   });
 
   it("creates a supplier", async () => {
     renderPage();
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     await userEvent.click(screen.getByRole("button", { name: "New" }));
     await userEvent.type(screen.getByLabelText("Name"), "New Co");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -499,7 +407,7 @@ describe("FinancePage", () => {
 
   it("archives a supplier", async () => {
     renderPage();
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     await userEvent.click(screen.getByRole("button", { name: "Archive" }));
     await waitFor(() => {
       expect(
@@ -512,11 +420,23 @@ describe("FinancePage", () => {
     });
   });
 
-  it("shows an error state and retries", async () => {
-    fetchMock.mockImplementationOnce(() =>
-      Promise.resolve(json(500, { error: { code: "INTERNAL", statusCode: 500 } })),
-    );
+  it("shows an error state for suppliers and retries", async () => {
     renderPage();
+    await screen.findByText("No expenses yet.");
+    const baseImpl = fetchMock.getMockImplementation();
+    let failNext = true;
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
+      if (
+        failNext &&
+        String(input).includes("/finance/suppliers") &&
+        (init?.method ?? "GET") === "GET"
+      ) {
+        failNext = false;
+        return Promise.resolve(json(500, { error: { code: "INTERNAL", statusCode: 500 } }));
+      }
+      return baseImpl!(input, init);
+    });
+    await userEvent.click(screen.getByRole("tab", { name: "Suppliers" }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Acme Trading")).toBeInTheDocument();
@@ -594,42 +514,7 @@ describe("FinancePage", () => {
     });
   });
 
-  // ---- Invoices --------------------------------------------------------------
-
-  it("lists invoices, issues a manual one, and downloads the PDF", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Invoices" }));
-    expect(await screen.findByText("Invoice number #42")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Download PDF" }));
-    await waitFor(() => {
-      expect(
-        fetchMock.mock.calls.some((c) => String(c[0]).includes(`/finance/invoices/${INVOICE}/pdf`)),
-      ).toBe(true);
-    });
-
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.click(screen.getByRole("tab", { name: "Manual lines" }));
-    await userEvent.type(screen.getByLabelText("Description"), "Consulting");
-    await userEvent.clear(screen.getByLabelText("Qty"));
-    await userEvent.type(screen.getByLabelText("Qty"), "1");
-    await userEvent.type(screen.getByLabelText("Unit price"), "100.00");
-    await userEvent.click(screen.getByRole("button", { name: "Add line" }));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]) === "http://localhost:3000/v1/finance/invoices" &&
-          (c[1] as RequestInit)?.method === "POST",
-      );
-      expect(call).toBeDefined();
-      const headers = (call?.[1] as RequestInit).headers as Record<string, string>;
-      expect(headers["Idempotency-Key"]).toBeTruthy();
-    });
-  });
-
-  // ---- Smoke tests for the lighter tabs ---------------------------------------
+  // ---- Expenses (the default tab) ---------------------------------------------
 
   it("shows the year's expense statistics and charts, and reloads them for another year", async () => {
     renderPage();
@@ -700,15 +585,13 @@ describe("FinancePage", () => {
   });
 
   it("lists expenses, loads a second page, and edits one — with no way to delete", async () => {
-    renderPage();
-    await screen.findByText("Acme Trading");
     const baseImpl = fetchMock.getMockImplementation();
     fetchMock.mockImplementation((input: string | URL, init?: RequestInit) =>
       String(input).endsWith("/finance/expenses") && (init?.method ?? "GET") === "GET"
         ? Promise.resolve(json(200, EXPENSE_PAGE_1))
         : baseImpl!(input, init),
     );
-    await userEvent.click(screen.getByRole("tab", { name: "Expenses" }));
+    renderPage();
     expect(await screen.findByText("printing")).toBeInTheDocument();
     expect(screen.getByText("Business cards")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
@@ -736,8 +619,6 @@ describe("FinancePage", () => {
   });
 
   it("shows an error state for expenses and retries", async () => {
-    renderPage();
-    await screen.findByText("Acme Trading");
     const baseImpl = fetchMock.getMockImplementation();
     let failNext = true;
     fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
@@ -749,113 +630,17 @@ describe("FinancePage", () => {
       }
       return baseImpl!(input, init);
     });
-    await userEvent.click(screen.getByRole("tab", { name: "Expenses" }));
+    renderPage();
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("No expenses yet.")).toBeInTheDocument();
-  });
-
-  it("renders the refunds tab and issues a refund with a mandatory idempotency key", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Refunds" }));
-    expect(await screen.findByText("No refunds yet.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.type(screen.getByLabelText("Invoice ID"), INVOICE);
-    await userEvent.type(screen.getByLabelText("Amount"), "5.00");
-    await userEvent.type(screen.getByLabelText("Reason"), "Damaged item");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]) === "http://localhost:3000/v1/finance/refunds" &&
-          (c[1] as RequestInit)?.method === "POST",
-      );
-      expect(call).toBeDefined();
-      const headers = (call?.[1] as RequestInit).headers as Record<string, string>;
-      expect(headers["Idempotency-Key"]).toBeTruthy();
-    });
-  });
-
-  it("renders the reconciliations tab empty state", async () => {
-    renderPage();
-    await screen.findByText("Acme Trading");
-    fetchMock.mockImplementationOnce(() => Promise.resolve(json(200, EMPTY_PAGE)));
-    await userEvent.click(screen.getByRole("tab", { name: "Shipping reconciliation" }));
-    expect(await screen.findByText("No reconciliations yet.")).toBeInTheDocument();
-  });
-
-  it("lists reconciliations and loads a second page", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Shipping reconciliation" }));
-    expect(await screen.findByText("Aramex")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
-    expect(await screen.findByText("Bosta")).toBeInTheDocument();
-  });
-
-  it("creates a reconciliation with a tracking line", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Shipping reconciliation" }));
-    await screen.findByText("Aramex");
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.type(screen.getByLabelText("Carrier"), "DHL");
-    await userEvent.type(screen.getByLabelText("Statement reference"), "STMT-9");
-    await userEvent.type(screen.getByLabelText("Period (YYYY-MM)"), "2026-02");
-    await userEvent.type(screen.getByLabelText("Tracking number"), "TRK-1");
-    await userEvent.type(screen.getByLabelText("Statement amount"), "5.00");
-    await userEvent.click(screen.getByRole("button", { name: "Add line" }));
-    expect(screen.getByText("TRK-1")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        (c) =>
-          String(c[0]) === "http://localhost:3000/v1/finance/reconciliations" &&
-          (c[1] as RequestInit)?.method === "POST",
-      );
-      expect(call).toBeDefined();
-      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({
-        carrier: "DHL",
-        statementRef: "STMT-9",
-        periodKey: "2026-02",
-        lines: [{ trackingNumber: "TRK-1", statementAmountMinor: 500 }],
-      });
-    });
-  });
-
-  it("cancels a reconciliation create form", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Shipping reconciliation" }));
-    await screen.findByText("Aramex");
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.type(screen.getByLabelText("Carrier"), "DHL");
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByLabelText("Carrier")).not.toBeInTheDocument();
-  });
-
-  it("shows an error state for reconciliations and retries", async () => {
-    renderPage();
-    await screen.findByText("Acme Trading");
-    const baseImpl = fetchMock.getMockImplementation();
-    let failNext = true;
-    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = init?.method ?? "GET";
-      if (failNext && url.includes("/finance/reconciliations") && method === "GET") {
-        failNext = false;
-        return Promise.resolve(json(500, { error: { code: "INTERNAL", statusCode: 500 } }));
-      }
-      return baseImpl!(input, init);
-    });
-    await userEvent.click(screen.getByRole("tab", { name: "Shipping reconciliation" }));
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText("Aramex")).toBeInTheDocument();
   });
 
   // ---- Suppliers (extra coverage) ---------------------------------------------
 
   it("edits a supplier", async () => {
     renderPage();
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
     const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
     expect(nameInput.value).toBe("Acme Trading");
@@ -877,7 +662,7 @@ describe("FinancePage", () => {
 
   it("cancels editing a supplier", async () => {
     renderPage();
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByText("Acme Trading")).toBeInTheDocument();
@@ -885,7 +670,7 @@ describe("FinancePage", () => {
 
   it("filters suppliers by search text and the active-only toggle", async () => {
     renderPage();
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     await userEvent.click(screen.getByLabelText("Active only"));
     await userEvent.type(screen.getByLabelText("Search by name…"), "beta");
     await waitFor(() => {
@@ -900,14 +685,14 @@ describe("FinancePage", () => {
 
   it("loads a second page of suppliers", async () => {
     renderPage();
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     await userEvent.click(screen.getByRole("button", { name: "Load more" }));
     expect(await screen.findByText("Beta Supplies")).toBeInTheDocument();
   });
 
   it("shows a save-failed notice when creating a supplier fails", async () => {
     renderPage();
-    await screen.findByText("Acme Trading");
+    await openSuppliers();
     const baseImpl = fetchMock.getMockImplementation();
     fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
       const url = String(input);
@@ -921,20 +706,6 @@ describe("FinancePage", () => {
     await userEvent.type(screen.getByLabelText("Name"), "Failing Co");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Could not save. Please try again.")).toBeInTheDocument();
-  });
-
-  it("renders periods and closes one with confirmation", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Accounting periods" }));
-    expect(await screen.findByText("2026-01")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Close period" }));
-    expect(screen.getByText(/Closing this period is permanent/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Yes, close it" }));
-    await waitFor(() => {
-      expect(
-        fetchMock.mock.calls.some((c) => String(c[0]).includes("/finance/periods/2026-01/close")),
-      ).toBe(true);
-    });
   });
 
   it("renders the reports tab and loads the cash center / P&L summary", async () => {
@@ -967,63 +738,5 @@ describe("FinancePage", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Load" }));
     expect(await screen.findByText("Could not save. Please try again.")).toBeInTheDocument();
-  });
-
-  // ---- Refunds (extra coverage) ------------------------------------------------
-
-  it("disables save for an invalid refund and re-enables once valid", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Refunds" }));
-    await screen.findByText("No refunds yet.");
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    await userEvent.type(screen.getByLabelText("Order ID"), "order-1");
-    await userEvent.type(screen.getByLabelText("Amount"), "5.00");
-    await userEvent.type(screen.getByLabelText("Reason"), "Damaged item");
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
-  });
-
-  it("cancels the refund create form", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Refunds" }));
-    await screen.findByText("No refunds yet.");
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByLabelText("Reason")).not.toBeInTheDocument();
-  });
-
-  it("shows a save-failed notice when a refund fails", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Refunds" }));
-    await screen.findByText("No refunds yet.");
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.type(screen.getByLabelText("Invoice ID"), INVOICE);
-    await userEvent.type(screen.getByLabelText("Amount"), "5.00");
-    await userEvent.type(screen.getByLabelText("Reason"), "Damaged item");
-    fetchMock.mockImplementationOnce(() =>
-      Promise.resolve(json(500, { error: { code: "INTERNAL", statusCode: 500 } })),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Could not save. Please try again.")).toBeInTheDocument();
-  });
-
-  it("shows an error state for refunds and retries", async () => {
-    renderPage();
-    await screen.findByText("Acme Trading");
-    const baseImpl = fetchMock.getMockImplementation();
-    let failNext = true;
-    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = init?.method ?? "GET";
-      if (failNext && url.includes("/finance/refunds") && method === "GET") {
-        failNext = false;
-        return Promise.resolve(json(500, { error: { code: "INTERNAL", statusCode: 500 } }));
-      }
-      return baseImpl!(input, init);
-    });
-    await userEvent.click(screen.getByRole("tab", { name: "Refunds" }));
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText("No refunds yet.")).toBeInTheDocument();
   });
 });

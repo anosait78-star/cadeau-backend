@@ -1,14 +1,4 @@
-import {
-  BarChart3,
-  CalendarRange,
-  ChevronRight,
-  FileText,
-  RotateCcw,
-  ShoppingCart,
-  Truck,
-  UsersRound,
-  Wallet,
-} from "lucide-react";
+import { BarChart3, ChevronRight, ShoppingCart, UsersRound, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
@@ -24,55 +14,35 @@ import type { TranslationKey } from "@/i18n/dictionaries";
 import { cn } from "@/lib/cn";
 import { ExpensesTab } from "./expenses-tab";
 import type { Option } from "./finance-shared";
-import { InvoicesTab } from "./invoices-tab";
-import { PeriodsTab } from "./periods-tab";
 import { PurchaseOrdersTab } from "./purchase-orders-tab";
-import { ReconciliationsTab } from "./reconciliations-tab";
-import { RefundsTab } from "./refunds-tab";
 import { ReportsTab } from "./reports-tab";
 import { SuppliersTab } from "./suppliers-tab";
 
-type Tab =
-  | "suppliers"
-  | "purchaseOrders"
-  | "expenses"
-  | "invoices"
-  | "refunds"
-  | "reconciliations"
-  | "periods"
-  | "reports";
+type Tab = "expenses" | "purchaseOrders" | "reports" | "suppliers";
 
-const TABS: readonly Tab[] = [
-  "suppliers",
-  "purchaseOrders",
-  "expenses",
-  "invoices",
-  "refunds",
-  "reconciliations",
-  "periods",
-  "reports",
-];
+/** In display order; the first is the default. */
+const TABS: readonly Tab[] = ["expenses", "purchaseOrders", "reports", "suppliers"];
 
 const TAB_ICONS: Readonly<Record<Tab, LucideIcon>> = {
-  suppliers: UsersRound,
-  purchaseOrders: ShoppingCart,
   expenses: Wallet,
-  invoices: FileText,
-  refunds: RotateCcw,
-  reconciliations: Truck,
-  periods: CalendarRange,
+  purchaseOrders: ShoppingCart,
   reports: BarChart3,
+  suppliers: UsersRound,
 };
 
 /** The open tab lives in `?tab=`, so a refresh or a shared link reopens it. */
 function parseTab(value: string | null): Tab {
-  return TABS.find((key) => key === value) ?? "suppliers";
+  return TABS.find((key) => key === value) ?? "expenses";
 }
 
 /**
- * Finance — suppliers & purchase orders, expenses, invoices (with PDF), refunds,
- * shipping reconciliation, accounting-period close, and the cash-center/P&L
- * dashboard (EPIC-13). The whole page is behind the `finance` feature; every
+ * Finance (EPIC-13): expenses, purchase orders, the cash center & P&L, and
+ * the suppliers purchase orders are raised against.
+ *
+ * Invoices, refunds, shipping reconciliation and accounting periods were
+ * taken off this page; their API endpoints remain, since the finance service
+ * still relies on them (a closed period blocks expense and purchase-order
+ * writes, and refunds feed the cash center). The whole page is behind the `finance` feature; every
  * write is behind `finance.manage` (the API re-checks both — ADR-003).
  *
  * Desktop opens on a banner (breadcrumb, title, subtitle) above a row of icon
@@ -218,10 +188,6 @@ function FinanceScreen(): ReactNode {
         />
       ) : null}
       {tab === "expenses" ? <ExpensesTab suppliers={suppliers} onNotify={flash} /> : null}
-      {tab === "invoices" ? <InvoicesTab onNotify={flash} /> : null}
-      {tab === "refunds" ? <RefundsTab onNotify={flash} /> : null}
-      {tab === "reconciliations" ? <ReconciliationsTab onNotify={flash} /> : null}
-      {tab === "periods" ? <PeriodsTab onNotify={flash} /> : null}
       {tab === "reports" ? <ReportsTab onNotify={flash} /> : null}
     </div>
   );
