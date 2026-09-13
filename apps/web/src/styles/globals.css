@@ -36,24 +36,40 @@
      cannot do. Confined to the board — status BADGES still use the five tones
      (`orders-status-tones.ts`), so nothing else in the app gains a new color.
 
-     Hues are spread around the wheel rather than following the lifecycle, so
-     neighbouring columns never look alike. */
-  --status-new: #64748b;
-  --status-confirming: #8b5cf6;
+  /* Assigned by BOARD order (see `BOARD_COLUMNS`), not lifecycle order, and
+     picked so each column's hue sits far from BOTH its neighbours' — the
+     first attempt spread them around the wheel but the board then re-sorted
+     them into a rainbow gradient, which put ready/shipped, delivered/
+     completed and returned/exchanged side by side looking alike.
+
+     Board order and the hue angle each lands on:
+       new 192 · confirming 292 · processing 222 · ready 90 · shipped 265 ·
+       delivered 142 · completed 330 · postponed 45 · cancelled 0 ·
+       returned 175 · exchanged 243 · incomplete 25
+     The smallest gap between neighbours is gold→red, the one pairing that was
+     already there and liked.
+
+     All twelve are saturated to the same degree as gold/red/orange; the
+     earlier slate `new` read as washed out next to them. Hue therefore tracks
+     "not the column beside me" more than meaning — ask for a swap if a
+     particular status wants a particular color. */
+  --status-new: #0891b2;
+  --status-confirming: #c026d3;
   --status-processing: #2563eb;
-  --status-ready: #0891b2;
-  --status-shipped: #0d9488;
+  --status-ready: #65a30d;
+  --status-shipped: #7c3aed;
   --status-delivered: #16a34a;
-  --status-completed: #65a30d;
+  --status-completed: #db2777;
   --status-postponed: #ca8a04;
   --status-cancelled: #dc2626;
-  --status-returned: #db2777;
-  --status-exchanged: #c026d3;
+  --status-returned: #0d9488;
+  --status-exchanged: #4f46e5;
   --status-incomplete: #ea580c;
 
-  /* How much of the column color tints its background. The stripe is the full
-     color; the body is this much of it over the page. */
-  --status-tint: 50%;
+  /* How much of the column color tints its background. The stripe along the
+     top is always the full color; this only lightens the body behind the
+     order cards. */
+  --status-tint: 20%;
 
   --radius: 0.5rem;
 
@@ -155,18 +171,18 @@
   --info: #60a5fa;
   --info-foreground: #0b0b0c;
 
-  /* Lighter, so the hue survives against #0b0b0c rather than turning to mud. */
-  --status-new: #94a3b8;
-  --status-confirming: #a78bfa;
+  /* Same hues, lighter — a dark hue at this tint over #0b0b0c turns to mud. */
+  --status-new: #22d3ee;
+  --status-confirming: #e879f9;
   --status-processing: #60a5fa;
-  --status-ready: #22d3ee;
-  --status-shipped: #2dd4bf;
+  --status-ready: #a3e635;
+  --status-shipped: #a78bfa;
   --status-delivered: #4ade80;
-  --status-completed: #a3e635;
+  --status-completed: #f472b6;
   --status-postponed: #facc15;
   --status-cancelled: #f87171;
-  --status-returned: #f472b6;
-  --status-exchanged: #e879f9;
+  --status-returned: #2dd4bf;
+  --status-exchanged: #818cf8;
   --status-incomplete: #fb923c;
 }
 
