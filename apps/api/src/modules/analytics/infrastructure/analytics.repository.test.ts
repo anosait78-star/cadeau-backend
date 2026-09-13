@@ -23,6 +23,7 @@ function makeRepo() {
   const models = {
     order: delegate(),
     orderItem: delegate(),
+    product: delegate(),
     inventoryStock: delegate(),
     expense: delegate(),
   };
@@ -79,6 +80,8 @@ describe("AnalyticsRepository — products", () => {
     queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([
       {
         variant_id: "v1",
+        product_id: "p1",
+        image_url: "https://cdn.example/widget.png",
         product_name: "Widget",
         variant_name: "Red",
         units_sold: 12n,
@@ -90,6 +93,8 @@ describe("AnalyticsRepository — products", () => {
     expect(rows).toEqual([
       {
         variantId: "v1",
+        productId: "p1",
+        imageUrl: "https://cdn.example/widget.png",
         productName: "Widget",
         variantName: "Red",
         unitsSold: 12,
@@ -102,6 +107,86 @@ describe("AnalyticsRepository — products", () => {
     const { repo, queryRaw } = makeRepo();
     queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     expect(await repo.getProductPerformance(COMPANY, WINDOW)).toEqual([]);
+  });
+  it("excludes cancelled and returned orders from product revenue", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await repo.getProductPerformance(COMPANY, WINDOW);
+
+    // The statement filters them out, and carries them as bind values, never inlined.
+    const [strings, ...values] = queryRaw.mock.calls[1] as [readonly string[], ...unknown[]];
+    expect(strings.join("?")).toContain("o.status NOT IN");
+    expect(JSON.stringify(values)).toContain("cancelled");
+    expect(JSON.stringify(values)).toContain("returned");
+  });
+});
+
+describe("AnalyticsRepository — products totals", () => {
+  it("counts the catalogue and sums the window's units and revenue", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.product.count.mockResolvedValueOnce(128).mockResolvedValueOnce(4);
+    queryRaw
+      .mockResolvedValueOnce([]) // setTenantContext
+      .mockResolvedValueOnce([{ units_sold: 342n, revenue_minor: 1132500n }]);
+
+    const totals = await repo.getProductsTotals(COMPANY, WINDOW);
+
+    expect(totals).toEqual({
+      activeProducts: 128,
+      newProducts: 4,
+      unitsSold: 342,
+      revenueMinor: 1132500,
+    });
+  });
+
+  it("reads zeros when nothing sold in the window", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ units_sold: null, revenue_minor: null }]);
+
+    const totals = await repo.getProductsTotals(COMPANY, WINDOW);
+
+    expect(totals.unitsSold).toBe(0);
+    expect(totals.revenueMinor).toBe(0);
+  });
+});
+
+describe("AnalyticsRepository — profitability series", () => {
+  it("maps each bucket's collected, COGS and expenses", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        bucket: new Date("2026-01-01T00:00:00.000Z"),
+        collected_minor: 100000n,
+        cogs_minor: 40000n,
+        expenses_minor: 20000n,
+      },
+      {
+        bucket: new Date("2026-01-02T00:00:00.000Z"),
+        collected_minor: null,
+        cogs_minor: null,
+        expenses_minor: 7300n,
+      },
+    ]);
+
+    const series = await repo.getProfitabilitySeries(COMPANY, WINDOW, "day");
+
+    expect(series).toEqual([
+      {
+        bucket: "2026-01-01T00:00:00.000Z",
+        collectedMinor: 100000,
+        cogsMinor: 40000,
+        expensesMinor: 20000,
+      },
+      {
+        bucket: "2026-01-02T00:00:00.000Z",
+        collectedMinor: 0,
+        cogsMinor: 0,
+        expensesMinor: 7300,
+      },
+    ]);
   });
 });
 

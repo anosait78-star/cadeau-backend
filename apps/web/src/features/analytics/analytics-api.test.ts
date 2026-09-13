@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   exportAnalytics,
   getBusinessAnalytics,
-  getInventoryAnalytics,
   getProductsAnalytics,
   getProfitabilityAnalytics,
-  getStaffAnalytics,
 } from "./analytics-api";
 
 function json(status: number, body: unknown): Response {
@@ -42,16 +40,6 @@ describe("analytics-api query building", () => {
     const url = fetchMock.mock.calls[0]![0] as string;
     expect(url).toContain("from=2026-01-01T00%3A00%3A00.000Z");
     expect(url).toContain("granularity=week");
-  });
-
-  it("calls the inventory endpoint", async () => {
-    await getInventoryAnalytics();
-    expect((fetchMock.mock.calls[0]![0] as string).endsWith("/analytics/inventory")).toBe(true);
-  });
-
-  it("calls the staff endpoint", async () => {
-    await getStaffAnalytics();
-    expect((fetchMock.mock.calls[0]![0] as string).endsWith("/analytics/staff")).toBe(true);
   });
 
   it("calls the profitability endpoint", async () => {

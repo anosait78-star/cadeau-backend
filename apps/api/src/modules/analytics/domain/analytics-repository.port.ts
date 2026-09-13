@@ -3,7 +3,9 @@ import type {
   BusinessRawFacts,
   InventoryRawFacts,
   ProductPerformanceRow,
+  ProductsRawTotals,
   ProfitabilityPeriodFacts,
+  ProfitabilityPointFacts,
   StaffPerformanceRow,
 } from "./analytics.entity";
 
@@ -33,11 +35,19 @@ export interface AnalyticsRepositoryPort {
     window: Window,
   ): Promise<readonly ProductPerformanceRow[]>;
 
+  getProductsTotals(companyId: string, window: Window): Promise<ProductsRawTotals>;
+
   getInventoryFacts(companyId: string, window: Window): Promise<InventoryRawFacts>;
 
   getStaffPerformance(companyId: string, window: Window): Promise<readonly StaffPerformanceRow[]>;
 
   getProfitabilityFacts(companyId: string, window: Window): Promise<ProfitabilityPeriodFacts>;
+
+  getProfitabilitySeries(
+    companyId: string,
+    window: Window,
+    granularity: Granularity,
+  ): Promise<readonly ProfitabilityPointFacts[]>;
 }
 
 /** DI token for {@link AnalyticsRepositoryPort}. */

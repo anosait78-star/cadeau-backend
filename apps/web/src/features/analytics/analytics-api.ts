@@ -39,48 +39,35 @@ export function getBusinessAnalytics(options: AnalyticsWindow = {}): Promise<Bus
 
 export interface ProductPerformanceRow {
   readonly variantId: string;
+  readonly productId: string;
+  /** The parent product's display image, when it has one. */
+  readonly imageUrl: string | null;
   readonly productName: string;
   readonly variantName: string;
   readonly unitsSold: number;
   readonly revenueMinor: number;
 }
 
+/** Catalogue + sales headline numbers for one window. */
+export interface ProductsTotals {
+  readonly activeProducts: number;
+  readonly newProducts: number;
+  readonly unitsSold: number;
+  readonly revenueMinor: number;
+  readonly averagePriceMinor: number;
+}
+
 export interface ProductsSummary {
   readonly top: readonly ProductPerformanceRow[];
   readonly bottom: readonly ProductPerformanceRow[];
+  readonly totals: ProductsTotals;
+  /** The same totals over the preceding window of equal length. */
+  readonly previous: ProductsTotals;
 }
 
 /** `GET /v1/analytics/products` */
 export function getProductsAnalytics(options: AnalyticsWindow = {}): Promise<ProductsSummary> {
   return apiFetch<ProductsSummary>(`/analytics/products${buildQuery(options)}`);
-}
-
-export interface InventorySummary {
-  readonly onHandValueMinor: number;
-  readonly lowStockCount: number;
-  readonly outOfStockCount: number;
-  readonly turnoverSignal: number | null;
-}
-
-/** `GET /v1/analytics/inventory` */
-export function getInventoryAnalytics(options: AnalyticsWindow = {}): Promise<InventorySummary> {
-  return apiFetch<InventorySummary>(`/analytics/inventory${buildQuery(options)}`);
-}
-
-export interface StaffPerformanceRow {
-  readonly assigneeId: string | null;
-  readonly assigneeName: string;
-  readonly orderCount: number;
-  readonly collectedMinor: number;
-}
-
-export interface StaffSummary {
-  readonly rows: readonly StaffPerformanceRow[];
-}
-
-/** `GET /v1/analytics/staff` */
-export function getStaffAnalytics(options: AnalyticsWindow = {}): Promise<StaffSummary> {
-  return apiFetch<StaffSummary>(`/analytics/staff${buildQuery(options)}`);
 }
 
 export interface ProfitabilityPeriod {
@@ -90,10 +77,18 @@ export interface ProfitabilityPeriod {
   readonly netIncomeMinor: number;
 }
 
+/** One bucket of the profitability series. */
+export interface ProfitabilityPoint extends ProfitabilityPeriod {
+  readonly bucket: string;
+}
+
 export interface ProfitabilitySummary {
   readonly current: ProfitabilityPeriod;
   readonly previous: ProfitabilityPeriod;
   readonly netIncomeDeltaPct: number | null;
+  /** The window split by the requested granularity, oldest bucket first. */
+  readonly series: readonly ProfitabilityPoint[];
+  readonly granularity: "day" | "week" | "month";
 }
 
 /** `GET /v1/analytics/profitability` (net income on collected − COGS − expenses, D4) */

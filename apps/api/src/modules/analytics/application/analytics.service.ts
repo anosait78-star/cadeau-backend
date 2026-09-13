@@ -14,6 +14,7 @@ import {
   computeBusinessSummary,
   computeInventorySummary,
   computeProductsSummary,
+  computeProductsTotals,
   computeProfitabilitySummary,
   type BusinessSummary,
   type InventorySummary,
@@ -90,11 +91,17 @@ export class AnalyticsService {
     const cached = this.cache.get<ProductsSummary>(key);
     if (cached !== null) return cached;
 
-    const rows = await this.repo.getProductPerformance(companyId, {
-      from: query.from,
-      to: query.to,
-    });
-    const summary = computeProductsSummary(rows);
+    const previousWindow = precedingWindow(query.from, query.to);
+    const [rows, totals, previousTotals] = await Promise.all([
+      this.repo.getProductPerformance(companyId, { from: query.from, to: query.to }),
+      this.repo.getProductsTotals(companyId, { from: query.from, to: query.to }),
+      this.repo.getProductsTotals(companyId, previousWindow),
+    ]);
+    const summary: ProductsSummary = {
+      ...computeProductsSummary(rows),
+      totals: computeProductsTotals(totals),
+      previous: computeProductsTotals(previousTotals),
+    };
     this.cache.set(key, summary);
     return summary;
   }
@@ -148,11 +155,16 @@ export class AnalyticsService {
     if (cached !== null) return cached;
 
     const previous = precedingWindow(query.from, query.to);
-    const [current, previousFacts] = await Promise.all([
+    const [current, previousFacts, series] = await Promise.all([
       this.repo.getProfitabilityFacts(companyId, { from: query.from, to: query.to }),
       this.repo.getProfitabilityFacts(companyId, previous),
+      this.repo.getProfitabilitySeries(
+        companyId,
+        { from: query.from, to: query.to },
+        query.granularity,
+      ),
     ]);
-    const summary = computeProfitabilitySummary(current, previousFacts);
+    const summary = computeProfitabilitySummary(current, previousFacts, series, query.granularity);
     this.cache.set(key, summary);
     return summary;
   }

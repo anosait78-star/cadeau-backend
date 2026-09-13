@@ -3,6 +3,7 @@ import {
   computeBusinessSummary,
   computeInventorySummary,
   computeProductsSummary,
+  computeProductsTotals,
   computeProfitabilityPeriod,
   computeProfitabilitySummary,
   percentDelta,
@@ -65,6 +66,8 @@ describe("computeBusinessSummary", () => {
 describe("computeProductsSummary", () => {
   const row = (id: string, revenue: number): ProductPerformanceRow => ({
     variantId: id,
+    productId: `p-${id}`,
+    imageUrl: null,
     productName: `Product ${id}`,
     variantName: "Default",
     unitsSold: revenue / 100,
@@ -98,6 +101,30 @@ describe("computeProductsSummary", () => {
     const { top, bottom } = computeProductsSummary([], 5);
     expect(top).toEqual([]);
     expect(bottom).toEqual([]);
+  });
+});
+
+describe("computeProductsTotals", () => {
+  it("derives the average unit price from revenue and units", () => {
+    const totals = computeProductsTotals({
+      activeProducts: 128,
+      newProducts: 4,
+      unitsSold: 342,
+      revenueMinor: 1132500,
+    });
+    expect(totals.averagePriceMinor).toBe(3311);
+    expect(totals.activeProducts).toBe(128);
+    expect(totals.newProducts).toBe(4);
+  });
+
+  it("reports a zero average rather than dividing by zero when nothing sold", () => {
+    const totals = computeProductsTotals({
+      activeProducts: 5,
+      newProducts: 0,
+      unitsSold: 0,
+      revenueMinor: 0,
+    });
+    expect(totals.averagePriceMinor).toBe(0);
   });
 });
 
@@ -140,6 +167,8 @@ describe("computeProfitabilityPeriod / computeProfitabilitySummary", () => {
     const summary = computeProfitabilitySummary(
       { collectedMinor: 100000, cogsMinor: 40000, expensesMinor: 20000 },
       { collectedMinor: 80000, cogsMinor: 30000, expensesMinor: 20000 },
+      [],
+      "day",
     );
     expect(summary.current.netIncomeMinor).toBe(40000);
     expect(summary.previous.netIncomeMinor).toBe(30000);
@@ -150,7 +179,32 @@ describe("computeProfitabilityPeriod / computeProfitabilitySummary", () => {
     const summary = computeProfitabilitySummary(
       { collectedMinor: 100000, cogsMinor: 40000, expensesMinor: 20000 },
       { collectedMinor: 0, cogsMinor: 0, expensesMinor: 0 },
+      [],
+      "day",
     );
     expect(summary.netIncomeDeltaPct).toBeNull();
+  });
+  it("carries the series through, deriving each bucket's net income", () => {
+    const summary = computeProfitabilitySummary(
+      { collectedMinor: 100000, cogsMinor: 40000, expensesMinor: 20000 },
+      { collectedMinor: 80000, cogsMinor: 30000, expensesMinor: 20000 },
+      [
+        {
+          bucket: "2026-01-01T00:00:00.000Z",
+          collectedMinor: 60000,
+          cogsMinor: 25000,
+          expensesMinor: 20000,
+        },
+        {
+          bucket: "2026-01-02T00:00:00.000Z",
+          collectedMinor: 0,
+          cogsMinor: 0,
+          expensesMinor: 7300,
+        },
+      ],
+      "day",
+    );
+    expect(summary.granularity).toBe("day");
+    expect(summary.series.map((point) => point.netIncomeMinor)).toEqual([15000, -7300]);
   });
 });

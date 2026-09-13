@@ -32,9 +32,31 @@ function business(): BusinessSummary {
 function products(): ProductsSummary {
   return {
     top: [
-      { variantId: "v1", productName: "P1", variantName: "V1", unitsSold: 5, revenueMinor: 5000 },
+      {
+        variantId: "v1",
+        productId: "p1",
+        imageUrl: null,
+        productName: "P1",
+        variantName: "V1",
+        unitsSold: 5,
+        revenueMinor: 5000,
+      },
     ],
     bottom: [],
+    totals: {
+      activeProducts: 12,
+      newProducts: 2,
+      unitsSold: 5,
+      revenueMinor: 5000,
+      averagePriceMinor: 1000,
+    },
+    previous: {
+      activeProducts: 10,
+      newProducts: 1,
+      unitsSold: 4,
+      revenueMinor: 4000,
+      averagePriceMinor: 1000,
+    },
   };
 }
 
@@ -63,6 +85,8 @@ function profitability(): ProfitabilitySummary {
       netIncomeMinor: 30000,
     },
     netIncomeDeltaPct: 33.33,
+    series: [],
+    granularity: "day",
   };
 }
 

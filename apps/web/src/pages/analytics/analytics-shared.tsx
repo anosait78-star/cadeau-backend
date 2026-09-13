@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Label } from "@/components/ui/label";
-import type { SparklinePoint } from "@/features/analytics/analytics-api";
+import type { StatPill } from "@/components/ui/stat-card";
+import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
 
 /** Placeholder for a missing optional value. */
@@ -15,100 +15,86 @@ export function formatDeltaPct(pct: number | null, locale: string): string {
   return pct >= 0 ? `+${formatted}%` : `-${formatted}%`;
 }
 
-/** A labeled form field wrapper. */
-export function Field({
-  id,
-  label,
-  children,
-}: {
-  id: string;
-  label: string;
-  children: ReactNode;
-}): ReactNode {
-  return (
-    <div className="flex flex-col gap-1">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-    </div>
-  );
+/**
+ * A period-over-period badge for a measure where growing is the good news —
+ * revenue, units, profit. Returns `null` when the earlier period had nothing
+ * to compare against, which draws no badge at all rather than a fake 0%.
+ */
+export function growthPill(pct: number | null, locale: string): StatPill | null {
+  if (pct === null) return null;
+  const text = formatDeltaPct(pct, locale);
+  if (Math.round(pct) === 0) return { text, tone: "neutral" };
+  return { text, tone: pct > 0 ? "positive" : "negative" };
 }
 
-/** One labeled numeric stat, matching the finance reports tab's convention. */
-export function Stat({
-  label,
-  value,
-  emphasize = false,
+/** A minor-unit amount over its currency code, as the stat cards show it. */
+export function MoneyValue({
+  minor,
+  locale,
+  unit,
 }: {
-  label: string;
-  value: string;
-  emphasize?: boolean;
+  readonly minor: number;
+  readonly locale: string;
+  readonly unit: string;
 }): ReactNode {
   return (
-    <div className="flex flex-col">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={`tabular-nums ${emphasize ? "text-base font-semibold" : ""}`}>{value}</dd>
-    </div>
+    <span className="flex flex-col leading-tight">
+      <span className="truncate tabular-nums">{formatMoney(minor, locale)}</span>
+      <span className="text-[0.6em] font-medium text-muted-foreground">{unit}</span>
+    </span>
   );
 }
 
 /**
- * A minimal, dependency-free sparkline: an inline `<svg><polyline>` scaled to
- * the series' own min/max (EPIC-14 — no charting library, keeps the bundle
- * budget intact). Renders nothing but a flat baseline when the series is
- * empty or constant, so it never divides by zero.
+ * The frame every chart and table on this page sits in: a titled card with a
+ * hint under the title and room for a badge or a link in its header.
  */
-export function Sparkline({
-  points,
-  width = 240,
-  height = 48,
+export function PanelCard({
+  title,
+  hint,
+  icon = null,
+  actions = null,
+  footer = null,
+  className,
+  headerClassName,
+  children,
 }: {
-  points: readonly SparklinePoint[];
-  width?: number;
-  height?: number;
+  readonly title: string;
+  readonly hint?: string;
+  readonly icon?: ReactNode;
+  readonly actions?: ReactNode;
+  readonly footer?: ReactNode;
+  readonly className?: string | undefined;
+  readonly headerClassName?: string | undefined;
+  readonly children: ReactNode;
 }): ReactNode {
-  if (points.length === 0) {
-    return (
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        width={width}
-        height={height}
-        role="img"
-        aria-label=""
-      >
-        <line
-          x1={0}
-          y1={height / 2}
-          x2={width}
-          y2={height / 2}
-          stroke="currentColor"
-          strokeOpacity={0.2}
-        />
-      </svg>
-    );
-  }
-
-  const values = points.map((p) => p.collectedMinor);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const stepX = points.length > 1 ? width / (points.length - 1) : 0;
-
-  const coords = points.map((p, i) => {
-    const x = points.length > 1 ? i * stepX : width / 2;
-    const y = height - ((p.collectedMinor - min) / span) * height;
-    return `${x},${y}`;
-  });
-
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      width={width}
-      height={height}
-      role="img"
-      aria-label="sparkline"
-      className="text-primary"
+    <section
+      aria-label={title}
+      className={cn(
+        "flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xs",
+        className,
+      )}
     >
-      <polyline points={coords.join(" ")} fill="none" stroke="currentColor" strokeWidth={2} />
-    </svg>
+      <header
+        className={cn(
+          "flex items-start justify-between gap-3 px-4 py-3.5 lg:px-5 lg:py-4",
+          headerClassName,
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          {icon}
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-semibold text-foreground lg:text-lg">{title}</h3>
+            {hint !== undefined ? (
+              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground lg:text-sm">{hint}</p>
+            ) : null}
+          </div>
+        </div>
+        {actions}
+      </header>
+      <div className="min-w-0 flex-1 px-4 pb-4 lg:px-5 lg:pb-5">{children}</div>
+      {footer}
+    </section>
   );
 }

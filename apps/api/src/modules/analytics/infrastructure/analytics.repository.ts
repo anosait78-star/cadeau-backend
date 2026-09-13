@@ -6,7 +6,9 @@ import type {
   BusinessRawFacts,
   InventoryRawFacts,
   ProductPerformanceRow,
+  ProductsRawTotals,
   ProfitabilityPeriodFacts,
+  ProfitabilityPointFacts,
   SparklinePoint,
   StaffPerformanceRow,
 } from "../domain/analytics.entity";
@@ -22,6 +24,13 @@ const TRUNC_UNIT: Record<Granularity, string> = {
   month: "month",
 };
 
+/**
+ * Order states whose lines never count as sales: money that came back or was
+ * never taken. Product revenue and unit counts exclude them (2026-09-14
+ * decision) — a cancelled order is not a sale of its lines.
+ */
+const VOID_ORDER_STATUSES = ["cancelled", "returned"];
+
 interface SeriesRow {
   readonly bucket: Date;
   readonly order_count: bigint;
@@ -30,10 +39,24 @@ interface SeriesRow {
 
 interface ProductRow {
   readonly variant_id: string;
+  readonly product_id: string;
+  readonly image_url: string | null;
   readonly product_name: string;
   readonly variant_name: string;
   readonly units_sold: bigint | null;
   readonly revenue_minor: bigint | null;
+}
+
+interface ProductTotalsRow {
+  readonly units_sold: bigint | null;
+  readonly revenue_minor: bigint | null;
+}
+
+interface ProfitabilityBucketRow {
+  readonly bucket: Date;
+  readonly collected_minor: bigint | null;
+  readonly cogs_minor: bigint | null;
+  readonly expenses_minor: bigint | null;
 }
 
 interface StaffRow {
@@ -108,25 +131,58 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
     return this.tenantTx(companyId, async (tx) => {
       const rows = await tx.$queryRaw<ProductRow[]>`
         SELECT oi.variant_id AS variant_id,
+               p.id AS product_id,
+               p.image_url AS image_url,
                p.name AS product_name,
                v.name AS variant_name,
                sum(oi.quantity)::bigint AS units_sold,
                sum(oi.price * oi.quantity)::bigint AS revenue_minor
           FROM public.order_items oi
+          JOIN public.orders o ON o.id = oi.order_id
           JOIN public.product_variants v ON v.id = oi.variant_id
           JOIN public.products p ON p.id = v.product_id
          WHERE oi.company_id = ${companyId}::uuid
            AND oi.created_at BETWEEN ${window.from} AND ${window.to}
-         GROUP BY oi.variant_id, p.name, v.name
+           AND o.status NOT IN (${Prisma.join(VOID_ORDER_STATUSES)})
+         GROUP BY oi.variant_id, p.id, p.image_url, p.name, v.name
          ORDER BY revenue_minor DESC`;
 
       return rows.map((row) => ({
         variantId: row.variant_id,
+        productId: row.product_id,
+        imageUrl: row.image_url,
         productName: row.product_name,
         variantName: row.variant_name,
         unitsSold: Number(row.units_sold ?? 0n),
         revenueMinor: Number(row.revenue_minor ?? 0n),
       }));
+    });
+  }
+
+  async getProductsTotals(companyId: string, window: Window): Promise<ProductsRawTotals> {
+    return this.tenantTx(companyId, async (tx) => {
+      const [activeProducts, newProducts, sold] = await Promise.all([
+        tx.product.count({ where: { companyId, isActive: true } }),
+        tx.product.count({
+          where: { companyId, createdAt: { gte: window.from, lte: window.to } },
+        }),
+        tx.$queryRaw<ProductTotalsRow[]>`
+          SELECT sum(oi.quantity)::bigint AS units_sold,
+                 sum(oi.price * oi.quantity)::bigint AS revenue_minor
+            FROM public.order_items oi
+            JOIN public.orders o ON o.id = oi.order_id
+           WHERE oi.company_id = ${companyId}::uuid
+             AND oi.created_at BETWEEN ${window.from} AND ${window.to}
+             AND o.status NOT IN (${Prisma.join(VOID_ORDER_STATUSES)})`,
+      ]);
+
+      const totals = sold[0];
+      return {
+        activeProducts,
+        newProducts,
+        unitsSold: Number(totals?.units_sold ?? 0n),
+        revenueMinor: Number(totals?.revenue_minor ?? 0n),
+      };
     });
   }
 
@@ -216,6 +272,66 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
         cogsMinor,
         expensesMinor: Number(expenses._sum.amountMinor ?? 0n),
       };
+    });
+  }
+
+  async getProfitabilitySeries(
+    companyId: string,
+    window: Window,
+    granularity: Granularity,
+  ): Promise<readonly ProfitabilityPointFacts[]> {
+    return this.tenantTx(companyId, async (tx) => {
+      /*
+       * One bucketed row per period, from three sources that share no table:
+       * what orders collected and what their lines cost (both keyed on the
+       * order's `updated_at`, as `getProfitabilityFacts` does) and what was
+       * spent (keyed on the expense's `incurred_at`). A union of three
+       * single-source shapes summed per bucket, so a period missing from one
+       * source still appears with a zero for it.
+       */
+      const rows = await tx.$queryRaw<ProfitabilityBucketRow[]>`
+        SELECT bucket,
+               sum(collected_minor)::bigint AS collected_minor,
+               sum(cogs_minor)::bigint AS cogs_minor,
+               sum(expenses_minor)::bigint AS expenses_minor
+          FROM (
+            SELECT date_trunc(${TRUNC_UNIT[granularity]}, o.updated_at) AS bucket,
+                   sum(o.collected_amount) AS collected_minor,
+                   0::bigint AS cogs_minor,
+                   0::bigint AS expenses_minor
+              FROM public.orders o
+             WHERE o.company_id = ${companyId}::uuid
+               AND o.updated_at BETWEEN ${window.from} AND ${window.to}
+             GROUP BY bucket
+            UNION ALL
+            SELECT date_trunc(${TRUNC_UNIT[granularity]}, o.updated_at) AS bucket,
+                   0::bigint AS collected_minor,
+                   sum(oi.cost_snapshot * oi.quantity) AS cogs_minor,
+                   0::bigint AS expenses_minor
+              FROM public.order_items oi
+              JOIN public.orders o ON o.id = oi.order_id
+             WHERE oi.company_id = ${companyId}::uuid
+               AND o.updated_at BETWEEN ${window.from} AND ${window.to}
+             GROUP BY bucket
+            UNION ALL
+            SELECT date_trunc(${TRUNC_UNIT[granularity]}, e.incurred_at) AS bucket,
+                   0::bigint AS collected_minor,
+                   0::bigint AS cogs_minor,
+                   sum(e.amount_minor) AS expenses_minor
+              FROM public.expenses e
+             WHERE e.company_id = ${companyId}::uuid
+               AND e.incurred_at BETWEEN ${window.from} AND ${window.to}
+             GROUP BY bucket
+          ) parts
+         GROUP BY bucket
+         ORDER BY bucket`;
+
+      return rows.map((row) => ({
+        bucket: row.bucket.toISOString(),
+        collectedMinor: Number(row.collected_minor ?? 0n),
+        cogsMinor: Number(row.cogs_minor ?? 0n),
+        expensesMinor: Number(row.expenses_minor ?? 0n),
+      }));
     });
   }
 

@@ -61,23 +61,65 @@ export function computeBusinessSummary(
 /** One variant's performance in the window. */
 export interface ProductPerformanceRow {
   readonly variantId: string;
+  readonly productId: string;
+  /** The parent product's display image, when it has one. */
+  readonly imageUrl: string | null;
   readonly productName: string;
   readonly variantName: string;
   readonly unitsSold: number;
   readonly revenueMinor: number;
 }
 
+/** Catalogue + sales headline numbers for one window. */
+export interface ProductsTotals {
+  /** Active products in the catalogue right now — a stock count, not a window figure. */
+  readonly activeProducts: number;
+  /** Products created inside the window. */
+  readonly newProducts: number;
+  /** Units sold in the window. */
+  readonly unitsSold: number;
+  readonly revenueMinor: number;
+  /** Revenue ÷ units, in minor units; 0 when nothing sold. */
+  readonly averagePriceMinor: number;
+}
+
+/** Raw catalogue/sales facts the repository reads for the products axis. */
+export interface ProductsRawTotals {
+  readonly activeProducts: number;
+  readonly newProducts: number;
+  readonly unitsSold: number;
+  readonly revenueMinor: number;
+}
+
+/** Derive the products totals, filling in the average unit price. */
+export function computeProductsTotals(facts: ProductsRawTotals): ProductsTotals {
+  return {
+    activeProducts: facts.activeProducts,
+    newProducts: facts.newProducts,
+    unitsSold: facts.unitsSold,
+    revenueMinor: facts.revenueMinor,
+    averagePriceMinor: facts.unitsSold === 0 ? 0 : Math.round(facts.revenueMinor / facts.unitsSold),
+  };
+}
+
 /** Top and bottom performers by revenue in the window. */
-export interface ProductsSummary {
+export interface ProductsRanking {
   readonly top: readonly ProductPerformanceRow[];
   readonly bottom: readonly ProductPerformanceRow[];
+}
+
+/** The products axis view: the ranking plus the window totals and the preceding window's. */
+export interface ProductsSummary extends ProductsRanking {
+  readonly totals: ProductsTotals;
+  /** The same totals over the preceding window of equal length, for the deltas. */
+  readonly previous: ProductsTotals;
 }
 
 /** Split a revenue-sorted (descending) list of rows into top/bottom N, no overlap. */
 export function computeProductsSummary(
   rowsDescByRevenue: readonly ProductPerformanceRow[],
   limit = 5,
-): ProductsSummary {
+): ProductsRanking {
   const top = rowsDescByRevenue.slice(0, limit);
   const bottomCandidates = rowsDescByRevenue.slice(limit).reverse();
   const bottom =
@@ -157,17 +199,32 @@ export function computeProfitabilityPeriod(facts: ProfitabilityPeriodFacts): Pro
   };
 }
 
+/** One bucket of the profitability series — the same arithmetic as {@link ProfitabilityPeriod}. */
+export interface ProfitabilityPoint extends ProfitabilityPeriod {
+  readonly bucket: string;
+}
+
+/** One bucket as the repository reads it, before net income is derived. */
+export interface ProfitabilityPointFacts extends ProfitabilityPeriodFacts {
+  readonly bucket: string;
+}
+
 /** The computed profitability summary, current window plus the preceding window. */
 export interface ProfitabilitySummary {
   readonly current: ProfitabilityPeriod;
   readonly previous: ProfitabilityPeriod;
   readonly netIncomeDeltaPct: number | null;
+  /** The current window split by the requested granularity, oldest bucket first. */
+  readonly series: readonly ProfitabilityPoint[];
+  readonly granularity: Granularity;
 }
 
 /** Compute the full profitability axis summary (current vs. preceding window). */
 export function computeProfitabilitySummary(
   current: ProfitabilityPeriodFacts,
   previous: ProfitabilityPeriodFacts,
+  series: readonly ProfitabilityPointFacts[],
+  granularity: Granularity,
 ): ProfitabilitySummary {
   const currentPeriod = computeProfitabilityPeriod(current);
   const previousPeriod = computeProfitabilityPeriod(previous);
@@ -175,5 +232,10 @@ export function computeProfitabilitySummary(
     current: currentPeriod,
     previous: previousPeriod,
     netIncomeDeltaPct: percentDelta(currentPeriod.netIncomeMinor, previousPeriod.netIncomeMinor),
+    series: series.map((point) => ({
+      bucket: point.bucket,
+      ...computeProfitabilityPeriod(point),
+    })),
+    granularity,
   };
 }

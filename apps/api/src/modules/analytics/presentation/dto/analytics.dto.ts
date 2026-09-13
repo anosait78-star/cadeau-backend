@@ -11,7 +11,9 @@ import type {
   InventorySummary,
   ProductPerformanceRow,
   ProductsSummary,
+  ProductsTotals,
   ProfitabilityPeriod,
+  ProfitabilityPoint,
   ProfitabilitySummary,
   SparklinePoint,
   StaffPerformanceRow,
@@ -100,6 +102,9 @@ export class BusinessSummaryDto {
 /** One variant's performance in the window. */
 export class ProductPerformanceRowDto {
   @ApiProperty() variantId!: string;
+  @ApiProperty() productId!: string;
+  @ApiPropertyOptional({ nullable: true, description: "The parent product’s display image." })
+  imageUrl!: string | null;
   @ApiProperty() productName!: string;
   @ApiProperty() variantName!: string;
   @ApiProperty({ example: 120 }) unitsSold!: number;
@@ -108,10 +113,35 @@ export class ProductPerformanceRowDto {
   static from(row: ProductPerformanceRow): ProductPerformanceRowDto {
     const dto = new ProductPerformanceRowDto();
     dto.variantId = row.variantId;
+    dto.productId = row.productId;
+    dto.imageUrl = row.imageUrl;
     dto.productName = row.productName;
     dto.variantName = row.variantName;
     dto.unitsSold = row.unitsSold;
     dto.revenueMinor = row.revenueMinor;
+    return dto;
+  }
+}
+
+/** Catalogue + sales headline numbers for one window. */
+export class ProductsTotalsDto {
+  @ApiProperty({ example: 128, description: "Active products in the catalogue right now." })
+  activeProducts!: number;
+
+  @ApiProperty({ example: 4, description: "Products created inside the window." })
+  newProducts!: number;
+
+  @ApiProperty({ example: 342 }) unitsSold!: number;
+  @ApiProperty({ example: 1132500, description: "Integer minor units." }) revenueMinor!: number;
+  @ApiProperty({ example: 33100, description: "Integer minor units." }) averagePriceMinor!: number;
+
+  static from(view: ProductsTotals): ProductsTotalsDto {
+    const dto = new ProductsTotalsDto();
+    dto.activeProducts = view.activeProducts;
+    dto.newProducts = view.newProducts;
+    dto.unitsSold = view.unitsSold;
+    dto.revenueMinor = view.revenueMinor;
+    dto.averagePriceMinor = view.averagePriceMinor;
     return dto;
   }
 }
@@ -124,10 +154,18 @@ export class ProductsSummaryDto {
   @ApiProperty({ type: [ProductPerformanceRowDto] })
   bottom!: ProductPerformanceRowDto[];
 
+  @ApiProperty({ type: ProductsTotalsDto })
+  totals!: ProductsTotalsDto;
+
+  @ApiProperty({ type: ProductsTotalsDto, description: "The preceding window of equal length." })
+  previous!: ProductsTotalsDto;
+
   static from(view: ProductsSummary): ProductsSummaryDto {
     const dto = new ProductsSummaryDto();
     dto.top = view.top.map(ProductPerformanceRowDto.from);
     dto.bottom = view.bottom.map(ProductPerformanceRowDto.from);
+    dto.totals = ProductsTotalsDto.from(view.totals);
+    dto.previous = ProductsTotalsDto.from(view.previous);
     return dto;
   }
 }
@@ -206,6 +244,22 @@ export class ProfitabilityPeriodDto {
   }
 }
 
+/** One bucket of the profitability series. */
+export class ProfitabilityPointDto extends ProfitabilityPeriodDto {
+  @ApiProperty({ example: "2026-08-01T00:00:00.000Z" })
+  bucket!: string;
+
+  static fromPoint(view: ProfitabilityPoint): ProfitabilityPointDto {
+    const dto = new ProfitabilityPointDto();
+    dto.bucket = view.bucket;
+    dto.collectedMinor = view.collectedMinor;
+    dto.cogsMinor = view.cogsMinor;
+    dto.expensesMinor = view.expensesMinor;
+    dto.netIncomeMinor = view.netIncomeMinor;
+    return dto;
+  }
+}
+
 /** Net income on collected, current + preceding window (`GET /v1/analytics/profitability`, D4). */
 export class ProfitabilitySummaryDto {
   @ApiProperty({ type: ProfitabilityPeriodDto })
@@ -217,11 +271,19 @@ export class ProfitabilitySummaryDto {
   @ApiPropertyOptional({ example: 8.4, nullable: true })
   netIncomeDeltaPct!: number | null;
 
+  @ApiProperty({ type: [ProfitabilityPointDto], description: "The window split by granularity." })
+  series!: ProfitabilityPointDto[];
+
+  @ApiProperty({ enum: GRANULARITIES })
+  granularity!: Granularity;
+
   static from(view: ProfitabilitySummary): ProfitabilitySummaryDto {
     const dto = new ProfitabilitySummaryDto();
     dto.current = ProfitabilityPeriodDto.from(view.current);
     dto.previous = ProfitabilityPeriodDto.from(view.previous);
     dto.netIncomeDeltaPct = view.netIncomeDeltaPct;
+    dto.series = view.series.map(ProfitabilityPointDto.fromPoint);
+    dto.granularity = view.granularity;
     return dto;
   }
 }

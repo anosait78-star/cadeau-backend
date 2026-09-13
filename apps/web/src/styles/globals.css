@@ -28,6 +28,9 @@
   --warning-foreground: #ffffff;
   --info: #2563eb;
   --info-foreground: #ffffff;
+  /* The analytics stat cards pick up a violet alongside the four above. */
+  --violet: #7c3aed;
+  --violet-foreground: #ffffff;
 
   /* ── Order board column colors ────────────────────────────────────────────
      A deliberate exception to the "no foreign accent color" rule above, asked
@@ -191,6 +194,8 @@
   --warning-foreground: #0b0b0c;
   --info: #60a5fa;
   --info-foreground: #0b0b0c;
+  --violet: #a78bfa;
+  --violet-foreground: #0b0b0c;
 
   /* Same hues, lighter — a dark hue at this tint over #0b0b0c turns to mud. */
   --status-new: #fb7185;
@@ -243,6 +248,8 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-violet: var(--violet);
+  --color-violet-foreground: var(--violet-foreground);
 
   --radius-xs: calc(var(--radius) - 0.25rem);
   --radius-sm: calc(var(--radius) - 0.125rem);

@@ -34,6 +34,8 @@ describe("productsRowsToCsv", () => {
       top: [
         {
           variantId: "v1",
+          productId: "p1",
+          imageUrl: null,
           productName: 'Widget, Deluxe "Pro"',
           variantName: "Red",
           unitsSold: 5,
@@ -97,6 +99,8 @@ describe("profitabilitySummaryToCsv", () => {
         netIncomeMinor: 30000,
       },
       netIncomeDeltaPct: 33.33,
+      series: [],
+      granularity: "day",
     };
     const csv = profitabilitySummaryToCsv(summary);
     expect(csv).toContain("current,100000,40000,20000,40000");

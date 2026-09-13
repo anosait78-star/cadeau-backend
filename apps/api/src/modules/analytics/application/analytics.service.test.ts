@@ -30,6 +30,12 @@ function fakeRepo(overrides: Partial<AnalyticsRepositoryPort> = {}): AnalyticsRe
       series: [],
     })),
     getProductPerformance: vi.fn(async () => []),
+    getProductsTotals: vi.fn(async () => ({
+      activeProducts: 12,
+      newProducts: 2,
+      unitsSold: 5,
+      revenueMinor: 5000,
+    })),
     getInventoryFacts: vi.fn(async () => ({
       onHandValueMinor: 0,
       lowStockCount: 0,
@@ -43,6 +49,7 @@ function fakeRepo(overrides: Partial<AnalyticsRepositoryPort> = {}): AnalyticsRe
       cogsMinor: 40000,
       expensesMinor: 20000,
     })),
+    getProfitabilitySeries: vi.fn(async () => []),
     ...overrides,
   };
 }
@@ -106,11 +113,38 @@ describe("AnalyticsService", () => {
   it("computes products top/bottom from repository rows", async () => {
     const { service } = makeService({
       getProductPerformance: vi.fn(async () => [
-        { variantId: "v1", productName: "P1", variantName: "V1", unitsSold: 5, revenueMinor: 5000 },
+        {
+          variantId: "v1",
+          productId: "p1",
+          imageUrl: null,
+          productName: "P1",
+          variantName: "V1",
+          unitsSold: 5,
+          revenueMinor: 5000,
+        },
       ]),
     });
     const summary = await service.getProducts(principal(), {});
     expect(summary.top).toHaveLength(1);
+  });
+
+  it("reads the products totals for both the window and the one before it", async () => {
+    const { service, repo } = makeService();
+
+    const summary = await service.getProducts(principal(), {});
+
+    expect(repo.getProductsTotals).toHaveBeenCalledTimes(2);
+    expect(summary.totals.averagePriceMinor).toBe(1000);
+    expect(summary.previous.activeProducts).toBe(12);
+  });
+
+  it("asks the repository for the profitability series at the requested granularity", async () => {
+    const { service, repo } = makeService();
+
+    const summary = await service.getProfitability(principal(), { granularity: "month" });
+
+    expect(repo.getProfitabilitySeries).toHaveBeenCalledWith(COMPANY, expect.anything(), "month");
+    expect(summary.granularity).toBe("month");
   });
 
   it("computes the inventory summary", async () => {
@@ -169,7 +203,15 @@ describe("AnalyticsService", () => {
   it("exports every axis without throwing", async () => {
     const { service } = makeService({
       getProductPerformance: vi.fn(async () => [
-        { variantId: "v1", productName: "P1", variantName: "V1", unitsSold: 5, revenueMinor: 5000 },
+        {
+          variantId: "v1",
+          productId: "p1",
+          imageUrl: null,
+          productName: "P1",
+          variantName: "V1",
+          unitsSold: 5,
+          revenueMinor: 5000,
+        },
       ]),
       getStaffPerformance: vi.fn(async () => [
         { assigneeId: "u1", assigneeName: "Amina", orderCount: 3, collectedMinor: 30000 },
