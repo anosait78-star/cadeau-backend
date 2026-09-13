@@ -29,6 +29,12 @@ const SPECIAL_KEYS: Readonly<Record<string, readonly [TranslationKey, Translatio
     "team.permission.integrations.manage.name",
     "team.permission.integrations.manage.desc",
   ],
+  // Added after this table was written (Vendor Accounts), and neither a
+  // `.read` nor a `.manage` — without an entry it rendered as its raw key.
+  "orders.vendor_groups.override": [
+    "team.permission.orders.vendorGroupsOverride.name",
+    "team.permission.orders.vendorGroupsOverride.desc",
+  ],
 };
 
 /**
@@ -75,6 +81,21 @@ export function permissionLabel(
     description: t(`team.permission.desc.${action}`, { module }),
     action,
   };
+}
+
+/**
+ * {@link permissionLabel} for callers that hold only the permission KEY — the
+ * roles page, whose templates list bare keys with no `featureKey` beside them.
+ *
+ * The feature is recoverable from the key itself for the common case: a plain
+ * `<feature>.<read|manage>` pair has exactly two segments, the first being the
+ * feature. Anything longer (`orders.vendor_groups.override`) is not a module
+ * action and is handled by the special-key table instead.
+ */
+export function permissionLabelFromKey(key: string, t: Translate): PermissionLabel {
+  const segments = key.split(".");
+  const featureKey = segments.length === 2 ? (segments[0] ?? null) : null;
+  return permissionLabel({ key, featureKey }, t);
 }
 
 /** The `read`/`manage` suffix of a permission key, or null for anything else. */

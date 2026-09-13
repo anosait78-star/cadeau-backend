@@ -179,6 +179,20 @@ export const en = {
   "team.invite.role.warehouse": "Warehouse",
   "team.invite.role.finance": "Finance",
   "team.invite.role.marketing": "Marketing",
+  "team.role.vendor": "Vendor",
+  "team.role.owner.desc": "Full access to everything in the company.",
+  "team.role.manager.desc":
+    "Full operational access across the company, like Owner, but cannot manage team roles and permissions unless granted separately.",
+  "team.role.store_manager.desc": "Runs day-to-day operations across the store.",
+  "team.role.call_center.desc": "Handles orders and customer contact.",
+  "team.role.warehouse.desc": "Manages stock, fulfilment, and shipping.",
+  "team.role.finance.desc": "Owns finance, invoicing, and reconciliation.",
+  "team.role.marketing.desc": "Analytics and customer engagement.",
+  "team.role.vendor.desc":
+    "Manages their own warehouse only — scoped automatically to the warehouse they joined.",
+  "team.permission.orders.vendorGroupsOverride.name": "Override vendor status",
+  "team.permission.orders.vendorGroupsOverride.desc":
+    "Set any vendor group's status, including moving it backward.",
   "team.invite.manager.grantAccessManage":
     "Also let this Manager manage team members and permissions",
   "team.invite.custom.description":
@@ -1338,6 +1352,19 @@ export const ar: Record<TranslationKey, string> = {
   "team.invite.role.warehouse": "مسؤول مخزن",
   "team.invite.role.finance": "مالية",
   "team.invite.role.marketing": "تسويق",
+  "team.role.vendor": "تاجر",
+  "team.role.owner.desc": "صلاحية كاملة على كل شيء في الشركة.",
+  "team.role.manager.desc":
+    "صلاحيات تشغيل كاملة في الشركة مثل المالك، لكن دون إدارة أدوار الفريق وصلاحياته إلا إذا مُنحت له بشكل منفصل.",
+  "team.role.store_manager.desc": "يدير العمليات اليومية للمتجر.",
+  "team.role.call_center.desc": "يتابع الطلبات والتواصل مع العملاء.",
+  "team.role.warehouse.desc": "يدير المخزون وتجهيز الطلبات والشحن.",
+  "team.role.finance.desc": "يتولى المالية والفواتير والتسويات.",
+  "team.role.marketing.desc": "التحليلات والتفاعل مع العملاء.",
+  "team.role.vendor.desc": "يدير مخزنه فقط، ويُقيَّد تلقائياً بالمخزن الذي انضم إليه.",
+  "team.permission.orders.vendorGroupsOverride.name": "تجاوز حالة التاجر",
+  "team.permission.orders.vendorGroupsOverride.desc":
+    "تغيير حالة أي مجموعة تاجر، بما في ذلك إرجاعها إلى حالة سابقة.",
   "team.invite.manager.grantAccessManage": "منح هذا المدير صلاحية إدارة أعضاء الفريق والصلاحيات",
   "team.invite.custom.description":
     "مجموعة الصلاحيات هذه خاصة بهذه الدعوة فقط — بعد القبول، تُصبح صلاحيات هذا العضو تحديدًا. هي ليست دورًا قابلًا لإعادة الاستخدام؛ دعوة شخص آخر تعني اختيار الصلاحيات من جديد.",

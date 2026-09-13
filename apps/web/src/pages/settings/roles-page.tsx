@@ -6,6 +6,8 @@ import { LoadingState } from "@/components/states/loading-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageTitle } from "@/components/layout/page-title";
 import { getPermissionTemplates, type PermissionTemplateView } from "@/features/access/access-api";
+import { permissionLabelFromKey } from "@/features/team/permission-labels";
+import { templateLabel } from "@/features/team/template-labels";
 import { useI18n } from "@/i18n/i18n-provider";
 
 type State =
@@ -51,31 +53,40 @@ export function RolesPage(): ReactNode {
 
       {state.kind === "ready" && state.templates.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          {state.templates.map((template) => (
-            <Card key={template.key}>
-              <CardHeader>
-                <CardTitle>{template.name}</CardTitle>
-                {template.description !== null ? (
-                  <CardDescription>{template.description}</CardDescription>
-                ) : null}
-              </CardHeader>
-              <CardContent>
-                <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-                  {t("roles.permissions")}
-                </p>
-                <ul className="flex flex-wrap gap-1.5">
-                  {template.permissions.map((permission) => (
-                    <li
-                      key={permission}
-                      className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-foreground"
-                    >
-                      {permission}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          ))}
+          {state.templates.map((template) => {
+            // The API sends the seed's English name/description and bare
+            // permission keys (`orders.manage`); both are translated here.
+            const label = templateLabel(template, t);
+            return (
+              <Card key={template.key}>
+                <CardHeader>
+                  <CardTitle>{label.name}</CardTitle>
+                  {label.description !== null ? (
+                    <CardDescription>{label.description}</CardDescription>
+                  ) : null}
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+                    {t("roles.permissions")}
+                  </p>
+                  <ul className="flex flex-wrap gap-1.5">
+                    {template.permissions.map((permission) => {
+                      const perm = permissionLabelFromKey(permission, t);
+                      return (
+                        <li
+                          key={permission}
+                          title={perm.description.length > 0 ? perm.description : undefined}
+                          className="rounded-md bg-muted px-2 py-0.5 text-xs text-foreground"
+                        >
+                          {perm.name}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       ) : null}
     </div>

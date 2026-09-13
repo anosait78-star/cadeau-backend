@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ar, en, type TranslationKey } from "@/i18n/dictionaries";
-import { moduleLabel, permissionLabel } from "./permission-labels";
+import { moduleLabel, permissionLabel, permissionLabelFromKey } from "./permission-labels";
 import { CORE_MODULE_KEY } from "./team-module-labels";
 
 /** A translator over one dictionary, mirroring `I18nProvider`'s interpolation. */
@@ -18,6 +18,25 @@ const t = translator(ar);
 const tEn = translator(en as Record<TranslationKey, string>);
 
 describe("permissionLabel", () => {
+  it("labels orders.vendor_groups.override instead of showing its raw key", () => {
+    // Neither `.read` nor `.manage`, and missing from the special table until
+    // now — so the roles page printed `orders.vendor_groups.override` verbatim.
+    const override = permissionLabel(
+      { key: "orders.vendor_groups.override", featureKey: "orders" },
+      t,
+    );
+    expect(override.name).toBe("تجاوز حالة التاجر");
+    expect(override.description).toContain("إرجاعها إلى حالة سابقة");
+  });
+
+  it("derives the label from the key alone, for callers without a featureKey", () => {
+    expect(permissionLabelFromKey("orders.manage", t).name).toBe("إدارة الطلبات");
+    expect(permissionLabelFromKey("master-data.read", t).name).toBe("عرض البيانات");
+    expect(permissionLabelFromKey("orders.vendor_groups.override", t).name).toBe(
+      "تجاوز حالة التاجر",
+    );
+  });
+
   it("composes a <feature>.read label from the module name and the action", () => {
     const label = permissionLabel({ key: "orders.read", featureKey: "orders" }, t);
     expect(label.name).toBe("عرض الطلبات");
