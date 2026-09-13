@@ -52,6 +52,35 @@ describe("AppLogger", () => {
     expect(typeof (record["err"] as Record<string, unknown>)["stack"]).toBe("string");
   });
 
+  /**
+   * The 2026-09-13 defect: `logger.error("text", err.stack)` — Nest's own
+   * idiom, used by both retry workers and the notification dispatcher — threw
+   * the stack away, so a production failure logged only "failed
+   * unexpectedly" with no cause.
+   */
+  it("records a stack passed the Nest way, alongside the human message", () => {
+    const err = captureStderr();
+    const boom = new Error("connect ECONNREFUSED 127.0.0.1:5432");
+    // What a `Logger` instance built with a context forwards: all three args.
+    loggerAt("info").error("Delivery retry tick failed unexpectedly.", boom.stack, "Worker");
+    const record = lastRecord(err);
+    expect(record["message"]).toBe("Delivery retry tick failed unexpectedly.");
+    expect(record["context"]).toBe("Worker");
+    const logged = record["err"] as Record<string, unknown>;
+    expect(String(logged["stack"])).toContain("ECONNREFUSED");
+    // The summary message alone never said which error it was; the stack's
+    // first line does.
+    expect(String(logged["message"])).toContain("ECONNREFUSED");
+  });
+
+  it("still treats a lone second argument as the context label, not a stack", () => {
+    const err = captureStderr();
+    loggerAt("info").error("Event handler failed.", "EventBus");
+    const record = lastRecord(err);
+    expect(record["context"]).toBe("EventBus");
+    expect(record["err"]).toBeUndefined();
+  });
+
   it("sends fatal to stderr", () => {
     const err = captureStderr();
     loggerAt("info").fatal("dead");

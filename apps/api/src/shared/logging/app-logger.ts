@@ -46,9 +46,20 @@ export class AppLogger implements LoggerService {
   }
 
   error(message: unknown, stackOrContext?: string, context?: string): void {
-    // Nest calls error(message, stack?, context?). We take the last provided
-    // string as the context label and derive the stack from an Error message.
-    this.write("error", message, context ?? stackOrContext, this.toError(message));
+    // Nest calls error(message, stack?, context?), and the two optional
+    // arguments are ambiguous by position: a caller passing two arguments
+    // means a context label, one passing three means the middle is a stack.
+    // A `Logger` instance built with a context always forwards all three, so
+    // that is the signal used here.
+    //
+    // Before this (found live 2026-09-13): the stack was only ever read as a
+    // context fallback and `err` was derived from the MESSAGE alone, so the
+    // standard `logger.error("text", err.stack)` idiom logged the text with
+    // no cause at all. Both retry workers and the notification dispatcher use
+    // exactly that idiom, which is why a production failure in any of them
+    // said only that it "failed unexpectedly".
+    const stack = context !== undefined ? stackOrContext : undefined;
+    this.write("error", message, context ?? stackOrContext, this.toError(message, stack));
   }
 
   warn(message: unknown, context?: string): void {
@@ -67,11 +78,21 @@ export class AppLogger implements LoggerService {
     this.write("fatal", message, context, this.toError(message));
   }
 
-  private toError(message: unknown): LogRecord["err"] {
+  private toError(message: unknown, stack?: string): LogRecord["err"] {
     if (message instanceof Error) {
       return message.stack !== undefined
         ? { message: message.message, stack: message.stack }
         : { message: message.message };
+    }
+    // A caller-supplied stack: its first line already carries the real
+    // error's message, which the log's own `message` (a human summary like
+    // "Delivery retry tick failed unexpectedly.") does not.
+    if (stack !== undefined) {
+      const [first] = stack.split("\n");
+      return {
+        message: first !== undefined && first.length > 0 ? first : this.toMessage(message),
+        stack,
+      };
     }
     return undefined;
   }
