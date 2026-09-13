@@ -29,6 +29,32 @@
   --info: #2563eb;
   --info-foreground: #ffffff;
 
+  /* ── Order board column colors ────────────────────────────────────────────
+     A deliberate exception to the "no foreign accent color" rule above, asked
+     for on 2026-09-13: the orders board wants each of the twelve lifecycle
+     states to read as its own column at a glance, which five semantic tones
+     cannot do. Confined to the board — status BADGES still use the five tones
+     (`orders-status-tones.ts`), so nothing else in the app gains a new color.
+
+     Hues are spread around the wheel rather than following the lifecycle, so
+     neighbouring columns never look alike. */
+  --status-new: #64748b;
+  --status-confirming: #8b5cf6;
+  --status-processing: #2563eb;
+  --status-ready: #0891b2;
+  --status-shipped: #0d9488;
+  --status-delivered: #16a34a;
+  --status-completed: #65a30d;
+  --status-postponed: #ca8a04;
+  --status-cancelled: #dc2626;
+  --status-returned: #db2777;
+  --status-exchanged: #c026d3;
+  --status-incomplete: #ea580c;
+
+  /* How much of the column color tints its background. The stripe is the full
+     color; the body is this much of it over the page. */
+  --status-tint: 50%;
+
   --radius: 0.5rem;
 
   /* Spacing scale (§5) */
@@ -128,6 +154,20 @@
   --warning-foreground: #0b0b0c;
   --info: #60a5fa;
   --info-foreground: #0b0b0c;
+
+  /* Lighter, so the hue survives against #0b0b0c rather than turning to mud. */
+  --status-new: #94a3b8;
+  --status-confirming: #a78bfa;
+  --status-processing: #60a5fa;
+  --status-ready: #22d3ee;
+  --status-shipped: #2dd4bf;
+  --status-delivered: #4ade80;
+  --status-completed: #a3e635;
+  --status-postponed: #facc15;
+  --status-cancelled: #f87171;
+  --status-returned: #f472b6;
+  --status-exchanged: #e879f9;
+  --status-incomplete: #fb923c;
 }
 
 /* Expose tokens as Tailwind theme values (utilities like bg-background,
@@ -622,4 +662,16 @@ body {
       0 1px 2px rgba(0, 0, 0, 0.5),
       0 2px 10px rgba(0, 0, 0, 0.35);
   }
+}
+
+/* ── Orders board column ────────────────────────────────────────────────────
+   Each column carries its status color in `--status-color` (set inline, since
+   the value varies per column) and paints two things with it: a full-strength
+   stripe along the top, and a tint of the same color behind the whole column.
+
+   The stripe lives in a pseudo-element, which cannot take an inline style —
+   hence this rule rather than a Tailwind `before:bg-*` class. The order cards
+   inside keep an opaque `bg-card`, so they sit clearly above the tint. */
+.orders-board-column::before {
+  background-color: var(--status-color);
 }

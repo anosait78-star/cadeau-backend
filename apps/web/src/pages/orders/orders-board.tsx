@@ -1,5 +1,5 @@
 import { MoreHorizontal } from "lucide-react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Translate } from "@/components/i18n/translate-type";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,20 +18,27 @@ import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
 import { StatusBadge } from "./orders-columns";
 import { TRANSITIONS } from "./orders-row-actions";
-import type { BadgeTone } from "@/components/status-badge/status-badge";
-import { ORDER_STATUS_TONE } from "./orders-status-tones";
 
 /**
- * The column header's accent stripe, derived from the status's badge tone so
- * a column and the badges inside it can never disagree about what a status
- * "looks like" — and so a new status only has to be classified once.
+ * Each column's own color, as the CSS variable that carries it. Defined in
+ * `globals.css` for both themes — a deliberate, board-only exception to the
+ * design system's "no foreign accent color" rule (2026-09-13), because five
+ * semantic tones cannot tell twelve columns apart. Status badges are
+ * unaffected and still use those five tones.
  */
-const TONE_ACCENT: Readonly<Record<BadgeTone, string>> = {
-  neutral: "before:bg-muted-foreground/40",
-  info: "before:bg-primary",
-  warning: "before:bg-warning",
-  success: "before:bg-success",
-  destructive: "before:bg-destructive",
+const STATUS_COLOR: Readonly<Record<OrderStatus, string>> = {
+  new: "var(--status-new)",
+  confirming: "var(--status-confirming)",
+  processing: "var(--status-processing)",
+  incomplete: "var(--status-incomplete)",
+  ready: "var(--status-ready)",
+  shipped: "var(--status-shipped)",
+  delivered: "var(--status-delivered)",
+  completed: "var(--status-completed)",
+  postponed: "var(--status-postponed)",
+  cancelled: "var(--status-cancelled)",
+  returned: "var(--status-returned)",
+  exchanged: "var(--status-exchanged)",
 };
 
 /**
@@ -182,15 +189,29 @@ function OrderStatusColumn({
       role="listitem"
       aria-label={label}
       title={drop.droppable ? t("orders.board.dropHere") : undefined}
+      // Set inline because the value differs per column: `--status-color`
+      // feeds the top stripe (a pseudo-element, so it cannot be styled
+      // inline — see `.orders-board-column::before`), and the same color
+      // tints the body. The inline `backgroundColor` also wins over `Card`'s
+      // own `bg-card`, which a custom class would not reliably do.
+      style={
+        {
+          "--status-color": STATUS_COLOR[status],
+          backgroundColor: `color-mix(in srgb, ${STATUS_COLOR[status]} var(--status-tint), transparent)`,
+        } as CSSProperties
+      }
       className={cn(
+        "orders-board-column",
         "relative flex w-72 shrink-0 flex-col gap-0 overflow-hidden py-0 shadow-none",
         "before:absolute before:inset-x-0 before:top-0 before:h-1",
-        TONE_ACCENT[ORDER_STATUS_TONE[status]],
         drop.droppable && "ring-2 ring-primary/40 ring-offset-1 ring-offset-background",
-        drop.active && "bg-primary/5 shadow-md ring-primary",
+        drop.active && "shadow-md ring-primary",
       )}
     >
-      <CardHeader className="gap-0 border-b border-border bg-muted/30 p-3.5">
+      {/* No `bg-muted/30` here any more: a gray wash over the tint turned
+          every column the same muddy color, which is the opposite of the
+          point. The border alone separates the header. */}
+      <CardHeader className="gap-0 border-b border-border p-3.5">
         <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold">
           <span className="truncate">{label}</span>
           <span
