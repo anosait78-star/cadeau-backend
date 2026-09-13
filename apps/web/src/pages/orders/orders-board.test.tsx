@@ -196,6 +196,15 @@ describe("OrdersPage — desktop board", () => {
     expect(within(column("Processing")).getByText("No orders")).toBeInTheDocument();
   });
 
+  it("parks Incomplete last instead of fourth, without disturbing lifecycle order", async () => {
+    renderPage();
+    await screen.findByText("#1042");
+    const labels = screen.getAllByRole("listitem").map((el) => el.getAttribute("aria-label"));
+    expect(labels.at(-1)).toBe("Incomplete");
+    // The rest still run in lifecycle order — only `incomplete` was lifted out.
+    expect(labels.slice(0, 4)).toEqual(["New", "Confirming", "Processing", "Ready"]);
+  });
+
   it("moves an order when dropped on a legal status", async () => {
     renderPage();
     await screen.findByText("#1042");

@@ -35,6 +35,22 @@ const TONE_ACCENT: Readonly<Record<BadgeTone, string>> = {
 };
 
 /**
+ * Column order, which is deliberately NOT `ORDER_STATUSES`.
+ *
+ * That constant is lifecycle order and stays untouched — the phone's tab
+ * strip, the bulk dropdown and the transition graph all read it. The board is
+ * a work surface, and `incomplete` is not a step on the way to anywhere: it is
+ * where an order parks when something is missing. Sitting fourth, between
+ * `processing` and `ready`, it split the run of columns staff actually move
+ * cards along. Parked at the end it stops interrupting that flow while staying
+ * one drop away (requested 2026-09-13).
+ */
+const BOARD_COLUMNS: readonly OrderStatus[] = [
+  ...ORDER_STATUSES.filter((s) => s !== "incomplete"),
+  "incomplete",
+];
+
+/**
  * The company's desktop orders board: one column per lifecycle status, with
  * orders dragged between them. It replaces the status tab strip + data grid,
  * which showed one status at a time and — more to the point — offered no way
@@ -98,7 +114,7 @@ export function OrdersBoard({
       role="list"
       aria-label={t("orders.board.label")}
     >
-      {ORDER_STATUSES.map((status) => (
+      {BOARD_COLUMNS.map((status) => (
         <OrderStatusColumn
           key={status}
           status={status}
