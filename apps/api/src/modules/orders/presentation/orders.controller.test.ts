@@ -66,6 +66,7 @@ function makeHarness(): Harness {
   const service = {
     list: vi.fn().mockResolvedValue(listPage()),
     statusCounts: vi.fn().mockResolvedValue({ new: 1 }),
+    monthlyNumbers: vi.fn().mockResolvedValue({ o1: 5 }),
     getOne: vi.fn().mockResolvedValue(order()),
     create: vi.fn().mockResolvedValue({ order: order(), replayed: false }),
     update: vi.fn().mockResolvedValue(order()),
@@ -105,6 +106,12 @@ describe("OrdersController", () => {
   it("returns status counts", async () => {
     const res = await h.controller.statusCounts(principal, {});
     expect(res.counts).toEqual({ new: 1 });
+  });
+
+  it("returns each order's number within its month, for the board", async () => {
+    const res = await h.controller.monthlyNumbers(principal, "o1");
+    expect(res.numbers).toEqual({ o1: 5 });
+    expect(h.service.monthlyNumbers).toHaveBeenCalledWith(principal, "o1");
   });
 
   it("creates an order → 201 + Location", async () => {

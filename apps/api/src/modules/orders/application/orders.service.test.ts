@@ -92,6 +92,7 @@ function makeHarness(features: string[] = ["orders", "inventory"]): Harness {
     create: vi.fn().mockResolvedValue({ order: order(), replayed: false }),
     update: vi.fn().mockResolvedValue(order()),
     transition: vi.fn().mockResolvedValue(change),
+    monthlyNumbers: vi.fn().mockResolvedValue([]),
     ensureStorefrontCancelReasonId: vi.fn().mockResolvedValue(CANCEL_REASON),
     assign: vi.fn().mockResolvedValue(order({ assigneeId: USER })),
     bulkTransition: vi
@@ -214,6 +215,48 @@ describe("OrdersService", () => {
       await expect(
         h.service.transition(principal(), ORDER, { toStatus: "cancelled" }),
       ).rejects.toMatchObject({ status: 422 });
+    });
+  });
+
+  describe("monthlyNumbers (orders board `50/5` label)", () => {
+    const OTHER = "55555555-5555-5555-5555-555555555555";
+
+    it("returns each visible order's number within its month", async () => {
+      h.repo.monthlyNumbers.mockResolvedValueOnce([
+        { id: ORDER, assigneeId: null, monthlyNumber: 5 },
+      ]);
+      await expect(h.service.monthlyNumbers(principal(), ORDER)).resolves.toEqual({ [ORDER]: 5 });
+      expect(h.repo.monthlyNumbers).toHaveBeenCalledWith(COMPANY, [ORDER]);
+    });
+
+    it("leaves out orders a restricted caller cannot see, as getOne does", async () => {
+      h.access.resolve.mockResolvedValueOnce({ features: ["orders"], permissions: [] });
+      h.repo.monthlyNumbers.mockResolvedValueOnce([
+        { id: ORDER, assigneeId: USER, monthlyNumber: 5 },
+        { id: OTHER, assigneeId: null, monthlyNumber: 6 },
+      ]);
+      await expect(h.service.monthlyNumbers(principal(), `${ORDER},${OTHER}`)).resolves.toEqual({
+        [ORDER]: 5,
+      });
+    });
+
+    it("rejects a non-UUID id and an oversized batch before touching the database", async () => {
+      await expect(h.service.monthlyNumbers(principal(), "not-a-uuid")).rejects.toBeInstanceOf(
+        AppException,
+      );
+      const tooMany = Array.from(
+        { length: 101 },
+        (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
+      ).join(",");
+      await expect(h.service.monthlyNumbers(principal(), tooMany)).rejects.toBeInstanceOf(
+        AppException,
+      );
+      expect(h.repo.monthlyNumbers).not.toHaveBeenCalled();
+    });
+
+    it("answers an empty or missing id list with nothing, without a query", async () => {
+      await expect(h.service.monthlyNumbers(principal(), undefined)).resolves.toEqual({});
+      expect(h.repo.monthlyNumbers).not.toHaveBeenCalled();
     });
   });
 

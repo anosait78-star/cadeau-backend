@@ -40,6 +40,7 @@ import {
   OrderActivityListDto,
   OrderDto,
   OrderListDto,
+  OrderMonthlyNumbersDto,
   OrderStatusCountsDto,
   OrderVendorGroupDto,
   OrderVendorGroupListDto,
@@ -101,6 +102,22 @@ export class OrdersController {
     @Query() rawQuery: RawOrderListQuery,
   ): Promise<OrderStatusCountsDto> {
     return OrderStatusCountsDto.from(await this.service.statusCounts(principal, rawQuery));
+  }
+
+  // Declared before any `:orderId` route on purpose: Nest matches in
+  // declaration order, and `monthly-numbers` must never be read as an id.
+  @Get("monthly-numbers")
+  @RequireCapability({ feature: ORDERS_FEATURE, permission: "orders.read" })
+  @ApiOperation({
+    summary: "Each order's number within its own month (orders board display only)",
+    operationId: "orderMonthlyNumbers",
+  })
+  @ApiOkResponse({ type: OrderMonthlyNumbersDto })
+  async monthlyNumbers(
+    @CurrentUser() principal: RequestPrincipal,
+    @Query("ids") ids: string | undefined,
+  ): Promise<OrderMonthlyNumbersDto> {
+    return OrderMonthlyNumbersDto.from(await this.service.monthlyNumbers(principal, ids));
   }
 
   @Post()

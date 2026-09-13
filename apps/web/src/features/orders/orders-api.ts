@@ -191,6 +191,27 @@ export function orderStatusCounts(
   );
 }
 
+/**
+ * `GET /v1/orders/monthly-numbers` — each order's number within its own month,
+ * for the board card's `50/5` label and nowhere else. Split into batches of 50
+ * because the board can ask about 240 orders at once, and that many UUIDs in a
+ * single query string (~9 KB) overruns common proxy header limits. The server
+ * caps a request at 100.
+ */
+export async function orderMonthlyNumbers(ids: readonly string[]): Promise<Record<string, number>> {
+  const BATCH = 50;
+  const batches: (readonly string[])[] = [];
+  for (let i = 0; i < ids.length; i += BATCH) batches.push(ids.slice(i, i + BATCH));
+  const pages = await Promise.all(
+    batches.map((batch) =>
+      apiFetch<{ numbers: Record<string, number> }>(
+        `/orders/monthly-numbers?ids=${batch.map(encodeURIComponent).join(",")}`,
+      ),
+    ),
+  );
+  return Object.assign({}, ...pages.map((page) => page.numbers));
+}
+
 /** `GET /v1/orders/{id}` — order detail (items + money). */
 export function getOrder(id: string): Promise<OrderDetail> {
   return apiFetch<OrderDetail>(`/orders/${id}`);

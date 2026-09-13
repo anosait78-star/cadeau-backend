@@ -1,5 +1,5 @@
 import { Download, MoreHorizontal, Plus, Printer } from "lucide-react";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { AuthContext } from "@/auth/auth-context";
@@ -35,6 +35,7 @@ import {
   listOrders,
   orderStatusCounts,
   ORDER_STATUSES,
+  orderMonthlyNumbers,
   transitionOrder,
   type CreateOrderInput,
   type ListOptions,
@@ -293,6 +294,27 @@ function OrdersScreen(): ReactNode {
     return rest;
   }, [baseQuery]);
 
+  // The `50/5` label's second half: each order's number within its month.
+  // Best-effort by design — it is a display detail, so a failure leaves the
+  // cards showing the plain number instead of erroring the board. Mirrored in
+  // a ref so the loader stays stable and only ever asks for ids it has not
+  // seen: an order's number within its month never changes once issued.
+  const [monthlyNumbers, setMonthlyNumbers] = useState<Record<string, number>>({});
+  const monthlyNumbersRef = useRef<Record<string, number>>({});
+  const loadMonthlyNumbers = useCallback(async (items: readonly OrderListItem[]): Promise<void> => {
+    const missing = items
+      .map((order) => order.id)
+      .filter((id) => monthlyNumbersRef.current[id] === undefined);
+    if (missing.length === 0) return;
+    try {
+      const found = await orderMonthlyNumbers([...new Set(missing)]);
+      monthlyNumbersRef.current = { ...monthlyNumbersRef.current, ...found };
+      setMonthlyNumbers(monthlyNumbersRef.current);
+    } catch {
+      /* display detail only — cards fall back to the plain order number */
+    }
+  }, []);
+
   const loadBoard = useCallback(async (): Promise<void> => {
     setState({ kind: "loading" });
     const query = boardQuery();
@@ -316,10 +338,11 @@ function OrdersScreen(): ReactNode {
       });
       setBoardCursors(cursors);
       setCounts(tabs.counts);
+      void loadMonthlyNumbers(pages.flatMap((page) => page.data));
     } catch {
       setState({ kind: "error" });
     }
-  }, [boardQuery]);
+  }, [boardQuery, loadMonthlyNumbers]);
 
   /** Reload whichever view is on screen — the board on desktop, the list on a phone. */
   const reload = useCallback(
@@ -342,6 +365,7 @@ function OrdersScreen(): ReactNode {
         s.kind === "ready" ? { ...s, items: dedupeById([...s.items, ...page.data]) } : s,
       );
       setBoardCursors((c) => ({ ...c, [column]: page.page.nextCursor }));
+      void loadMonthlyNumbers(page.data);
     } catch {
       /* leaving the column as it was is the right failure here — the button stays. */
     } finally {
@@ -761,6 +785,7 @@ function OrdersScreen(): ReactNode {
               canManage={canManageOrders}
               onSendWhatsapp={(order) => void sendWhatsapp(order, order.status as WhatsappStatus)}
               sendingWhatsappId={sendingWhatsappId}
+              monthlyNumbers={monthlyNumbers}
               t={t}
               locale={locale}
             />

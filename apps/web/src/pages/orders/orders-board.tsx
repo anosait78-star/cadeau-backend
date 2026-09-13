@@ -160,6 +160,7 @@ export function OrdersBoard({
   canManage,
   onSendWhatsapp,
   sendingWhatsappId,
+  monthlyNumbers,
   t,
   locale,
 }: {
@@ -181,6 +182,8 @@ export function OrdersBoard({
   readonly onSendWhatsapp: (order: OrderListItem) => void;
   /** The order whose WhatsApp lookup is in flight, if any. */
   readonly sendingWhatsappId: string | null;
+  /** Order id → its number within its month, as far as known (see `orderMonthlyNumbers`). */
+  readonly monthlyNumbers: Readonly<Record<string, number>>;
   readonly t: Translate;
   readonly locale: string;
 }): ReactNode {
@@ -218,6 +221,7 @@ export function OrdersBoard({
           canManage={canManage}
           onSendWhatsapp={onSendWhatsapp}
           sendingWhatsappId={sendingWhatsappId}
+          monthlyNumbers={monthlyNumbers}
           t={t}
           locale={locale}
         />
@@ -243,6 +247,7 @@ function OrderStatusColumn({
   canManage,
   onSendWhatsapp,
   sendingWhatsappId,
+  monthlyNumbers,
   t,
   locale,
 }: {
@@ -264,6 +269,8 @@ function OrderStatusColumn({
   readonly onSendWhatsapp: (order: OrderListItem) => void;
   /** The order whose WhatsApp lookup is in flight, if any. */
   readonly sendingWhatsappId: string | null;
+  /** Order id → its number within its month, as far as known (see `orderMonthlyNumbers`). */
+  readonly monthlyNumbers: Readonly<Record<string, number>>;
   readonly t: Translate;
   readonly locale: string;
 }): ReactNode {
@@ -327,6 +334,7 @@ function OrderStatusColumn({
               canManage={canManage}
               onSendWhatsapp={() => onSendWhatsapp(order)}
               sendingWhatsapp={sendingWhatsappId === order.id}
+              monthlyNumber={monthlyNumbers[order.id]}
               onOpen={() => onOpen(order)}
               t={t}
               locale={locale}
@@ -360,6 +368,7 @@ function OrderBoardCard({
   canManage,
   onSendWhatsapp,
   sendingWhatsapp,
+  monthlyNumber,
   onOpen,
   t,
   locale,
@@ -375,6 +384,8 @@ function OrderBoardCard({
   readonly canManage: boolean;
   readonly onSendWhatsapp: () => void;
   readonly sendingWhatsapp: boolean;
+  /** This order's number within its month, once known. */
+  readonly monthlyNumber: number | undefined;
   readonly onOpen: () => void;
   readonly t: Translate;
   readonly locale: string;
@@ -494,8 +505,12 @@ function OrderBoardCard({
         ) : null}
       </div>
       <div className="flex items-center justify-between gap-2 text-caption text-muted-foreground">
+        {/* `#50/5`: the company's 50th order, the 5th of its month. The month
+            half arrives separately and best-effort, so until it does — or if
+            it never does — the card simply shows the plain order number. */}
         <span className="shrink-0 tabular-nums" dir="ltr">
           #{order.orderNumber}
+          {monthlyNumber !== undefined ? `/${monthlyNumber}` : null}
         </span>
         <span className="truncate">
           {order.itemCount} {t("orders.field.items")}

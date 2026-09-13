@@ -54,6 +54,18 @@ import type {
 import { ORDERS_PRISMA_CLIENT } from "./prisma-client.provider";
 
 type Tx = Prisma.TransactionClient;
+/**
+ * The business's calendar for "this month" in the board's `50/5` label —
+ * Egypt, daylight-saving switch included, which is why the month boundary is
+ * left to Postgres's timezone rules instead of a fixed UTC offset.
+ */
+const CAIRO_TZ = "Africa/Cairo";
+/** Groups timestamps by Cairo calendar month (`"2026-09"`); the boundary math itself stays in SQL. */
+const CAIRO_MONTH = new Intl.DateTimeFormat("en-CA", {
+  timeZone: CAIRO_TZ,
+  year: "numeric",
+  month: "2-digit",
+});
 
 /**
  * The reserved cancel reason storefront-driven cancellations are attributed
@@ -142,6 +154,58 @@ export class OrdersRepository implements OrdersRepositoryPort {
     );
     const views = rows.map((r) => this.toListView(r));
     return buildKeysetPage(views, limit, (view) => this.toCursor(query, view));
+  }
+
+  /** {@link OrdersRepositoryPort.monthlyNumbers}. */
+  async monthlyNumbers(
+    companyId: string,
+    ids: readonly string[],
+  ): Promise<{ id: string; assigneeId: string | null; monthlyNumber: number }[]> {
+    if (ids.length === 0) return [];
+    return this.tenantTx(companyId, async (tx) => {
+      const orders = await tx.order.findMany({
+        where: { companyId, id: { in: [...ids] } },
+        select: { id: true, assigneeId: true, orderNumber: true, createdAt: true },
+      });
+
+      // One base lookup per distinct month, not per order. JS only produces
+      // the grouping key; Postgres computes the exact boundary below.
+      const byMonth = new Map<string, typeof orders>();
+      for (const order of orders) {
+        const key = CAIRO_MONTH.format(order.createdAt);
+        const group = byMonth.get(key);
+        if (group === undefined) byMonth.set(key, [order]);
+        else group.push(order);
+      }
+
+      const result: { id: string; assigneeId: string | null; monthlyNumber: number }[] = [];
+      for (const group of byMonth.values()) {
+        const first = group.reduce((a, b) => (b.orderNumber < a.orderNumber ? b : a));
+        // `order_number < first` guards the one ordering hazard: a number is
+        // issued inside the create transaction while `created_at` is that
+        // transaction's start, so two creates racing across midnight on the
+        // 1st could otherwise put a later number in the earlier month and
+        // drag this month's figures to zero or below.
+        const rows = await tx.$queryRaw<{ base: bigint | null }[]>`
+          SELECT MAX(order_number) AS base
+            FROM public.orders
+           WHERE company_id = ${companyId}::uuid
+             AND order_number < ${first.orderNumber}
+             AND created_at < (
+               date_trunc('month', ${first.createdAt}::timestamptz AT TIME ZONE ${CAIRO_TZ}::text)
+               AT TIME ZONE ${CAIRO_TZ}::text
+             )`;
+        const base = rows[0]?.base ?? 0n;
+        for (const order of group) {
+          result.push({
+            id: order.id,
+            assigneeId: order.assigneeId,
+            monthlyNumber: Number(order.orderNumber - base),
+          });
+        }
+      }
+      return result;
+    });
   }
 
   async statusCounts(

@@ -56,6 +56,9 @@ import {
 
 /** The feature that must be enabled for orders to auto-couple with stock (D2). */
 const INVENTORY_FEATURE = "inventory";
+/** Server-side cap on ids per monthly-numbers request (the web client batches at 50). */
+const MONTHLY_NUMBERS_MAX_IDS = 100;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** One row's outcome in a CSV import (atomic per row). */
 export interface ImportResult {
@@ -110,6 +113,43 @@ export class OrdersService {
     const companyId = this.requireTenant(principal);
     const query = await this.scopeToOwnOrders(principal, this.parseQuery(rawQuery));
     return this.repo.statusCounts(companyId, query);
+  }
+
+  /**
+   * {@link OrdersRepositoryPort.monthlyNumbers}, limited to the orders this
+   * caller may see — the same rule as {@link getOne}. The numbers are
+   * company-wide by design (see the port); what is scoped is only WHICH
+   * orders a restricted user may ask about. Unknown or invisible ids are
+   * simply left out, never an error: the board treats the whole thing as a
+   * best-effort display detail.
+   */
+  async monthlyNumbers(
+    principal: RequestPrincipal,
+    rawIds: string | undefined,
+  ): Promise<Record<string, number>> {
+    const companyId = this.requireTenant(principal);
+    const ids = [
+      ...new Set(
+        (rawIds ?? "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+      ),
+    ];
+    if (ids.length > MONTHLY_NUMBERS_MAX_IDS) {
+      throw AppErrors.badRequest(`At most ${MONTHLY_NUMBERS_MAX_IDS} ids per request.`);
+    }
+    if (ids.some((id) => !UUID_PATTERN.test(id))) {
+      throw AppErrors.badRequest("ids must be a comma-separated list of UUIDs.");
+    }
+    if (ids.length === 0) return {};
+    const rows = await this.repo.monthlyNumbers(companyId, ids);
+    const seesAll = await this.canSeeAllOrders(principal);
+    const numbers: Record<string, number> = {};
+    for (const row of rows) {
+      if (seesAll || row.assigneeId === principal.userId) numbers[row.id] = row.monthlyNumber;
+    }
+    return numbers;
   }
 
   async getOne(principal: RequestPrincipal, id: string): Promise<OrderView> {

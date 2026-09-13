@@ -530,6 +530,24 @@ export class OrderStatusCountsDto {
   }
 }
 
+/** `GET /v1/orders/monthly-numbers` — each order's number within its own month. */
+export class OrderMonthlyNumbersDto {
+  @ApiProperty({
+    example: { "3f1c2d4e-5b6a-4c7d-8e9f-0a1b2c3d4e5f": 5 },
+    description:
+      "Order id → that order's number within its own calendar month (Africa/Cairo), " +
+      "for the orders board's `50/5` label only. Ids that do not exist, or that the " +
+      "caller cannot see, are omitted rather than reported as errors.",
+  })
+  numbers!: Record<string, number>;
+
+  static from(numbers: Record<string, number>): OrderMonthlyNumbersDto {
+    const dto = new OrderMonthlyNumbersDto();
+    dto.numbers = numbers;
+    return dto;
+  }
+}
+
 /** One row of the activity log. */
 export class OrderActivityDto {
   @ApiProperty({ format: "uuid" })

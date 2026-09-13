@@ -102,6 +102,31 @@ export interface TransitionInput {
 export interface OrdersRepositoryPort {
   list(companyId: string, query: ParsedOrderListQuery): Promise<KeysetPage<OrderListView>>;
 
+  /**
+   * Each order's number within its own calendar month (Africa/Cairo), for the
+   * orders board's `50/5` label and nowhere else: the company's 50th order,
+   * the 5th of its month.
+   *
+   * Derived, never stored. Order numbers are issued contiguously per company
+   * (a rolled-back create rolls its number back with it) and orders are never
+   * hard-deleted, so `orderNumber − (the last number issued before that month
+   * began)` is exact and never shifts afterwards.
+   *
+   * Computed over EVERY order in the company, not the caller's visible subset,
+   * so `/5` means the same thing to everyone who sees the card. Rows carry
+   * `assigneeId` so the caller can decide which of them this user may see.
+   */
+  monthlyNumbers(
+    companyId: string,
+    ids: readonly string[],
+  ): Promise<
+    readonly {
+      readonly id: string;
+      readonly assigneeId: string | null;
+      readonly monthlyNumber: number;
+    }[]
+  >;
+
   /** Live per-status counts for the status tabs (`{ new: 3, … }`). */
   statusCounts(
     companyId: string,

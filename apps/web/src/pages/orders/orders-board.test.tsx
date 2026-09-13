@@ -89,10 +89,13 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let transitionStatus = 200;
 /** Set per test to move the fixture order into another status. */
 let orderStatus = "new";
+/** Set per test to give o1 a number within its month. */
+let monthly: number | null = null;
 
 beforeEach(() => {
   transitionStatus = 200;
   orderStatus = "new";
+  monthly = null;
   localStorage.clear();
   localStorage.setItem("cadeau.locale", "en");
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
@@ -117,6 +120,9 @@ beforeEach(() => {
     }
     if (url.includes("/master-data/")) return Promise.resolve(json(200, { data: [], page: {} }));
     if (url.includes("/orders/status-counts")) return Promise.resolve(json(200, COUNTS));
+    if (url.includes("/orders/monthly-numbers")) {
+      return Promise.resolve(json(200, { numbers: monthly === null ? {} : { o1: monthly } }));
+    }
     if (url.match(/\/orders\/o1\/status$/) && method === "POST") {
       return transitionStatus === 200
         ? Promise.resolve(json(200, { ...ORDER_ROW, status: "processing", notes: null, items: [] }))
@@ -224,6 +230,14 @@ describe("OrdersPage — desktop board", () => {
     renderPage();
     await screen.findByText("#1042");
     expect(screen.getByRole("button", { name: "Send WhatsApp message" })).toBeInTheDocument();
+  });
+
+  it("labels a card #global/monthly once its number within the month is known", async () => {
+    monthly = 5;
+    renderPage();
+    // Every other test leaves `monthly` null and still finds "#1042" — which
+    // is the fallback: no number for the month, just the plain order number.
+    expect(await screen.findByText("#1042/5")).toBeInTheDocument();
   });
 
   it("moves an order when dropped on a legal status", async () => {
