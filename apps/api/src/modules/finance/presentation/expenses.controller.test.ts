@@ -111,3 +111,24 @@ describe("ExpensesController", () => {
     expect(service.updateExpense).toHaveBeenCalledWith(principal, "e1", { category: "travel" });
   });
 });
+
+describe("ExpensesController — summary", () => {
+  it("passes the year through only when given, and renders the summary", async () => {
+    const summary = {
+      year: 2026,
+      monthsElapsed: 9,
+      current: { totalMinor: 730000, count: 2, averageMonthlyMinor: 81111 },
+      previous: { totalMinor: 0, count: 0, averageMonthlyMinor: 0 },
+      monthly: [{ month: 9, totalMinor: 730000 }],
+      byCategory: [{ category: "ads", totalMinor: 700000, count: 1 }],
+    };
+    const service = { getExpenseSummary: vi.fn().mockResolvedValue(summary) };
+    const controller = new ExpensesController(service as unknown as FinanceService);
+
+    expect(await controller.summary(principal, "2026")).toEqual(summary);
+    expect(service.getExpenseSummary).toHaveBeenCalledWith(principal, { year: "2026" });
+
+    await controller.summary(principal, undefined);
+    expect(service.getExpenseSummary).toHaveBeenLastCalledWith(principal, {});
+  });
+});

@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CapabilitiesContext,
@@ -34,9 +35,11 @@ function caps(features: string[], permissions: string[], children: ReactNode): R
 
 function renderPage(features = ["finance"], permissions = ["finance.read", "finance.manage"]) {
   return render(
-    <I18nProvider>
-      <ToastProvider>{caps(features, permissions, <FinancePage />)}</ToastProvider>
-    </I18nProvider>,
+    <MemoryRouter>
+      <I18nProvider>
+        <ToastProvider>{caps(features, permissions, <FinancePage />)}</ToastProvider>
+      </I18nProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -53,6 +56,24 @@ async function pickAnyDay(fieldLabel: string): Promise<void> {
   await userEvent.click(screen.getByRole("button", { name: fieldLabel }));
   await userEvent.click(await screen.findByRole("button", { name: "15" }));
 }
+
+const YEAR = new Date().getFullYear();
+
+/** The expenses tab's statistics: Ads dominates, spending is up 8% on last year. */
+const SUMMARY = {
+  year: YEAR,
+  monthsElapsed: 9,
+  current: { totalMinor: 730000, count: 2, averageMonthlyMinor: 81111 },
+  previous: { totalMinor: 676000, count: 3, averageMonthlyMinor: 75111 },
+  monthly: Array.from({ length: 12 }, (_, index) => ({
+    month: index + 1,
+    totalMinor: index === 8 ? 30000 : index === 9 ? 700000 : 0,
+  })),
+  byCategory: [
+    { category: "Ads", totalMinor: 700000, count: 1 },
+    { category: "Electricity", totalMinor: 30000, count: 1 },
+  ],
+};
 
 const SUPPLIER = "11111111-1111-1111-1111-111111111111";
 const VARIANT = "22222222-2222-2222-2222-222222222222";
@@ -296,6 +317,7 @@ function buildFetchMock() {
     }
     if (url.includes("/finance/purchase-orders")) return Promise.resolve(json(200, PO_LIST));
 
+    if (url.includes("/finance/expenses/summary")) return Promise.resolve(json(200, SUMMARY));
     if (url.includes("/finance/expenses") && method === "POST") {
       return Promise.resolve(
         json(201, {
@@ -609,20 +631,43 @@ describe("FinancePage", () => {
 
   // ---- Smoke tests for the lighter tabs ---------------------------------------
 
-  it("renders the expenses tab and creates an expense", async () => {
+  it("shows the year's expense statistics and charts, and reloads them for another year", async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole("tab", { name: "Expenses" }));
+    expect(await screen.findByText("Top expense category")).toBeInTheDocument();
+    expect(screen.getAllByText("Ads").length).toBeGreaterThan(0);
+    // Ads is 95.9% of the total, shown on the card and in the breakdown.
+    expect(screen.getAllByText("95.9%").length).toBeGreaterThan(0);
+    // Total and average are both up 8%; the count is down a third.
+    expect(screen.getAllByText("+8%").length).toBeGreaterThan(0);
+    expect(screen.getByText("-33%")).toBeInTheDocument();
+    expect(screen.getAllByText("7,300.00").length).toBeGreaterThan(0);
+
+    await userEvent.selectOptions(screen.getByLabelText("Year"), String(YEAR - 1));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) =>
+          String(c[0]).includes(`/finance/expenses/summary?year=${YEAR - 1}`),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("records an expense from the dialog", async () => {
     renderPage();
     await userEvent.click(screen.getByRole("tab", { name: "Expenses" }));
     expect(await screen.findByText("No expenses yet.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add expense" }));
+    const dialog = await screen.findByRole("dialog");
     await userEvent.type(
-      screen.getByLabelText("Category", { selector: "#expense-category" }),
+      within(dialog).getByLabelText("Category", { selector: "#expense-category" }),
       "office",
     );
-    await userEvent.type(screen.getByLabelText("Amount"), "10.00");
+    await userEvent.type(within(dialog).getByLabelText("Amount"), "10.00");
     // Date defaults to today (already a valid value); the DatePicker is
     // calendar-only, and the assertion below doesn't check incurredAt.
-    await userEvent.type(screen.getByLabelText("Notes"), "Printer paper");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.type(within(dialog).getByLabelText("Notes"), "Printer paper");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
         (c) =>
@@ -635,36 +680,51 @@ describe("FinancePage", () => {
         notes: "Printer paper",
       });
     });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("cancels the expense create form", async () => {
+  it("closes the expense dialog on cancel without saving", async () => {
     renderPage();
     await userEvent.click(screen.getByRole("tab", { name: "Expenses" }));
     await screen.findByText("No expenses yet.");
-    await userEvent.click(screen.getByRole("button", { name: "New" }));
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByLabelText("Notes")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add expense" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(
+      fetchMock.mock.calls.some(
+        (c) =>
+          String(c[0]).includes("/finance/expenses") && (c[1] as RequestInit)?.method === "POST",
+      ),
+    ).toBe(false);
   });
 
-  it("lists an expense, edits it, and loads a second page", async () => {
+  it("lists expenses, loads a second page, and edits one — with no way to delete", async () => {
     renderPage();
     await screen.findByText("Acme Trading");
-    fetchMock.mockImplementationOnce(() => Promise.resolve(json(200, EXPENSE_PAGE_1)));
+    const baseImpl = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) =>
+      String(input).endsWith("/finance/expenses") && (init?.method ?? "GET") === "GET"
+        ? Promise.resolve(json(200, EXPENSE_PAGE_1))
+        : baseImpl!(input, init),
+    );
     await userEvent.click(screen.getByRole("tab", { name: "Expenses" }));
     expect(await screen.findByText("printing")).toBeInTheDocument();
     expect(screen.getByText("Business cards")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Load more" }));
     expect(await screen.findByText("shipping supplies")).toBeInTheDocument();
 
-    await userEvent.click(screen.getAllByRole("button", { name: "Edit" })[0] as HTMLElement);
-    const categoryInput = screen.getByLabelText("Category", {
+    await userEvent.click(screen.getByRole("button", { name: "Edit printing expense" }));
+    const dialog = await screen.findByRole("dialog");
+    const categoryInput = within(dialog).getByLabelText("Category", {
       selector: "#expense-category",
     }) as HTMLInputElement;
     expect(categoryInput.value).toBe("printing");
     await userEvent.clear(categoryInput);
     await userEvent.type(categoryInput, "office supplies");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
         (c) =>
@@ -683,7 +743,7 @@ describe("FinancePage", () => {
     fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      if (failNext && url.includes("/finance/expenses") && method === "GET") {
+      if (failNext && url.endsWith("/finance/expenses") && method === "GET") {
         failNext = false;
         return Promise.resolve(json(500, { error: { code: "INTERNAL", statusCode: 500 } }));
       }

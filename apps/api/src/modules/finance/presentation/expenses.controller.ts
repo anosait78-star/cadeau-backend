@@ -28,7 +28,13 @@ import { CurrentUser } from "../../../shared/auth/current-user.decorator";
 import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
 import { FinanceService } from "../application/finance.service";
 import type { RawExpenseListQuery } from "../domain/list-query";
-import { CreateExpenseDto, ExpenseDto, ExpenseListDto, UpdateExpenseDto } from "./dto/finance.dto";
+import {
+  CreateExpenseDto,
+  ExpenseDto,
+  ExpenseListDto,
+  ExpenseSummaryDto,
+  UpdateExpenseDto,
+} from "./dto/finance.dto";
 import { FINANCE_FEATURE } from "./suppliers.controller";
 
 /** The idempotency header (api-conventions §Idempotency). */
@@ -64,6 +70,22 @@ export class ExpensesController {
     @Query() rawQuery: RawExpenseListQuery,
   ): Promise<ExpenseListDto> {
     return ExpenseListDto.from(await this.service.listExpenses(principal, rawQuery));
+  }
+
+  @Get("summary")
+  @RequireCapability({ feature: FINANCE_FEATURE, permission: "finance.read" })
+  @ApiOperation({
+    summary: "A calendar year's expense statistics (Africa/Cairo)",
+    operationId: "getExpenseSummary",
+  })
+  @ApiOkResponse({ type: ExpenseSummaryDto })
+  async summary(
+    @CurrentUser() principal: RequestPrincipal,
+    @Query("year") year: string | undefined,
+  ): Promise<ExpenseSummaryDto> {
+    return ExpenseSummaryDto.from(
+      await this.service.getExpenseSummary(principal, year === undefined ? {} : { year }),
+    );
   }
 
   @Get(":expenseId")

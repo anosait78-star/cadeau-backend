@@ -272,6 +272,55 @@ export interface CashCenterReportView {
   readonly netCashMinor: number;
 }
 
+/** One calendar month's expense total (Africa/Cairo months). */
+export interface ExpenseMonthTotalView {
+  /** 1–12. */
+  readonly month: number;
+  readonly totalMinor: number;
+}
+
+/** One category's share of a period's expenses. */
+export interface ExpenseCategoryTotalView {
+  readonly category: string;
+  readonly totalMinor: number;
+  readonly count: number;
+}
+
+/** What the repository aggregates for a year's expense statistics. */
+export interface ExpenseSummaryAggregates {
+  /** Only the months that have expenses; the service fills the rest. */
+  readonly monthly: readonly ExpenseMonthTotalView[];
+  /** Largest total first. */
+  readonly byCategory: readonly ExpenseCategoryTotalView[];
+  readonly current: { readonly totalMinor: number; readonly count: number };
+  /** The same window one year earlier. */
+  readonly previous: { readonly totalMinor: number; readonly count: number };
+}
+
+/** Totals for one window, as the stats cards show them. */
+export interface ExpensePeriodTotalsView {
+  readonly totalMinor: number;
+  readonly count: number;
+  /** `totalMinor` over the months elapsed in the year. */
+  readonly averageMonthlyMinor: number;
+}
+
+/**
+ * Expense statistics for one calendar year (Africa/Cairo) — the expenses
+ * tab's cards and charts. The current year runs up to now and is compared
+ * with the same span of the year before; a past year is whole.
+ */
+export interface ExpenseSummaryView {
+  readonly year: number;
+  /** 12 for a past year, the current month number for this year. */
+  readonly monthsElapsed: number;
+  readonly current: ExpensePeriodTotalsView;
+  readonly previous: ExpensePeriodTotalsView;
+  /** Always twelve entries, January first. */
+  readonly monthly: readonly ExpenseMonthTotalView[];
+  readonly byCategory: readonly ExpenseCategoryTotalView[];
+}
+
 /** A computed P&L summary over one date range. */
 export interface PnlPeriodView {
   readonly revenueMinor: number;

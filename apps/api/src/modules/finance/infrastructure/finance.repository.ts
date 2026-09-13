@@ -30,6 +30,7 @@ import type {
   AccountingPeriodStatus,
   AccountingPeriodView,
   CashCenterReportView,
+  ExpenseSummaryAggregates,
   ExpenseView,
   ExpenseWriteResult,
   InvoiceLineView,
@@ -58,6 +59,9 @@ import type {
   SupplierView,
   TaxSettingsView,
 } from "../domain/finance.entity";
+
+/** Expense statistics bucket by the business's calendar, not UTC. */
+const CAIRO_TZ = "Africa/Cairo";
 import {
   EmptyInvoiceError,
   EmptyPurchaseOrderError,
@@ -1367,6 +1371,93 @@ export class FinanceRepository implements FinanceRepositoryPort {
    * D6 explicitly avoids. `updatedAt` is the best available proxy until a
    * payment-event ledger exists (EPIC-14 territory).
    */
+  async getExpenseSummary(
+    companyId: string,
+    year: number,
+    now: Date,
+  ): Promise<ExpenseSummaryAggregates> {
+    return this.tenantTx(companyId, async (tx) => {
+      // The year's bounds in Cairo time, cut off at `now` while it is still
+      // running. Postgres resolves the zone so DST shifts land correctly.
+      const bounds = await tx.$queryRaw<{ start_at: Date; end_at: Date }[]>`
+        SELECT make_timestamptz(${year}::int, 1, 1, 0, 0, 0, ${CAIRO_TZ}::text) AS start_at,
+               LEAST(
+                 ${now}::timestamptz,
+                 make_timestamptz(${year + 1}::int, 1, 1, 0, 0, 0, ${CAIRO_TZ}::text)
+               ) AS end_at`;
+      const startAt = bounds[0]?.start_at;
+      const endAt = bounds[0]?.end_at;
+      if (startAt === undefined || endAt === undefined) {
+        return {
+          monthly: [],
+          byCategory: [],
+          current: { totalMinor: 0, count: 0 },
+          previous: { totalMinor: 0, count: 0 },
+        };
+      }
+
+      const monthly = await tx.$queryRaw<{ month: number; total: bigint }[]>`
+        SELECT EXTRACT(MONTH FROM incurred_at AT TIME ZONE ${CAIRO_TZ}::text)::int AS month,
+               SUM(amount_minor)::bigint AS total
+          FROM public.expenses
+         WHERE company_id = ${companyId}::uuid
+           AND incurred_at >= ${startAt}
+           AND incurred_at < ${endAt}
+         GROUP BY 1`;
+
+      const categories = await tx.$queryRaw<{ category: string; total: bigint; count: number }[]>`
+        SELECT category, SUM(amount_minor)::bigint AS total, COUNT(*)::int AS count
+          FROM public.expenses
+         WHERE company_id = ${companyId}::uuid
+           AND incurred_at >= ${startAt}
+           AND incurred_at < ${endAt}
+         GROUP BY category
+         ORDER BY total DESC, category`;
+
+      // The comparison window is the same span shifted back a year, so a
+      // year still in progress is never measured against a whole one.
+      const totals = await tx.$queryRaw<
+        {
+          current_total: bigint;
+          current_count: number;
+          previous_total: bigint;
+          previous_count: number;
+        }[]
+      >`
+        SELECT COALESCE(SUM(amount_minor) FILTER (WHERE incurred_at >= ${startAt}), 0)::bigint
+                 AS current_total,
+               (COUNT(*) FILTER (WHERE incurred_at >= ${startAt}))::int AS current_count,
+               COALESCE(SUM(amount_minor) FILTER (
+                 WHERE incurred_at < ${endAt}::timestamptz - interval '1 year'
+               ), 0)::bigint AS previous_total,
+               (COUNT(*) FILTER (
+                 WHERE incurred_at < ${endAt}::timestamptz - interval '1 year'
+               ))::int AS previous_count
+          FROM public.expenses
+         WHERE company_id = ${companyId}::uuid
+           AND incurred_at >= ${startAt}::timestamptz - interval '1 year'
+           AND incurred_at < ${endAt}`;
+      const row = totals[0];
+
+      return {
+        monthly: monthly.map((r) => ({ month: Number(r.month), totalMinor: Number(r.total) })),
+        byCategory: categories.map((r) => ({
+          category: r.category,
+          totalMinor: Number(r.total),
+          count: Number(r.count),
+        })),
+        current: {
+          totalMinor: Number(row?.current_total ?? 0n),
+          count: Number(row?.current_count ?? 0),
+        },
+        previous: {
+          totalMinor: Number(row?.previous_total ?? 0n),
+          count: Number(row?.previous_count ?? 0),
+        },
+      };
+    });
+  }
+
   async getCashCenterReport(
     companyId: string,
     dateFrom: string,

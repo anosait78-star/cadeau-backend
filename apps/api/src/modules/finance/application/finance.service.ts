@@ -27,6 +27,7 @@ import {
 import type {
   AccountingPeriodView,
   CashCenterReportView,
+  ExpenseSummaryView,
   ExpenseView,
   InvoiceListView,
   InvoicePdfData,
@@ -556,6 +557,52 @@ export class FinanceService {
 
   // ---- Cash center + P&L (M13.5, D6 — computed reads) ----------------------------
 
+  /**
+   * A calendar year's expense statistics (Africa/Cairo). `year` defaults to
+   * the current one and may not be in the future. The monthly average divides
+   * by the months elapsed — twelve for a past year, the current month number
+   * for this one — so a quiet month still counts as a month.
+   */
+  async getExpenseSummary(
+    principal: RequestPrincipal,
+    rawQuery: { readonly year?: string },
+  ): Promise<ExpenseSummaryView> {
+    const companyId = this.requireTenant(principal);
+    const now = new Date(this.clock.now());
+    const today = cairoYearMonth(now);
+    const rawYear = rawQuery.year ?? String(today.year);
+    const year = Number(rawYear);
+    if (!/^\d{4}$/.test(rawYear) || year > today.year) {
+      throw AppErrors.validation("Request validation failed", [
+        {
+          field: "year",
+          messages: [`year must be a four-digit year no later than ${today.year}.`],
+        },
+      ]);
+    }
+
+    const monthsElapsed = year < today.year ? 12 : today.month;
+    const aggregates = await this.repo.getExpenseSummary(companyId, year, now);
+    const byMonth = new Map(aggregates.monthly.map((m) => [m.month, m.totalMinor]));
+    const totals = (window: { totalMinor: number; count: number }) => ({
+      totalMinor: window.totalMinor,
+      count: window.count,
+      averageMonthlyMinor: Math.round(window.totalMinor / monthsElapsed),
+    });
+
+    return {
+      year,
+      monthsElapsed,
+      current: totals(aggregates.current),
+      previous: totals(aggregates.previous),
+      monthly: Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        totalMinor: byMonth.get(index + 1) ?? 0,
+      })),
+      byCategory: aggregates.byCategory,
+    };
+  }
+
   async getCashCenterReport(
     principal: RequestPrincipal,
     rawQuery: RawReportRangeQuery,
@@ -678,4 +725,18 @@ export class FinanceService {
     }
     return error;
   }
+}
+
+const CAIRO_YEAR_MONTH = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Africa/Cairo",
+  year: "numeric",
+  month: "numeric",
+});
+
+/** The calendar year and month (1–12) of an instant, in Africa/Cairo. */
+function cairoYearMonth(at: Date): { year: number; month: number } {
+  const parts = CAIRO_YEAR_MONTH.formatToParts(at);
+  const part = (type: "year" | "month"): number =>
+    Number(parts.find((p) => p.type === type)?.value);
+  return { year: part("year"), month: part("month") };
 }

@@ -286,6 +286,36 @@ export function updateExpense(id: string, body: ExpenseInput): Promise<Expense> 
   return apiFetch<Expense>(`/finance/expenses/${id}`, { method: "PATCH", body });
 }
 
+/** Totals for one window of the expense summary. */
+export interface ExpensePeriodTotals {
+  readonly totalMinor: number;
+  readonly count: number;
+  /** Over the months elapsed in the year. */
+  readonly averageMonthlyMinor: number;
+}
+
+/** A calendar year's expense statistics (Africa/Cairo). */
+export interface ExpenseSummary {
+  readonly year: number;
+  readonly monthsElapsed: number;
+  readonly current: ExpensePeriodTotals;
+  /** The same span one year earlier. */
+  readonly previous: ExpensePeriodTotals;
+  /** Twelve entries, January first. */
+  readonly monthly: readonly { readonly month: number; readonly totalMinor: number }[];
+  /** Largest total first. */
+  readonly byCategory: readonly {
+    readonly category: string;
+    readonly totalMinor: number;
+    readonly count: number;
+  }[];
+}
+
+/** `GET /v1/finance/expenses/summary` — defaults to the current year. */
+export function getExpenseSummary(year?: number): Promise<ExpenseSummary> {
+  return apiFetch<ExpenseSummary>(`/finance/expenses/summary${buildQuery({ year })}`);
+}
+
 // ---- Tax settings -----------------------------------------------------------------
 
 export interface TaxSettings {

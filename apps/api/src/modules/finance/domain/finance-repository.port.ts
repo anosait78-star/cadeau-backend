@@ -2,6 +2,7 @@ import type { KeysetPage } from "@cadeau/database";
 import type {
   AccountingPeriodView,
   CashCenterReportView,
+  ExpenseSummaryAggregates,
   ExpenseView,
   ExpenseWriteResult,
   InvoiceListView,
@@ -346,6 +347,13 @@ export interface FinanceRepositoryPort {
    * ({@link PeriodSequenceGapError}, D4), then upserts the row to `closed`.
    */
   closePeriod(actor: WriteActor, periodKey: string): Promise<PeriodCloseResult>;
+
+  /**
+   * Aggregate a calendar year's expenses (Africa/Cairo): per month and per
+   * category for the year up to `now`, and the totals for that window and
+   * the same window one year earlier.
+   */
+  getExpenseSummary(companyId: string, year: number, now: Date): Promise<ExpenseSummaryAggregates>;
 
   // ---- Cash center + P&L (M13.5, D6 — computed reads) --------------------------
 

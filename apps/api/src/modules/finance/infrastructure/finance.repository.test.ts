@@ -1152,3 +1152,68 @@ describe("FinanceRepository — cash center + P&L (M13.5, D6)", () => {
     expect(report.previous?.cogsMinor).toBe(5000);
   });
 });
+
+describe("FinanceRepository — expense summary", () => {
+  /** Answers each summary query by its SQL; anything else (tenant context) gets []. */
+  function answerBySql(rows: {
+    bounds: unknown[];
+    monthly: unknown[];
+    categories: unknown[];
+    totals: unknown[];
+  }) {
+    return (strings: unknown) => {
+      const sql = Array.isArray(strings) ? strings.join("?") : "";
+      if (sql.includes("make_timestamptz")) return Promise.resolve(rows.bounds);
+      if (sql.includes("EXTRACT(MONTH")) return Promise.resolve(rows.monthly);
+      if (sql.includes("GROUP BY category")) return Promise.resolve(rows.categories);
+      if (sql.includes("previous_total")) return Promise.resolve(rows.totals);
+      return Promise.resolve([]);
+    };
+  }
+
+  it("converts the aggregates to numbers, largest category first", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockImplementation(
+      answerBySql({
+        bounds: [
+          {
+            start_at: new Date("2025-12-31T22:00:00.000Z"),
+            end_at: new Date("2026-09-14T10:00:00.000Z"),
+          },
+        ],
+        monthly: [{ month: 9, total: 730000n }],
+        categories: [
+          { category: "ads", total: 700000n, count: 1 },
+          { category: "power", total: 30000n, count: 1 },
+        ],
+        totals: [
+          { current_total: 730000n, current_count: 2, previous_total: 0n, previous_count: 0 },
+        ],
+      }),
+    );
+    const summary = await repo.getExpenseSummary(
+      COMPANY,
+      2026,
+      new Date("2026-09-14T10:00:00.000Z"),
+    );
+    expect(summary).toEqual({
+      monthly: [{ month: 9, totalMinor: 730000 }],
+      byCategory: [
+        { category: "ads", totalMinor: 700000, count: 1 },
+        { category: "power", totalMinor: 30000, count: 1 },
+      ],
+      current: { totalMinor: 730000, count: 2 },
+      previous: { totalMinor: 0, count: 0 },
+    });
+  });
+
+  it("returns zeros when the year's bounds cannot be resolved", async () => {
+    const { repo, queryRaw } = makeRepo();
+    queryRaw.mockImplementation(
+      answerBySql({ bounds: [], monthly: [], categories: [], totals: [] }),
+    );
+    const summary = await repo.getExpenseSummary(COMPANY, 2026, new Date());
+    expect(summary.current).toEqual({ totalMinor: 0, count: 0 });
+    expect(summary.monthly).toEqual([]);
+  });
+});

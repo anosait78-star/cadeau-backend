@@ -170,6 +170,7 @@ function makeService() {
     createReconciliation: vi.fn(),
     listPeriods: vi.fn().mockResolvedValue([]),
     closePeriod: vi.fn(),
+    getExpenseSummary: vi.fn(),
     getCashCenterReport: vi.fn(),
     getPnlReport: vi.fn(),
   };

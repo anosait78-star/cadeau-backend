@@ -41,6 +41,7 @@ import {
   type RefundView,
   type SupplierView,
   type TaxSettingsView,
+  ExpenseSummaryView,
 } from "../../domain/finance.entity";
 
 // ---- Request DTOs ------------------------------------------------------------
@@ -674,6 +675,74 @@ export class ExpenseListDto {
       nextCursor: page.page.nextCursor,
       hasMore: page.page.hasMore,
     };
+    return dto;
+  }
+}
+
+/** One calendar month's expense total (Africa/Cairo). */
+export class ExpenseMonthTotalDto {
+  @ApiProperty({ example: 9, minimum: 1, maximum: 12 })
+  month!: number;
+
+  @ApiProperty({ example: 30000, description: "Integer minor units." })
+  totalMinor!: number;
+}
+
+/** One category's share of the year's expenses. */
+export class ExpenseCategoryTotalDto {
+  @ApiProperty({ example: "الإعلانات" })
+  category!: string;
+
+  @ApiProperty({ example: 700000, description: "Integer minor units." })
+  totalMinor!: number;
+
+  @ApiProperty({ example: 1 })
+  count!: number;
+}
+
+/** Totals for one window of the expense summary. */
+export class ExpensePeriodTotalsDto {
+  @ApiProperty({ example: 730000, description: "Integer minor units." })
+  totalMinor!: number;
+
+  @ApiProperty({ example: 2 })
+  count!: number;
+
+  @ApiProperty({ example: 81111, description: "Integer minor units, over the months elapsed." })
+  averageMonthlyMinor!: number;
+}
+
+/** A calendar year's expense statistics (Africa/Cairo). */
+export class ExpenseSummaryDto {
+  @ApiProperty({ example: 2026 })
+  year!: number;
+
+  @ApiProperty({ example: 9, description: "12 for a past year, the current month for this one." })
+  monthsElapsed!: number;
+
+  @ApiProperty({ type: ExpensePeriodTotalsDto })
+  current!: ExpensePeriodTotalsDto;
+
+  @ApiProperty({
+    type: ExpensePeriodTotalsDto,
+    description: "The same span one year earlier.",
+  })
+  previous!: ExpensePeriodTotalsDto;
+
+  @ApiProperty({ type: [ExpenseMonthTotalDto], description: "Twelve entries, January first." })
+  monthly!: ExpenseMonthTotalDto[];
+
+  @ApiProperty({ type: [ExpenseCategoryTotalDto], description: "Largest total first." })
+  byCategory!: ExpenseCategoryTotalDto[];
+
+  static from(view: ExpenseSummaryView): ExpenseSummaryDto {
+    const dto = new ExpenseSummaryDto();
+    dto.year = view.year;
+    dto.monthsElapsed = view.monthsElapsed;
+    dto.current = { ...view.current };
+    dto.previous = { ...view.previous };
+    dto.monthly = view.monthly.map((m) => ({ ...m }));
+    dto.byCategory = view.byCategory.map((c) => ({ ...c }));
     return dto;
   }
 }

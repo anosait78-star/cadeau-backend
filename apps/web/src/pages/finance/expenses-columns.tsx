@@ -1,7 +1,9 @@
+import { CalendarDays } from "lucide-react";
 import type { Column } from "@/components/data-grid/types";
 import type { Translate } from "@/components/i18n/translate-type";
 import type { Expense } from "@/features/finance/finance-api";
-import { DASH, formatDate, formatMoney } from "./finance-shared";
+import { CurrencyAmount, ExpenseCategoryChip } from "./expense-display";
+import { DASH, formatDate } from "./finance-shared";
 
 /**
  * Expenses' `Column<Expense>[]` defs for the generic DataGrid.
@@ -20,21 +22,33 @@ export function buildExpenseColumns({
     {
       key: "category",
       header: t("finance.expenses.field.category"),
-      render: (row) => <span className="font-medium">{row.category}</span>,
+      render: (row) => <ExpenseCategoryChip category={row.category} />,
       clientSortable: true,
       sortAccessor: (row) => row.category,
     },
     {
       key: "amountMinor",
       header: t("finance.expenses.field.amount"),
-      render: (row) => <span className="tabular-nums">{formatMoney(row.amountMinor, locale)}</span>,
+      render: (row) => (
+        <CurrencyAmount
+          minor={row.amountMinor}
+          locale={locale}
+          unit={t("finance.expenses.currency")}
+          className="font-semibold text-foreground"
+        />
+      ),
       clientSortable: true,
       sortAccessor: (row) => row.amountMinor,
     },
     {
       key: "incurredAt",
       header: t("finance.expenses.field.incurredAt"),
-      render: (row) => <span>{formatDate(row.incurredAt, locale)}</span>,
+      render: (row) => (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          {formatDate(row.incurredAt, locale)}
+        </span>
+      ),
       clientSortable: true,
       sortAccessor: (row) => row.incurredAt,
     },
@@ -50,7 +64,9 @@ export function buildExpenseColumns({
     {
       key: "notes",
       header: t("finance.expenses.field.notes"),
-      render: (row) => <span>{row.notes ?? DASH}</span>,
+      render: (row) => (
+        <span className="line-clamp-1 text-muted-foreground">{row.notes ?? DASH}</span>
+      ),
     },
   ];
 }

@@ -226,6 +226,7 @@ function makeService() {
     createReconciliation: vi.fn(),
     listPeriods: vi.fn().mockResolvedValue([]),
     closePeriod: vi.fn(),
+    getExpenseSummary: vi.fn(),
     getCashCenterReport: vi.fn(),
     getPnlReport: vi.fn(),
   };
@@ -885,5 +886,62 @@ describe("FinanceService — cash center + P&L (M13.5, D6)", () => {
       }),
     ).rejects.toBeInstanceOf(AppException);
     expect(repo.getPnlReport).not.toHaveBeenCalled();
+  });
+});
+
+describe("FinanceService — expense summary", () => {
+  // The test clock (1_700_000_000_000) is 2023-11-15 in Cairo.
+  const NOW = new Date(1_700_000_000_000);
+
+  it("fills all twelve months and averages over the months elapsed this year", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.getExpenseSummary).mockResolvedValue({
+      monthly: [
+        { month: 9, totalMinor: 30000 },
+        { month: 10, totalMinor: 700000 },
+      ],
+      byCategory: [{ category: "ads", totalMinor: 700000, count: 1 }],
+      current: { totalMinor: 730000, count: 2 },
+      previous: { totalMinor: 220000, count: 1 },
+    });
+    const summary = await service.getExpenseSummary(principal(), {});
+    expect(repo.getExpenseSummary).toHaveBeenCalledWith(COMPANY, 2023, NOW);
+    expect(summary.year).toBe(2023);
+    expect(summary.monthsElapsed).toBe(11);
+    expect(summary.monthly).toHaveLength(12);
+    expect(summary.monthly[0]).toEqual({ month: 1, totalMinor: 0 });
+    expect(summary.monthly[8]).toEqual({ month: 9, totalMinor: 30000 });
+    expect(summary.current).toEqual({
+      totalMinor: 730000,
+      count: 2,
+      averageMonthlyMinor: Math.round(730000 / 11),
+    });
+    expect(summary.previous.averageMonthlyMinor).toBe(20000);
+    expect(summary.byCategory).toEqual([{ category: "ads", totalMinor: 700000, count: 1 }]);
+  });
+
+  it("treats a past year as whole", async () => {
+    const { service, repo } = makeService();
+    vi.mocked(repo.getExpenseSummary).mockResolvedValue({
+      monthly: [],
+      byCategory: [],
+      current: { totalMinor: 120000, count: 3 },
+      previous: { totalMinor: 0, count: 0 },
+    });
+    const summary = await service.getExpenseSummary(principal(), { year: "2022" });
+    expect(repo.getExpenseSummary).toHaveBeenCalledWith(COMPANY, 2022, NOW);
+    expect(summary.monthsElapsed).toBe(12);
+    expect(summary.current.averageMonthlyMinor).toBe(10000);
+  });
+
+  it("rejects a malformed or future year without querying", async () => {
+    const { service, repo } = makeService();
+    await expect(service.getExpenseSummary(principal(), { year: "20x3" })).rejects.toBeInstanceOf(
+      AppException,
+    );
+    await expect(service.getExpenseSummary(principal(), { year: "2024" })).rejects.toBeInstanceOf(
+      AppException,
+    );
+    expect(repo.getExpenseSummary).not.toHaveBeenCalled();
   });
 });
