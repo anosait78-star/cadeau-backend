@@ -137,6 +137,16 @@ describe("AnalyticsPage", () => {
     expect(screen.getByText("+4 new this period")).toBeTruthy();
   });
 
+  it("asks for the whole of the end day, not just its first instant", async () => {
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("128")).toBeTruthy());
+    const url = fetchMock.mock.calls[0]![0] as string;
+    const to = new URLSearchParams(url.slice(url.indexOf("?"))).get("to");
+    // Midnight here would cut the picked day — today by default — out of the window.
+    expect(to).toMatch(/T23:59:59.999Z$/);
+  });
+
   it("shows only the two axes as tabs", () => {
     renderPage();
     const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent);

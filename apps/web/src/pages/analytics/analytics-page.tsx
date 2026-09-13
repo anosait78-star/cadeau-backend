@@ -47,6 +47,21 @@ function defaultTo(): string {
 }
 
 /**
+ * The window the API is asked for, as an inclusive span of whole days. Both
+ * pickers hand back a bare `YYYY-MM-DD`; the end of the window has to be that
+ * day's last instant, not its first, or the day the user picked — today, by
+ * default — is cut out of the window entirely and everything collected or
+ * sold during it goes missing from both tabs.
+ */
+function dayStart(date: string): string {
+  return `${date}T00:00:00.000Z`;
+}
+
+function dayEnd(date: string): string {
+  return `${date}T23:59:59.999Z`;
+}
+
+/**
  * Analytics (EPIC-14): two computed, read-only views over the business —
  * product performance and net income on collected. Both read the same window
  * from one toolbar, defaulting to the last 30 days.
@@ -103,8 +118,8 @@ function AnalyticsScreen(): ReactNode {
    */
   const win: AnalyticsWindow = useMemo(
     () => ({
-      from: new Date(from).toISOString(),
-      to: new Date(to).toISOString(),
+      from: dayStart(from),
+      to: dayEnd(to),
       granularity,
     }),
     [from, to, granularity],
