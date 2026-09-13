@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/toast/toast";
 import {
@@ -13,7 +14,8 @@ import { TeamPage } from "./team-page";
 
 /**
  * The merged Team page: role cards (formerly the Roles page), member cards
- * with their effective permissions, and the manage-only invitations section.
+ * with their effective permissions, and the manage-only invitations section —
+ * split into two sections picked from a pair of cards, remembered in the URL.
  */
 
 const auth = vi.hoisted(() => ({
@@ -82,6 +84,14 @@ const MEMBERS = [
     status: "active",
     joinedAt: "2026-01-03T00:00:00.000Z",
   },
+  {
+    id: "m4",
+    name: "Karim Store",
+    email: "karim@example.com",
+    role: "vendor",
+    status: "active",
+    joinedAt: "2026-01-04T00:00:00.000Z",
+  },
 ];
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -114,6 +124,7 @@ beforeEach(() => {
                 { memberId: "m1", role: "store_manager", permissions: ["orders.read"] },
                 { memberId: "m2", role: "store_manager", permissions: [] },
                 { memberId: "m3", role: "custom", permissions: ["customers.manage"] },
+                { memberId: "m4", role: "vendor", permissions: ["inventory.read"] },
               ],
             }),
           )
@@ -164,13 +175,37 @@ function caps(permissions: string[], children: ReactNode): ReactNode {
   return <CapabilitiesContext value={value}>{children}</CapabilitiesContext>;
 }
 
-function renderPage(permissions = ["access.read", "access.manage"]) {
+/** Shows the current query string, so a test can see what the page wrote to the URL. */
+function LocationProbe(): ReactNode {
+  return <output data-testid="location">{useLocation().search}</output>;
+}
+
+function renderPage(permissions = ["access.read", "access.manage"], search = "") {
   return render(
-    <I18nProvider>
-      <ToastProvider>{caps(permissions, <TeamPage />)}</ToastProvider>
-    </I18nProvider>,
+    <MemoryRouter initialEntries={[`/settings/team${search}`]}>
+      <I18nProvider>
+        <ToastProvider>
+          {caps(
+            permissions,
+            <Routes>
+              <Route
+                path="/settings/team"
+                element={
+                  <>
+                    <TeamPage />
+                    <LocationProbe />
+                  </>
+                }
+              />
+            </Routes>,
+          )}
+        </ToastProvider>
+      </I18nProvider>
+    </MemoryRouter>,
   );
 }
+
+const MEMBERS_SECTION = "?section=members";
 
 describe("TeamPage", () => {
   it("renders role cards in Arabic, never the seed's English or raw keys", async () => {
@@ -197,7 +232,7 @@ describe("TeamPage", () => {
   });
 
   it("shows each member's effective permissions, including a custom member's", async () => {
-    renderPage();
+    renderPage(undefined, MEMBERS_SECTION);
     const custom = await screen.findByTestId("member-card-m3");
     expect(within(custom).getByText("Custom")).toBeInTheDocument();
     await waitFor(() => expect(within(custom).getByText("Manage Customers")).toBeInTheDocument());
@@ -208,7 +243,7 @@ describe("TeamPage", () => {
 
   it("still shows members when their permissions fail to load", async () => {
     memberPermissionsStatus = 500;
-    renderPage();
+    renderPage(undefined, MEMBERS_SECTION);
     const card = await screen.findByTestId("member-card-m1");
     expect(within(card).getByText("Sara Ali")).toBeInTheDocument();
     await waitFor(() =>
@@ -244,16 +279,89 @@ describe("TeamPage", () => {
   });
 
   it("shows invitations and the manage buttons only with access.manage", async () => {
-    renderPage();
+    renderPage(undefined, MEMBERS_SECTION);
     expect(await screen.findByText("Pending invitations")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Invite member" })).toBeInTheDocument();
   });
 
   it("hides invitations and never asks for them without access.manage", async () => {
-    renderPage(["access.read"]);
-    await screen.findByTestId("role-card-owner");
+    renderPage(["access.read"], MEMBERS_SECTION);
+    await screen.findByTestId("member-card-m1");
     expect(screen.queryByText("Pending invitations")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add new role" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/invitations"))).toBe(false);
+  });
+
+  it("opens on roles, and switching to the team section shows members and records it", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("role-card-owner");
+    expect(screen.queryByTestId("member-card-m1")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Roles & permissions/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await user.click(screen.getByRole("tab", { name: /^Team/ }));
+    expect(await screen.findByTestId("member-card-m1")).toBeInTheDocument();
+    expect(screen.queryByTestId("role-card-owner")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("section=members");
+    // The invitations belong to the team section.
+    expect(screen.getByText("Pending invitations")).toBeInTheDocument();
+  });
+
+  it("shows each section's counts on its card", async () => {
+    renderPage();
+    const roles = await screen.findByRole("tab", { name: /^Roles & permissions/ });
+    await waitFor(() => expect(within(roles).getByText("2 roles")).toBeInTheDocument());
+    const team = screen.getByRole("tab", { name: /^Team/ });
+    await waitFor(() =>
+      expect(within(team).getByText("4 members · 1 pending")).toBeInTheDocument(),
+    );
+  });
+
+  it("searches members by name, email or role in the team section, and resets on switch", async () => {
+    const user = userEvent.setup();
+    renderPage(undefined, MEMBERS_SECTION);
+    await screen.findByTestId("member-card-m1");
+    const search = screen.getByRole("searchbox", { name: "Search members…" });
+    await user.type(search, "omar@");
+    expect(screen.getByTestId("member-card-m2")).toBeInTheDocument();
+    expect(screen.queryByTestId("member-card-m1")).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "zzz");
+    // Both the team and the vendor block say so.
+    expect(screen.getAllByText("No members match your search.")).toHaveLength(2);
+
+    await user.click(screen.getByRole("tab", { name: /^Roles & permissions/ }));
+    expect(await screen.findByRole("searchbox", { name: "Search roles…" })).toHaveValue("");
+    expect(screen.getByTestId("role-card-owner")).toBeInTheDocument();
+  });
+
+  it("offers each section's own action: add role on roles, invite on team", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("role-card-owner");
+    expect(screen.getByRole("button", { name: "Add new role" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Invite member" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /^Team/ }));
+    expect(await screen.findByRole("button", { name: "Invite member" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add new role" })).not.toBeInTheDocument();
+  });
+
+  it("lists vendor accounts in their own block, between the team and the invitations", async () => {
+    renderPage(undefined, MEMBERS_SECTION);
+    const vendors = await screen.findByRole("region", { name: "Vendor accounts" });
+    expect(within(vendors).getByTestId("member-card-m4")).toBeInTheDocument();
+    expect(within(vendors).queryByTestId("member-card-m1")).not.toBeInTheDocument();
+
+    const heading = within(vendors).getByRole("heading", { name: "Vendor accounts" });
+    const invitations = await screen.findByRole("heading", { name: "Pending invitations" });
+    const follows = (a: Node, b: Node): boolean =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(follows(screen.getByTestId("member-card-m1"), heading)).toBe(true);
+    expect(follows(heading, invitations)).toBe(true);
   });
 });

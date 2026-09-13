@@ -56,7 +56,10 @@ export const router = createBrowserRouter([
           { path: "master-data", element: <MasterDataPage /> },
           // Roles now live on the Team page. Kept as a redirect for old links —
           // without it `settings/:tab` would swallow the path silently.
-          { path: "settings/roles", element: <Navigate to="/settings/team" replace /> },
+          {
+            path: "settings/roles",
+            element: <Navigate to="/settings/team?section=roles" replace />,
+          },
           { path: "settings/team", element: <TeamPage /> },
           { path: "settings/notifications", element: <NotificationsPage /> },
           { path: "settings", element: <SettingsPage /> },
