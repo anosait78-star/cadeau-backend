@@ -17,7 +17,6 @@ import type { StatusDragProps, StatusDropTarget } from "@/hooks/use-status-drag"
 import type { TranslationKey } from "@/i18n/dictionaries";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
-import { StatusBadge } from "./orders-columns";
 import { TRANSITIONS } from "./orders-row-actions";
 
 /**
@@ -59,69 +58,68 @@ const BOARD_COLUMNS: readonly OrderStatus[] = [
 ];
 
 /**
- * How far a wheel event should move a horizontal strip, or `null` to leave the
- * event alone.
+ * Grab the board's background and drag it sideways.
  *
- * `null` for a trackpad's own sideways swipe, which already scrolls the strip
- * correctly and must not be doubled.
+ * The wheel is deliberately left alone: it scrolls the page up and down as it
+ * does everywhere else. An earlier attempt turned wheel-down into sideways
+ * motion, which took the page's own scrolling away from the user — dragging
+ * is what they actually wanted, and the two do not need to overlap.
  *
- * The sign is the part worth pinning down: `scrollLeft` runs 0 → +max in LTR
- * but 0 → -max in RTL (verified in a browser, not assumed), so an Arabic board
- * needs the delta flipped. Without it the wheel is dead in one direction and
- * backwards in the other.
+ * A pan must never start on a card. Cards are HTML5-draggable, and swallowing
+ * their pointerdown would break dragging an order between columns, which is
+ * the board's whole point — so a pan only begins on board or column
+ * background, and buttons and inputs keep their own behaviour too.
+ *
+ * `scrollLeft = start - dx` is correct in BOTH writing directions: in RTL
+ * `scrollLeft` simply runs 0 → -max, so pulling the content right (dx > 0)
+ * drives it further negative exactly as it drives it positive in LTR
+ * (verified in a browser, not assumed).
  */
-export function horizontalWheelDelta({
-  deltaX,
-  deltaY,
-  rtl,
-}: {
-  readonly deltaX: number;
-  readonly deltaY: number;
-  readonly rtl: boolean;
-}): number | null {
-  if (Math.abs(deltaY) <= Math.abs(deltaX)) return null;
-  return rtl ? -deltaY : deltaY;
-}
-
-/**
- * Let a plain mouse wheel scroll a horizontal strip.
- *
- * A wheel without a horizontal axis only ever emits `deltaY`, so the twelve
- * columns could be reached by dragging the scrollbar or holding Shift and
- * nothing else — a trackpad worked, a mouse did not.
- *
- * Three details this gets right:
- *
- * - The listener is attached natively with `passive: false`. React's own
- *   `onWheel` is registered passive, so `preventDefault` inside it is ignored
- *   and the page scrolls underneath anyway.
- * - `scrollLeft` runs 0 → -max in RTL and 0 → +max in LTR (verified in the
- *   browser, not assumed), so the delta is flipped for Arabic. Without this
- *   the wheel would be dead in one direction and inverted in the other.
- * - The page is only prevented from scrolling when the strip actually moved.
- *   At either end the event falls through, so reaching the last column does
- *   not trap the wheel and leave the page stuck.
- */
-function useWheelToHorizontalScroll(): RefObject<HTMLDivElement | null> {
+function useDragToPan(): RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
     if (el === null) return;
-    const onWheel = (event: WheelEvent): void => {
-      if (el.scrollWidth <= el.clientWidth) return;
-      const delta = horizontalWheelDelta({
-        deltaX: event.deltaX,
-        deltaY: event.deltaY,
-        rtl: getComputedStyle(el).direction === "rtl",
-      });
-      if (delta === null) return;
-      const before = el.scrollLeft;
-      el.scrollLeft = before + delta;
-      if (el.scrollLeft !== before) event.preventDefault();
+
+    let panFrom: { readonly x: number; readonly scroll: number } | null = null;
+
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.button !== 0 || event.pointerType !== "mouse") return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[draggable="true"], button, a, input, select, textarea') !== null) {
+        return;
+      }
+      panFrom = { x: event.clientX, scroll: el.scrollLeft };
+      el.setPointerCapture(event.pointerId);
+      el.style.cursor = "grabbing";
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+
+    const onPointerMove = (event: PointerEvent): void => {
+      if (panFrom === null) return;
+      event.preventDefault();
+      el.scrollLeft = panFrom.scroll - (event.clientX - panFrom.x);
+    };
+
+    const endPan = (event: PointerEvent): void => {
+      if (panFrom === null) return;
+      panFrom = null;
+      el.style.cursor = "";
+      if (el.hasPointerCapture(event.pointerId)) el.releasePointerCapture(event.pointerId);
+    };
+
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", endPan);
+    el.addEventListener("pointercancel", endPan);
+
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup", endPan);
+      el.removeEventListener("pointercancel", endPan);
+    };
   }, []);
 
   return ref;
@@ -178,7 +176,7 @@ export function OrdersBoard({
   readonly t: Translate;
   readonly locale: string;
 }): ReactNode {
-  const scrollRef = useWheelToHorizontalScroll();
+  const scrollRef = useDragToPan();
   const byStatus = {} as Record<OrderStatus, OrderListItem[]>;
   for (const status of ORDER_STATUSES) byStatus[status] = [];
   for (const order of orders) byStatus[order.status].push(order);
@@ -189,7 +187,7 @@ export function OrdersBoard({
     // stops a column's focus ring from being clipped by the scroll container.
     <div
       ref={scrollRef}
-      className="-mx-1 flex items-start gap-4 overflow-x-auto px-1 pb-2"
+      className="-mx-1 flex cursor-grab items-start gap-4 overflow-x-auto px-1 pb-2"
       role="list"
       aria-label={t("orders.board.label")}
     >
@@ -373,7 +371,7 @@ function OrderBoardCard({
         if (e.key === "Enter") onOpen();
       }}
       className={cn(
-        "flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-card p-2.5 shadow-xs",
+        "flex cursor-pointer flex-col gap-1 rounded-lg border border-border bg-card p-2 shadow-xs",
         "transition-all duration-[var(--motion-hover)] hover:border-primary/40 hover:shadow-sm",
         "cursor-grab active:cursor-grabbing",
         dragging && "opacity-40",
@@ -387,7 +385,11 @@ function OrderBoardCard({
         dragActive && !dragging && "pointer-events-none",
       )}
     >
-      <div className="flex items-center gap-2">
+      {/* Two rows, not three. The status badge that used to sit here is gone:
+          the card lives inside its status column, so repeating the status on
+          the card spent a whole row restating what the column already says —
+          which is what made these cards so tall. */}
+      <div className="flex items-center gap-1.5">
         {/* Selection survives the grid's removal: the bulk bar (assign, create
             shipment) is still driven by the same `useDataGridSelection`. The
             click must not also open the drawer. */}
@@ -404,11 +406,11 @@ function OrderBoardCard({
             aria-label="Select row"
           />
         </span>
-        <span className="shrink-0 text-sm font-semibold text-foreground" dir="ltr">
-          #{order.orderNumber}
-        </span>
-        <span className="ms-auto shrink-0 text-caption text-muted-foreground">
-          {order.itemCount} {t("orders.field.items")}
+        {/* The customer is what staff scan a board for, so it is the card's
+            headline — the order number, previously bold here, is a lookup key
+            and drops to the caption row below. */}
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {order.customerName}
         </span>
         {canManage && targets.length > 0 ? (
           <span
@@ -421,13 +423,13 @@ function OrderBoardCard({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-6 w-6"
                   // Per-order, not a bare "Change status": twenty identical
                   // buttons are useless to a screen reader (and ambiguous to
                   // the bulk bar's own button of that name).
                   aria-label={t("orders.board.changeStatusFor", { order: order.orderNumber })}
                 >
-                  <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                  <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -442,13 +444,14 @@ function OrderBoardCard({
           </span>
         ) : null}
       </div>
-      <span className="block truncate text-sm text-foreground">{order.customerName}</span>
-      <div className="flex items-center justify-between gap-2">
-        <StatusBadge
-          status={order.status}
-          label={t(`orders.status.${order.status}` as TranslationKey)}
-        />
-        <span className="shrink-0 text-sm font-semibold tabular-nums" dir="ltr">
+      <div className="flex items-center justify-between gap-2 text-caption text-muted-foreground">
+        <span className="shrink-0 tabular-nums" dir="ltr">
+          #{order.orderNumber}
+        </span>
+        <span className="truncate">
+          {order.itemCount} {t("orders.field.items")}
+        </span>
+        <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground" dir="ltr">
           {formatMoney(order.total, locale)}
         </span>
       </div>

@@ -306,7 +306,13 @@ describe("OrdersPage", () => {
     renderPage();
     expect(await screen.findByText("#1042")).toBeInTheDocument();
     expect(screen.getByText("Sara")).toBeInTheDocument();
-    expect(screen.getByTestId("status")).toHaveTextContent("New");
+    // The card no longer carries a status badge — it sits inside its status
+    // column, and repeating the status on the card cost a whole row. The
+    // information is still on screen, just once instead of twice.
+    expect(screen.queryByTestId("status")).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("listitem", { name: "New" })).getByText("Sara"),
+    ).toBeInTheDocument();
   });
 
   it("shows a column per status, with live counts in the header", async () => {

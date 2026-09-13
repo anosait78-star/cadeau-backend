@@ -9,7 +9,6 @@ import {
 } from "@/features/access/capabilities-context";
 import { ToastProvider } from "@/components/toast/toast";
 import { I18nProvider } from "@/i18n/i18n-provider";
-import { horizontalWheelDelta } from "./orders-board";
 import { OrdersPage } from "./orders-page";
 
 /**
@@ -262,26 +261,5 @@ describe("OrdersPage — desktop board", () => {
     dragOnto(card(), column("Processing"));
     await Promise.resolve();
     expect(transitionCalls()).toHaveLength(0);
-  });
-});
-
-describe("horizontalWheelDelta", () => {
-  it("turns a plain mouse wheel into forward scroll in both writing directions", () => {
-    // `scrollLeft` runs 0 → +max in LTR and 0 → -max in RTL, so the same
-    // gesture needs opposite signs to move the board the same way.
-    expect(horizontalWheelDelta({ deltaX: 0, deltaY: 120, rtl: false })).toBe(120);
-    expect(horizontalWheelDelta({ deltaX: 0, deltaY: 120, rtl: true })).toBe(-120);
-    expect(horizontalWheelDelta({ deltaX: 0, deltaY: -120, rtl: true })).toBe(120);
-  });
-
-  it("leaves a trackpad's own sideways swipe alone", () => {
-    // It already scrolls the strip; acting on it too would double the motion.
-    expect(horizontalWheelDelta({ deltaX: 100, deltaY: 5, rtl: true })).toBeNull();
-    expect(horizontalWheelDelta({ deltaX: -100, deltaY: 0, rtl: false })).toBeNull();
-  });
-
-  it("ignores a wheel event with no dominant axis", () => {
-    expect(horizontalWheelDelta({ deltaX: 0, deltaY: 0, rtl: false })).toBeNull();
-    expect(horizontalWheelDelta({ deltaX: 40, deltaY: 40, rtl: false })).toBeNull();
   });
 });

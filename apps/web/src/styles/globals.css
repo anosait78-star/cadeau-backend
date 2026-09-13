@@ -43,18 +43,20 @@
      completed and returned/exchanged side by side looking alike.
 
      Board order and the hue angle each lands on:
-       new 192 · confirming 292 · processing 222 · ready 90 · shipped 265 ·
+       new 350 · confirming 25 · processing 222 · ready 90 · shipped 265 ·
        delivered 142 · completed 330 · postponed 45 · cancelled 0 ·
        returned 175 · exchanged 243 · incomplete 25
-     The smallest gap between neighbours is gold→red, the one pairing that was
-     already there and liked.
+     new/confirming (red beside orange) is the closest neighbouring pair and
+     was asked for directly; the orange leans yellow to hold them apart.
+     `new` is the brand red, `cancelled` a cooler one — they sit eight columns
+     apart, so the resemblance never shows up side by side.
 
      All twelve are saturated to the same degree as gold/red/orange; the
      earlier slate `new` read as washed out next to them. Hue therefore tracks
      "not the column beside me" more than meaning — ask for a swap if a
      particular status wants a particular color. */
-  --status-new: #0891b2;
-  --status-confirming: #c026d3;
+  --status-new: #e11931;
+  --status-confirming: #f97316;
   --status-processing: #2563eb;
   --status-ready: #65a30d;
   --status-shipped: #7c3aed;
@@ -172,8 +174,8 @@
   --info-foreground: #0b0b0c;
 
   /* Same hues, lighter — a dark hue at this tint over #0b0b0c turns to mud. */
-  --status-new: #22d3ee;
-  --status-confirming: #e879f9;
+  --status-new: #fb7185;
+  --status-confirming: #fdba74;
   --status-processing: #60a5fa;
   --status-ready: #a3e635;
   --status-shipped: #a78bfa;
