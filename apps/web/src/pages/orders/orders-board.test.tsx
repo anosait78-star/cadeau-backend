@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -87,9 +87,12 @@ const COUNTS = { counts: { new: 1 } };
 let fetchMock: ReturnType<typeof vi.fn>;
 /** Set per test to make the transition endpoint fail. */
 let transitionStatus = 200;
+/** Set per test to move the fixture order into another status. */
+let orderStatus = "new";
 
 beforeEach(() => {
   transitionStatus = 200;
+  orderStatus = "new";
   localStorage.clear();
   localStorage.setItem("cadeau.locale", "en");
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
@@ -130,10 +133,10 @@ beforeEach(() => {
     if (url.match(/\/orders\?/) !== null || url.match(/\/orders$/) !== null) {
       // Only the `new` column has anything in it; every other column asks for
       // its own status and gets nothing.
-      const isNew = url.includes("status=new");
+      const mine = url.includes(`status=${orderStatus}`);
       return Promise.resolve(
         json(200, {
-          data: isNew ? [ORDER_ROW] : [],
+          data: mine ? [{ ...ORDER_ROW, status: orderStatus }] : [],
           page: { limit: 20, nextCursor: null, hasMore: false },
         }),
       );
@@ -203,6 +206,24 @@ describe("OrdersPage — desktop board", () => {
     expect(labels.at(-1)).toBe("Incomplete");
     // The rest still run in lifecycle order — only `incomplete` was lifted out.
     expect(labels.slice(0, 4)).toEqual(["New", "Confirming", "Processing", "Ready"]);
+  });
+
+  /**
+   * Lost when the board replaced the data grid — the button had lived in the
+   * grid's row actions — and only noticed because someone went looking for
+   * it. Nothing on the desktop side had ever asserted it existed.
+   */
+  it("keeps the per-order WhatsApp button, on those statuses that get one", async () => {
+    renderPage();
+    await screen.findByText("#1042");
+    // #1042 is `new`, which is not one of confirming/ready/shipped.
+    expect(screen.queryByRole("button", { name: "Send WhatsApp message" })).not.toBeInTheDocument();
+
+    cleanup();
+    orderStatus = "shipped";
+    renderPage();
+    await screen.findByText("#1042");
+    expect(screen.getByRole("button", { name: "Send WhatsApp message" })).toBeInTheDocument();
   });
 
   it("moves an order when dropped on a legal status", async () => {

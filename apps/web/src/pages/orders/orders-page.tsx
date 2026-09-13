@@ -759,6 +759,8 @@ function OrdersScreen(): ReactNode {
                 moveOrder(order, to);
               }}
               canManage={canManageOrders}
+              onSendWhatsapp={(order) => void sendWhatsapp(order, order.status as WhatsappStatus)}
+              sendingWhatsappId={sendingWhatsappId}
               t={t}
               locale={locale}
             />

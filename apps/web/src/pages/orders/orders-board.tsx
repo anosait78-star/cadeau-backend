@@ -1,10 +1,12 @@
 import { MoreHorizontal } from "lucide-react";
+import { WhatsAppIcon } from "@/components/icons/whatsapp-icon";
 import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import type { Translate } from "@/components/i18n/translate-type";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +20,7 @@ import type { TranslationKey } from "@/i18n/dictionaries";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
 import { TRANSITIONS } from "./orders-row-actions";
+import { isWhatsappStatus } from "./orders-whatsapp";
 
 /**
  * Each column's own color, as the CSS variable that carries it. Defined in
@@ -155,6 +158,8 @@ export function OrdersBoard({
   onToggleSelect,
   onChangeStatus,
   canManage,
+  onSendWhatsapp,
+  sendingWhatsappId,
   t,
   locale,
 }: {
@@ -173,6 +178,9 @@ export function OrdersBoard({
   readonly onChangeStatus: (order: OrderListItem, to: OrderStatus) => void;
   /** Whether the caller holds `orders.manage` — gates dragging AND the menu. */
   readonly canManage: boolean;
+  readonly onSendWhatsapp: (order: OrderListItem) => void;
+  /** The order whose WhatsApp lookup is in flight, if any. */
+  readonly sendingWhatsappId: string | null;
   readonly t: Translate;
   readonly locale: string;
 }): ReactNode {
@@ -208,6 +216,8 @@ export function OrdersBoard({
           onToggleSelect={onToggleSelect}
           onChangeStatus={onChangeStatus}
           canManage={canManage}
+          onSendWhatsapp={onSendWhatsapp}
+          sendingWhatsappId={sendingWhatsappId}
           t={t}
           locale={locale}
         />
@@ -231,6 +241,8 @@ function OrderStatusColumn({
   onToggleSelect,
   onChangeStatus,
   canManage,
+  onSendWhatsapp,
+  sendingWhatsappId,
   t,
   locale,
 }: {
@@ -249,6 +261,9 @@ function OrderStatusColumn({
   readonly onChangeStatus: (order: OrderListItem, to: OrderStatus) => void;
   /** Whether the caller holds `orders.manage` — gates dragging AND the menu. */
   readonly canManage: boolean;
+  readonly onSendWhatsapp: (order: OrderListItem) => void;
+  /** The order whose WhatsApp lookup is in flight, if any. */
+  readonly sendingWhatsappId: string | null;
   readonly t: Translate;
   readonly locale: string;
 }): ReactNode {
@@ -310,6 +325,8 @@ function OrderStatusColumn({
               onToggleSelect={() => onToggleSelect(order.id)}
               onChangeStatus={(to) => onChangeStatus(order, to)}
               canManage={canManage}
+              onSendWhatsapp={() => onSendWhatsapp(order)}
+              sendingWhatsapp={sendingWhatsappId === order.id}
               onOpen={() => onOpen(order)}
               t={t}
               locale={locale}
@@ -341,6 +358,8 @@ function OrderBoardCard({
   onToggleSelect,
   onChangeStatus,
   canManage,
+  onSendWhatsapp,
+  sendingWhatsapp,
   onOpen,
   t,
   locale,
@@ -354,6 +373,8 @@ function OrderBoardCard({
   readonly onToggleSelect: () => void;
   readonly onChangeStatus: (to: OrderStatus) => void;
   readonly canManage: boolean;
+  readonly onSendWhatsapp: () => void;
+  readonly sendingWhatsapp: boolean;
   readonly onOpen: () => void;
   readonly t: Translate;
   readonly locale: string;
@@ -412,6 +433,34 @@ function OrderBoardCard({
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
           {order.customerName}
         </span>
+        {/* The per-order WhatsApp nudge. It lived in the data grid's row
+            actions and was lost when the board replaced the grid (found
+            2026-09-13) — the mobile list kept its own all along, so this was
+            desktop-only breakage. Same three statuses as ever
+            (`WHATSAPP_STATUSES`): confirming, ready, shipped. */}
+        {isWhatsappStatus(order.status) ? (
+          <span
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            role="presentation"
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 rounded-full bg-[#25D366] text-white hover:bg-[#1ebe57] hover:text-white"
+              title={t("orders.whatsapp.rowButtonLabel")}
+              aria-label={t("orders.whatsapp.rowButtonLabel")}
+              disabled={sendingWhatsapp}
+              onClick={() => onSendWhatsapp()}
+            >
+              {sendingWhatsapp ? (
+                <Spinner className="h-3.5 w-3.5 text-white" />
+              ) : (
+                <WhatsAppIcon className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </span>
+        ) : null}
         {canManage && targets.length > 0 ? (
           <span
             onClick={(e) => e.stopPropagation()}
