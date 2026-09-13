@@ -83,6 +83,10 @@
   --role-vendor: #4f46e5;
   --role-custom: #64748b;
 
+  /* A sunken page ground for card-heavy screens (the Team page): white cards
+     on the white background blurred together, a step of gray separates them. */
+  --surface-sunken: #e4e4e7;
+
   /* How much of the column color tints its background. The stripe along the
      top is always the full color; this only lightens the body behind the
      order cards. */
@@ -211,6 +215,9 @@
   --role-marketing: #f472b6;
   --role-vendor: #818cf8;
   --role-custom: #94a3b8;
+
+  /* Dark cards (#1b1b1f) already stand clear of the near-black ground. */
+  --surface-sunken: #0b0b0c;
 }
 
 /* Expose tokens as Tailwind theme values (utilities like bg-background,
@@ -705,6 +712,15 @@ body {
       0 1px 2px rgba(0, 0, 0, 0.5),
       0 2px 10px rgba(0, 0, 0, 0.35);
   }
+}
+
+/* ── Sunken page surface ────────────────────────────────────────────────────
+   A page opts in by carrying `.page-surface-sunken` on its root. The gray has
+   to fill the whole scrolling area (the shell's padded <main>), not just the
+   page's centered column, so the page paints its container through :has()
+   rather than the shell learning about individual pages. */
+main:has(.page-surface-sunken) {
+  background-color: var(--surface-sunken);
 }
 
 /* ── Orders board column ────────────────────────────────────────────────────
