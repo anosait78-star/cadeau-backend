@@ -84,6 +84,60 @@ describe("AccessRepository.loadAccessData", () => {
   });
 });
 
+describe("AccessRepository.loadCompanyMembersAccessData", () => {
+  function membersDb(): PrismaClient {
+    const tx = {
+      $queryRaw: vi.fn(() => Promise.resolve([])),
+      subscription: {
+        findUnique: () => Promise.resolve({ plan: { features: [{ featureKey: "orders" }] } }),
+      },
+      feature: { findMany: () => Promise.resolve([{ key: "orders" }]) },
+      companyFeatureFlag: { findMany: () => Promise.resolve([]) },
+      addOn: { findMany: () => Promise.resolve([]) },
+      featurePermission: {
+        findMany: () => Promise.resolve([{ featureKey: "orders", permissionKey: "orders.read" }]),
+      },
+      companyMember: {
+        findMany: () =>
+          Promise.resolve([
+            { id: "m1", role: "store_manager" },
+            { id: "m2", role: "custom" },
+          ]),
+      },
+      permissionTemplate: {
+        findMany: () =>
+          Promise.resolve([
+            { key: "store_manager", permissions: [{ permissionKey: "orders.read" }] },
+          ]),
+      },
+      memberPermission: {
+        findMany: () =>
+          Promise.resolve([
+            { memberId: "m2", permissionKey: "access.read", granted: true },
+            { memberId: "m1", permissionKey: "orders.read", granted: false },
+          ]),
+      },
+    };
+    return {
+      $transaction: <T>(fn: (t: unknown) => Promise<T>): Promise<T> => fn(tx),
+    } as unknown as PrismaClient;
+  }
+
+  it("shares the company facts and splits templates and overrides per member", async () => {
+    const rows = await new AccessRepository(membersDb()).loadCompanyMembersAccessData(COMPANY);
+    expect(rows.map((r) => r.memberId)).toEqual(["m1", "m2"]);
+    const [m1, m2] = rows;
+    expect(m1?.data.planFeatureKeys).toEqual(["orders"]);
+    expect(m1?.data.rolePermissionKeys).toEqual(["orders.read"]);
+    expect(m1?.data.memberPermissions).toEqual([{ permissionKey: "orders.read", granted: false }]);
+    // `custom` has no template row, so nothing comes from one.
+    expect(m2?.data.role).toBe("custom");
+    expect(m2?.data.rolePermissionKeys).toEqual([]);
+    expect(m2?.data.memberPermissions).toEqual([{ permissionKey: "access.read", granted: true }]);
+    expect(m2?.data.featurePermissionEdges).toEqual(m1?.data.featurePermissionEdges);
+  });
+});
+
 describe("PlatformAdminRepository.isPlatformAdmin", () => {
   it("is true when a grant row exists", async () => {
     const repo = new PlatformAdminRepository(makeDb({ platformAdmin: { id: "pa1" } }));

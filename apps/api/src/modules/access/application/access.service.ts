@@ -18,6 +18,7 @@ import type {
   AvailablePermissionView,
   CapabilitiesView,
   FeatureView,
+  MemberEffectivePermissionsView,
   MemberPermissionOverride,
   MemberPermissionsSnapshot,
   PermissionTemplateView,
@@ -98,6 +99,14 @@ export class AccessService {
   async listAvailablePermissions(principal: RequestPrincipal): Promise<AvailablePermissionView[]> {
     const companyId = this.requireTenant(principal);
     return this.repo.listAvailablePermissions(companyId);
+  }
+
+  /** Every active member of the caller's company with their effective permissions (Team page). */
+  async listMemberPermissions(
+    principal: RequestPrincipal,
+  ): Promise<MemberEffectivePermissionsView[]> {
+    const companyId = this.requireTenant(principal);
+    return this.resolver.resolveCompanyMembers(companyId);
   }
 
   /** Assign a template and/or per-member overrides to a member; audited + cache-invalidating. */

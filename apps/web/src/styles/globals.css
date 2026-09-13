@@ -68,6 +68,21 @@
   --status-exchanged: #4f46e5;
   --status-incomplete: #ea580c;
 
+  /* Role colors (Team page). Like the board's status colors above, these are a
+     deliberate exception to the single-accent rule: each role card, badge and
+     permission chip carries its role's hue so a member's role reads at a
+     glance. No two roles share a hue, and there is no violet (asked for on the
+     board, kept consistent here). */
+  --role-owner: #dc2626;
+  --role-manager: #ca8a04;
+  --role-store_manager: #2563eb;
+  --role-call_center: #0d9488;
+  --role-warehouse: #ea580c;
+  --role-finance: #16a34a;
+  --role-marketing: #db2777;
+  --role-vendor: #4f46e5;
+  --role-custom: #64748b;
+
   /* How much of the column color tints its background. The stripe along the
      top is always the full color; this only lightens the body behind the
      order cards. */
@@ -186,6 +201,16 @@
   --status-returned: #2dd4bf;
   --status-exchanged: #818cf8;
   --status-incomplete: #fb923c;
+
+  --role-owner: #f87171;
+  --role-manager: #facc15;
+  --role-store_manager: #60a5fa;
+  --role-call_center: #2dd4bf;
+  --role-warehouse: #fb923c;
+  --role-finance: #4ade80;
+  --role-marketing: #f472b6;
+  --role-vendor: #818cf8;
+  --role-custom: #94a3b8;
 }
 
 /* Expose tokens as Tailwind theme values (utilities like bg-background,

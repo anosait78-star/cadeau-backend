@@ -123,6 +123,15 @@ describe("AccessService.listAvailablePermissions", () => {
   });
 });
 
+describe("AccessService.listMemberPermissions", () => {
+  it("403s when the caller has no active company", async () => {
+    const { service } = build({});
+    await expect(
+      service.listMemberPermissions({ ...PRINCIPAL, companyId: null }),
+    ).rejects.toBeInstanceOf(AppException);
+  });
+});
+
 describe("AccessService.assignMemberPermissions", () => {
   const result: AssignMemberPermissionsResult = {
     before: { role: "member", overrides: [] },

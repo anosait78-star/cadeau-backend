@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { Navigate, createBrowserRouter } from "react-router";
 import { RequireAuth } from "@/auth/require-auth";
 import { AppShell } from "@/components/shell/app-shell";
 import { RequireSuperAdmin } from "@/features/access/require-super-admin";
@@ -22,7 +22,6 @@ import { VendorOrderDetailPage } from "@/pages/vendor/vendor-order-detail-page";
 import { VendorOrdersPage } from "@/pages/vendor/vendor-orders-page";
 import { VendorProductsPage } from "@/pages/vendor/vendor-products-page";
 import { NotificationsPage } from "@/pages/settings/notifications-page";
-import { RolesPage } from "@/pages/settings/roles-page";
 import { SettingsPage } from "@/pages/settings/settings-page";
 import { TeamPage } from "@/pages/settings/team-page";
 
@@ -55,7 +54,9 @@ export const router = createBrowserRouter([
           { path: "finance", element: <FinancePage /> },
           { path: "analytics", element: <AnalyticsPage /> },
           { path: "master-data", element: <MasterDataPage /> },
-          { path: "settings/roles", element: <RolesPage /> },
+          // Roles now live on the Team page. Kept as a redirect for old links —
+          // without it `settings/:tab` would swallow the path silently.
+          { path: "settings/roles", element: <Navigate to="/settings/team" replace /> },
           { path: "settings/team", element: <TeamPage /> },
           { path: "settings/notifications", element: <NotificationsPage /> },
           { path: "settings", element: <SettingsPage /> },

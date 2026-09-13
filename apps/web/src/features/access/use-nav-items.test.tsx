@@ -93,7 +93,7 @@ describe("useNavItems", () => {
     expect(paths).toContain("/"); // ungated
     expect(paths).toContain("/orders"); // feature satisfied
     expect(paths).not.toContain("/customers"); // feature missing
-    expect(paths).not.toContain("/settings/roles"); // access.read missing
+    expect(paths).not.toContain("/settings/team"); // access.read missing
     expect(paths).not.toContain("/admin"); // not a super-admin
   });
 
@@ -103,6 +103,6 @@ describe("useNavItems", () => {
     });
     const paths = result.current.map((i) => i.to);
     expect(paths).toContain("/admin");
-    expect(paths).toContain("/settings/roles");
+    expect(paths).toContain("/settings/team");
   });
 });

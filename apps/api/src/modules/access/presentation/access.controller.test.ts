@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import type { AccessService } from "../application/access.service";
+import { REQUIRE_CAPABILITY_KEY } from "../../../shared/access/require-capability.decorator";
 import { AccessController } from "./access.controller";
 
 const PRINCIPAL: RequestPrincipal = { userId: "u1", sessionId: "s1", companyId: "c1" };
@@ -74,6 +75,19 @@ describe("AccessController", () => {
     });
     expect(dto.role).toBe("store_manager");
     expect(dto.overrides).toEqual([{ key: "orders.manage", granted: true }]);
+  });
+
+  it("maps member permissions to the envelope, behind access.read", async () => {
+    const service = {
+      listMemberPermissions: vi
+        .fn()
+        .mockResolvedValue([{ memberId: "m1", role: "custom", permissions: ["orders.read"] }]),
+    } as unknown as AccessService;
+    const dto = await new AccessController(service).listMemberPermissions(PRINCIPAL);
+    expect(dto.data).toEqual([{ memberId: "m1", role: "custom", permissions: ["orders.read"] }]);
+    expect(
+      Reflect.getMetadata(REQUIRE_CAPABILITY_KEY, AccessController.prototype.listMemberPermissions),
+    ).toEqual({ permission: "access.read" });
   });
 
   it("omits absent assignment fields when forwarding", async () => {

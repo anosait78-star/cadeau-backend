@@ -52,6 +52,17 @@ export interface MemberPermissionOverride {
   readonly granted: boolean;
 }
 
+/**
+ * An active member's effective permissions — template ∪ granted overrides −
+ * revoked overrides, then dropped where a gating feature is off. A `custom`
+ * member's set is its overrides alone.
+ */
+export interface MemberEffectivePermissionsView {
+  readonly memberId: string;
+  readonly role: string;
+  readonly permissions: readonly string[];
+}
+
 /** A company row for the Super-Admin surface. */
 export interface AdminCompanyView {
   readonly id: string;

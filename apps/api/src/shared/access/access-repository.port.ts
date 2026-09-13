@@ -9,6 +9,19 @@ import type { AccessData } from "./capabilities";
 export interface AccessRepositoryPort {
   /** Load every access fact needed to resolve one member's capabilities. */
   loadAccessData(userId: string, companyId: string): Promise<AccessData>;
+
+  /**
+   * Load the same facts for every active member of a company at once: the
+   * company-wide half (plan, flags, add-ons, edges) is read a single time and
+   * shared, only the role/override half differs per member.
+   */
+  loadCompanyMembersAccessData(companyId: string): Promise<MemberAccessData[]>;
+}
+
+/** One active member's {@link AccessData}, keyed by the membership id. */
+export interface MemberAccessData {
+  readonly memberId: string;
+  readonly data: AccessData;
 }
 
 /** DI token for {@link AccessRepositoryPort}. */

@@ -39,6 +39,18 @@ export function getPermissionTemplates(): Promise<{ data: PermissionTemplateView
   return apiFetch<{ data: PermissionTemplateView[] }>("/access/permission-templates");
 }
 
+/** One active member's role and effective permission keys. */
+export interface MemberPermissionsView {
+  readonly memberId: string;
+  readonly role: string;
+  readonly permissions: string[];
+}
+
+/** `GET /v1/access/members/permissions` — every active member's effective permissions. */
+export function listMemberPermissions(): Promise<{ data: MemberPermissionsView[] }> {
+  return apiFetch<{ data: MemberPermissionsView[] }>("/access/members/permissions");
+}
+
 /** One per-member permission override. */
 export interface MemberPermissionOverride {
   readonly key: string;

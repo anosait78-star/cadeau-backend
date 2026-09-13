@@ -19,6 +19,7 @@ import { AccessService } from "../application/access.service";
 import { AvailablePermissionListDto } from "./dto/available-permission.dto";
 import { CapabilitiesDto } from "./dto/capabilities.dto";
 import { FeatureListDto } from "./dto/feature.dto";
+import { MemberEffectivePermissionsListDto } from "./dto/member-effective-permissions.dto";
 import { PermissionTemplateListDto } from "./dto/permission-template.dto";
 import { AssignMemberPermissionsDto, MemberPermissionsDto } from "./dto/member-permissions.dto";
 
@@ -69,6 +70,21 @@ export class AccessController {
     @CurrentUser() principal: RequestPrincipal,
   ): Promise<AvailablePermissionListDto> {
     return AvailablePermissionListDto.from(await this.access.listAvailablePermissions(principal));
+  }
+
+  @Get("members/permissions")
+  @RequireCapability({ permission: "access.read" })
+  @ApiOperation({
+    summary: "Every active member's effective permissions",
+    operationId: "listMemberPermissions",
+  })
+  @ApiOkResponse({ type: MemberEffectivePermissionsListDto })
+  async listMemberPermissions(
+    @CurrentUser() principal: RequestPrincipal,
+  ): Promise<MemberEffectivePermissionsListDto> {
+    return MemberEffectivePermissionsListDto.from(
+      await this.access.listMemberPermissions(principal),
+    );
   }
 
   @Put("members/:memberId/permissions")

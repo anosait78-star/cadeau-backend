@@ -36,4 +36,27 @@ export class AccessResolverService {
     this.cache.set(companyId, userId, caps);
     return caps;
   }
+
+  /**
+   * Every active member's effective permissions in one company, through the
+   * same {@link resolveCapabilities} the guards use — so what the Team page
+   * shows a member holding is exactly what the API would let them do. Not
+   * cached: it is an occasional admin read, and the per-member cache is keyed
+   * by user, not membership.
+   */
+  async resolveCompanyMembers(companyId: string): Promise<MemberEffectivePermissions[]> {
+    const rows = await this.repo.loadCompanyMembersAccessData(companyId);
+    return rows.map(({ memberId, data }) => ({
+      memberId,
+      role: data.role ?? "",
+      permissions: resolveCapabilities(data).permissions,
+    }));
+  }
+}
+
+/** One member's role and resolved permission keys. */
+export interface MemberEffectivePermissions {
+  readonly memberId: string;
+  readonly role: string;
+  readonly permissions: readonly string[];
 }
