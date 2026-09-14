@@ -150,6 +150,12 @@ describe("OrdersPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   /** Mutable per-test shipment fixture for GET /shipping/orders/o1/shipment. */
   let shipment: typeof SHIPMENT | null;
+  /**
+   * The detail order's status. Shipments can only be raised from `ready`
+   * (or `shipped`), so a test about the empty shipping panel has to put the
+   * order somewhere a shipment is actually allowed.
+   */
+  let orderStatus: string;
 
   beforeEach(() => {
     localStorage.clear();
@@ -168,6 +174,7 @@ describe("OrdersPage", () => {
     })) as unknown as typeof window.matchMedia;
     vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
     shipment = null;
+    orderStatus = ORDER_DETAIL.status;
     fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
@@ -262,7 +269,7 @@ describe("OrdersPage", () => {
         );
       }
       if (url.match(/\/orders\/o1$/) && method === "GET")
-        return Promise.resolve(json(200, ORDER_DETAIL));
+        return Promise.resolve(json(200, { ...ORDER_DETAIL, status: orderStatus }));
       if (url.match(/\/orders\/parse$/) && method === "POST") {
         return Promise.resolve(
           json(200, {
@@ -768,6 +775,7 @@ describe("OrdersPage", () => {
 
     it("shows 'no shipment yet' and creates one", async () => {
       const user = userEvent.setup();
+      orderStatus = "ready";
       renderPage(SHIPPING_FEATURES, SHIPPING_PERMISSIONS);
       await screen.findByText("#1042");
       await user.click(screen.getByText("Sara"));
