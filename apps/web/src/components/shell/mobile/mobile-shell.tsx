@@ -6,6 +6,7 @@ import { usePullToRefresh } from "@/hooks/use-pull-to-refresh";
 import { useScrollCollapse } from "@/hooks/use-scroll-collapse";
 import { haptic } from "@/lib/haptics";
 import { OfflineBanner } from "@/components/shell/offline-banner";
+import { PushSignInPrompt } from "@/components/shell/push-sign-in-prompt";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { MobileFab } from "./mobile-fab";
 import { MobileHeaderProvider, useMobileRefresh } from "./mobile-header-context";
@@ -109,6 +110,9 @@ function MobileShellFrame(): ReactNode {
           refreshing={pull.refreshing}
         />
         {isRoot ? <MobileLargeTitle title={title} sentinelRef={sentinelRef} /> : null}
+        <div className="px-4 empty:hidden">
+          <PushSignInPrompt />
+        </div>
         <MobileRouteTransition>
           <Outlet />
         </MobileRouteTransition>

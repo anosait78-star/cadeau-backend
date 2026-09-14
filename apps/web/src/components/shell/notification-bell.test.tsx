@@ -171,4 +171,47 @@ describe("NotificationBell", () => {
       expect(JSON.parse(init.body as string)).toEqual({ ids: ["n1", "n2"] });
     });
   });
+
+  it("asks to turn push on every time the panel opens while this device is unsubscribed", async () => {
+    // A browser that can take push but has not been asked yet.
+    vi.stubGlobal("Notification", { permission: "default", requestPermission: vi.fn() });
+    vi.stubGlobal("PushManager", class {});
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        ready: Promise.resolve({
+          pushManager: { getSubscription: vi.fn().mockResolvedValue(null) },
+        }),
+      },
+    });
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        json(200, { data: [], page: { limit: 10, nextCursor: null, hasMore: false } }),
+      ),
+    );
+    renderBell();
+
+    await user.click(screen.getByRole("button", { name: "الإشعارات" }));
+
+    expect(await screen.findByText("لا يفوتك طلب")).toBeTruthy();
+    // Opening the panel must never fire the browser's own permission dialog —
+    // only pressing the button in the banner may.
+    expect(Notification.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("does not ask when the browser cannot take push at all", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        json(200, { data: [], page: { limit: 10, nextCursor: null, hasMore: false } }),
+      ),
+    );
+    renderBell();
+
+    await user.click(screen.getByRole("button", { name: "الإشعارات" }));
+    await screen.findByText("لا توجد إشعارات بعد");
+
+    expect(screen.queryByText("لا يفوتك طلب")).toBeNull();
+  });
 });

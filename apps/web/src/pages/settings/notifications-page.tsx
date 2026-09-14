@@ -1,3 +1,4 @@
+import { BellRing, BellOff } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
@@ -13,6 +14,12 @@ import {
   updateNotificationPreferences,
   type NotificationPreference,
 } from "@/features/notifications/notifications-api";
+import {
+  disablePush,
+  enablePush,
+  getPushState,
+  type PushState,
+} from "@/features/notifications/push";
 import { useI18n } from "@/i18n/i18n-provider";
 import type { TranslationKey } from "@/i18n/dictionaries";
 
@@ -105,6 +112,8 @@ function NotificationsPreferencesScreen(): ReactNode {
         description={t("notifications.preferences.subtitle")}
       />
 
+      <PushDeviceCard />
+
       {state.kind === "loading" ? <LoadingState /> : null}
       {state.kind === "error" ? <ErrorState onRetry={() => void load()} /> : null}
 
@@ -152,5 +161,90 @@ function NotificationsPreferencesScreen(): ReactNode {
         </Card>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Web Push for the device in front of the user.
+ *
+ * Push is per-device, not per-account: the per-type switches below decide
+ * *what* is worth pushing, this decides whether *this* phone or laptop is
+ * somewhere to push it. A browser that cannot do push at all, or a user who
+ * has refused permission, is told so plainly — neither is something a button
+ * can fix, and on iOS the answer is to install the app to the Home Screen
+ * first, which is why that case says so.
+ */
+function PushDeviceCard(): ReactNode {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [pushState, setPushState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPushState().then((next) => {
+      if (!cancelled) setPushState(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggle = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const next = pushState === "enabled" ? await disablePush() : await enablePush();
+      setPushState(next);
+      if (next === "enabled") toast.show(t("notifications.push.enabled"));
+      else if (next === "denied") toast.show(t("notifications.push.denied"), { variant: "error" });
+      else toast.show(t("notifications.push.disabled"));
+    } catch {
+      toast.show(t("notifications.push.failed"), { variant: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (pushState === null) return null;
+
+  const enabled = pushState === "enabled";
+  const blocked = pushState === "unsupported" || pushState === "denied";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("notifications.push.title")}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            aria-hidden="true"
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+              enabled ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {enabled ? <BellRing className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
+          </span>
+          <p className="min-w-0 text-sm text-muted-foreground">
+            {pushState === "unsupported"
+              ? t("notifications.push.unsupported")
+              : pushState === "denied"
+                ? t("notifications.push.blocked")
+                : enabled
+                  ? t("notifications.push.onHint")
+                  : t("notifications.push.offHint")}
+          </p>
+        </div>
+        {blocked ? null : (
+          <Button
+            variant={enabled ? "outline" : "primary"}
+            onClick={() => void toggle()}
+            disabled={busy}
+          >
+            {enabled ? t("notifications.push.disable") : t("notifications.push.enable")}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

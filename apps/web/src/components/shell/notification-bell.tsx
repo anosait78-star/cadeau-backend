@@ -1,4 +1,4 @@
-import { Bell } from "lucide-react";
+import { Bell, BellRing } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
@@ -13,6 +13,7 @@ import {
   markNotificationsRead,
   type NotificationItem,
 } from "@/features/notifications/notifications-api";
+import { usePushPrompt } from "@/features/notifications/use-push-prompt";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
 
@@ -40,6 +41,7 @@ type PanelState =
  */
 export function NotificationBell(): ReactNode {
   const { t } = useI18n();
+  const push = usePushPrompt();
   const [hasUnread, setHasUnread] = useState(false);
   const [panel, setPanel] = useState<PanelState>({ kind: "idle" });
 
@@ -145,6 +147,8 @@ export function NotificationBell(): ReactNode {
           </button>
         </div>
 
+        {push.shouldPrompt ? <PushNudge push={push} /> : null}
+
         {panel.kind === "loading" || panel.kind === "idle" ? (
           <p className="px-2 py-4 text-center text-sm text-muted-foreground">
             {t("states.loading")}
@@ -191,5 +195,47 @@ export function NotificationBell(): ReactNode {
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * The banner inside the bell asking to turn push on, shown every time the
+ * panel is opened while this device is unsubscribed — the bell is exactly
+ * where someone is already thinking about notifications, so it is the one
+ * place the ask is not an interruption.
+ */
+function PushNudge({ push }: { readonly push: ReturnType<typeof usePushPrompt> }): ReactNode {
+  const { t } = useI18n();
+  return (
+    <div className="m-2 flex flex-col gap-2 rounded-lg bg-primary/5 p-2.5">
+      <div className="flex items-start gap-2">
+        <BellRing className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-foreground">
+            {t("notifications.push.nudgeTitle")}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("notifications.push.nudgeBody")}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          className="h-7 px-2.5 text-xs"
+          onClick={() => void push.enable()}
+          disabled={push.busy}
+        >
+          {t("notifications.push.enable")}
+        </Button>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:underline"
+          onClick={push.dismiss}
+        >
+          {t("notifications.push.later")}
+        </button>
+      </div>
+    </div>
   );
 }

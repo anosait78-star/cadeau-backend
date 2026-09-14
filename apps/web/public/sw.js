@@ -39,6 +39,76 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+/*
+ * Web Push (EPIC-15). The server sends `{ title, body, payload }`, where
+ * `payload.orderId` names the order the notification is about.
+ *
+ * A push event must result in a visible notification: browsers permit a
+ * handful of silent pushes and then revoke the permission outright, so every
+ * branch here — including a payload that will not parse — shows something.
+ */
+const PUSH_TAG = "cadeau-notification";
+
+self.addEventListener("push", (event) => {
+  let message = {};
+  try {
+    message = event.data ? event.data.json() : {};
+  } catch {
+    // A payload we cannot read still has to surface, or the browser counts it
+    // as a silent push against us.
+  }
+
+  const title =
+    typeof message.title === "string" && message.title !== "" ? message.title : "Cadeau CRM";
+  const body = typeof message.body === "string" ? message.body : "";
+  const payload = message.payload && typeof message.payload === "object" ? message.payload : {};
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      // Collapse repeats of the same order into one entry rather than stacking
+      // a tray full of near-identical lines.
+      tag: typeof payload.orderId === "string" ? `order-${payload.orderId}` : PUSH_TAG,
+      renotify: true,
+      data: { url: notificationUrl(payload) },
+    }),
+  );
+});
+
+/** Where a tap should land: the order it concerns, or the dashboard. */
+function notificationUrl(payload) {
+  return typeof payload.orderId === "string" && payload.orderId !== ""
+    ? `/orders?orderId=${encodeURIComponent(payload.orderId)}`
+    : "/";
+}
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/";
+
+  event.waitUntil(
+    (async () => {
+      const url = new URL(target, self.location.origin);
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      // Reuse a tab that already has the app open — opening a second copy of a
+      // CRM the user is already working in is its own small annoyance.
+      for (const client of clients) {
+        if (new URL(client.url).origin === url.origin) {
+          await client.focus();
+          if ("navigate" in client) await client.navigate(url.href);
+          return;
+        }
+      }
+      await self.clients.openWindow(url.href);
+    })(),
+  );
+});
+
 /**
  * Build output only. Vite fingerprints everything under `/assets/`, so a new
  * build produces new URLs and these entries can never go stale — which is what

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import type { NotificationsService } from "../application/notifications.service";
+import type { InjectedAppConfig } from "../../../shared/config/config.tokens";
 import { NotificationsController } from "./notifications.controller";
 
 const principal: RequestPrincipal = {
@@ -54,7 +55,13 @@ function makeHarness(): Harness {
     }),
     removeSubscription: vi.fn().mockResolvedValue(undefined),
   } as unknown as Harness["service"];
-  const controller = new NotificationsController(service as unknown as NotificationsService);
+  const config = {
+    notifications: { vapid: { publicKey: "test-public-key", privateKey: "x", subject: "y" } },
+  } as unknown as InjectedAppConfig;
+  const controller = new NotificationsController(
+    service as unknown as NotificationsService,
+    config,
+  );
   return { controller, service };
 }
 
@@ -91,6 +98,14 @@ describe("NotificationsController", () => {
       { type: "order.status_changed", inAppEnabled: false, webPushEnabled: true },
     ]);
     expect(result.data[0]?.inAppEnabled).toBe(false);
+  });
+
+  it("hands the browser the VAPID public key, and never the private one", () => {
+    const result = h.controller.vapidPublicKey();
+
+    expect(result.publicKey).toBe("test-public-key");
+    // The private half signs every push; it must never leave the server.
+    expect(JSON.stringify(result)).not.toContain("privateKey");
   });
 
   it("registerSubscription maps the W3C keys shape into the service input", async () => {

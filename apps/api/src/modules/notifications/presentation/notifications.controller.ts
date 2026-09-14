@@ -13,7 +13,9 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { Inject } from "@nestjs/common";
 import { AccessGuard } from "../../../shared/access/access.guard";
+import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
 import { RequireCapability } from "../../../shared/access/require-capability.decorator";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { CurrentUser } from "../../../shared/auth/current-user.decorator";
@@ -28,6 +30,7 @@ import {
   PushSubscriptionDto,
   RegisterPushSubscriptionDto,
   UpdatePreferencesDto,
+  VapidPublicKeyDto,
 } from "./dto/notifications.dto";
 
 /** The feature key this module is gated under (access catalog). */
@@ -50,7 +53,10 @@ const NOTIFICATIONS_FEATURE = "notifications";
 @UseGuards(JwtAuthGuard, AccessGuard)
 @ApiBearerAuth()
 export class NotificationsController {
-  constructor(private readonly service: NotificationsService) {}
+  constructor(
+    private readonly service: NotificationsService,
+    @Inject(APP_CONFIG) private readonly config: InjectedAppConfig,
+  ) {}
 
   @Get()
   @RequireCapability({ feature: NOTIFICATIONS_FEATURE })
@@ -110,6 +116,17 @@ export class NotificationsController {
   ): Promise<NotificationPreferenceListDto> {
     const preferences = await this.service.updatePreferences(principal, body.preferences);
     return NotificationPreferenceListDto.from(preferences);
+  }
+
+  @Get("push/key")
+  @RequireCapability({ feature: NOTIFICATIONS_FEATURE })
+  @ApiOperation({
+    summary: "The VAPID public key a browser needs to subscribe",
+    operationId: "getVapidPublicKey",
+  })
+  @ApiOkResponse({ type: VapidPublicKeyDto })
+  vapidPublicKey(): VapidPublicKeyDto {
+    return VapidPublicKeyDto.from(this.config.notifications.vapid.publicKey);
   }
 
   @Post("push/subscriptions")

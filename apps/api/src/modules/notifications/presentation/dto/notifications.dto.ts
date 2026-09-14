@@ -213,3 +213,21 @@ export class PushSubscriptionDto {
     return dto;
   }
 }
+
+/**
+ * The server's VAPID public key, so a browser can subscribe to push.
+ *
+ * Public by design: RFC 8292 has the user agent embed this key in the
+ * subscription it creates, and a push service checks signatures against it.
+ * Only the private half, which never leaves the server, can sign a message.
+ */
+export class VapidPublicKeyDto {
+  @ApiProperty({ description: "Base64url-encoded VAPID public key (P-256)." })
+  publicKey!: string;
+
+  static from(publicKey: string): VapidPublicKeyDto {
+    const dto = new VapidPublicKeyDto();
+    dto.publicKey = publicKey;
+    return dto;
+  }
+}

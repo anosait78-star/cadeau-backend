@@ -77,3 +77,44 @@ export function updateNotificationPreferences(
     body: { preferences },
   });
 }
+
+/** A registered Web Push endpoint, as the server stores it. */
+export interface PushSubscriptionRecord {
+  readonly id: string;
+  readonly endpoint: string;
+  readonly userAgent: string | null;
+  readonly createdAt: string;
+}
+
+/** The body `POST /v1/notifications/push/subscriptions` expects. */
+export interface PushSubscriptionInput {
+  readonly endpoint: string;
+  readonly keys: { readonly p256dh: string; readonly auth: string };
+  readonly userAgent?: string;
+}
+
+/**
+ * `GET /v1/notifications/push/key` — the server's VAPID public key.
+ *
+ * Public by design: RFC 8292 has the browser embed this key in the
+ * subscription it creates. Only the private half, which stays on the server,
+ * can sign a message.
+ */
+export function getVapidPublicKey(): Promise<{ publicKey: string }> {
+  return apiFetch<{ publicKey: string }>("/notifications/push/key");
+}
+
+/** `POST /v1/notifications/push/subscriptions` — register this device's endpoint. */
+export function registerPushSubscription(
+  input: PushSubscriptionInput,
+): Promise<PushSubscriptionRecord> {
+  return apiFetch<PushSubscriptionRecord>("/notifications/push/subscriptions", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** `DELETE /v1/notifications/push/subscriptions/{id}` — forget one device's endpoint. */
+export function removePushSubscription(id: string): Promise<void> {
+  return apiFetch<void>(`/notifications/push/subscriptions/${id}`, { method: "DELETE" });
+}

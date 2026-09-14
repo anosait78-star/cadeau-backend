@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Outlet } from "react-router";
 import { OfflineBanner } from "@/components/shell/offline-banner";
+import { PushSignInPrompt } from "@/components/shell/push-sign-in-prompt";
 import { DesktopSidebar } from "./desktop-sidebar";
 import { DesktopTopbar } from "./desktop-topbar";
 
@@ -17,6 +18,9 @@ export function DesktopShell(): ReactNode {
         <OfflineBanner />
         <DesktopTopbar />
         <main className="flex-1 overflow-auto p-6">
+          <div className="mx-auto mb-4 w-full max-w-7xl empty:hidden">
+            <PushSignInPrompt />
+          </div>
           <Outlet />
         </main>
       </div>
