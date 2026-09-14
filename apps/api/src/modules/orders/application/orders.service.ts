@@ -3,6 +3,7 @@ import type { KeysetPage } from "@cadeau/database";
 import { AccessResolverService } from "../../../shared/access/access-resolver.service";
 import { can } from "../../../shared/access/capabilities";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
+import { eventActorId } from "../../../shared/auth/system-principal";
 import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
 import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
@@ -184,7 +185,7 @@ export class OrdersService {
       await this.events.publish({
         type: "order.created",
         companyId,
-        actorId: principal.userId,
+        actorId: eventActorId(principal),
         occurredAt: this.clock.now(),
         payload: { orderId: result.order.id },
       });
@@ -231,7 +232,7 @@ export class OrdersService {
       await this.events.publish({
         type: "payment.collected",
         companyId,
-        actorId: principal.userId,
+        actorId: eventActorId(principal),
         occurredAt: this.clock.now(),
         payload: { orderId: order.id, amountMinor: collectedDelta },
       });
@@ -345,7 +346,7 @@ export class OrdersService {
     await this.events.publish({
       type: "order.assigned",
       companyId,
-      actorId: principal.userId,
+      actorId: eventActorId(principal),
       occurredAt: this.clock.now(),
       payload: { orderId: order.id, assigneeId },
     });
@@ -397,7 +398,7 @@ export class OrdersService {
       await this.events.publish({
         type: "order.assigned",
         companyId,
-        actorId: principal.userId,
+        actorId: eventActorId(principal),
         occurredAt: this.clock.now(),
         payload: { orderId: result.orderId, assigneeId },
       });
@@ -580,7 +581,7 @@ export class OrdersService {
     await this.events.publish({
       type: "order_vendor_group.status_changed",
       companyId,
-      actorId: principal.userId,
+      actorId: eventActorId(principal),
       occurredAt: this.clock.now(),
       payload: {
         orderId: updated.orderId,
@@ -660,7 +661,7 @@ export class OrdersService {
     await this.events.publish({
       type: "order_vendor_group.status_changed",
       companyId,
-      actorId: principal.userId,
+      actorId: eventActorId(principal),
       occurredAt: this.clock.now(),
       payload: {
         orderId: updated.orderId,
@@ -692,7 +693,7 @@ export class OrdersService {
     await this.events.publish({
       type: "order.status_changed",
       companyId: principal.companyId as string,
-      actorId: principal.userId,
+      actorId: eventActorId(principal),
       occurredAt: this.clock.now(),
       payload: {
         orderId: change.order.id,

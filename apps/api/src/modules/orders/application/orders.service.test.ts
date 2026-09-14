@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KeysetPage } from "@cadeau/database";
 import type { AccessResolverService } from "../../../shared/access/access-resolver.service";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
+import { STOREFRONT_SYNC_SESSION } from "../../../shared/auth/system-principal";
 import { AppException } from "../../../shared/errors/app-exception";
 import type { OrderListView, OrderView, StatusChangeResult } from "../domain/order.entity";
 import type { OrdersAuditPort } from "../domain/orders-audit.port";
@@ -149,6 +150,24 @@ describe("OrdersService", () => {
       );
       expect(h.events.publish).toHaveBeenCalledWith(
         expect.objectContaining({ type: "order.created" }),
+      );
+    });
+
+    it("emits a storefront-synced order with no actor, but still audits the connection's admin", async () => {
+      await h.service.create(principal({ sessionId: STOREFRONT_SYNC_SESSION }), body);
+      // The event must not name the admin, or notifications skip them as "their own action".
+      expect(h.events.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "order.created", actorId: null }),
+      );
+      expect(h.audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "order.created", actorId: USER }),
+      );
+    });
+
+    it("emits a person's order with them as the actor", async () => {
+      await h.service.create(principal(), body);
+      expect(h.events.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "order.created", actorId: USER }),
       );
     });
 

@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
+import { STOREFRONT_SYNC_SESSION } from "../../../shared/auth/system-principal";
 import {
   CUSTOMERS_DIRECTORY,
   type CustomersDirectoryPort,
@@ -51,9 +52,6 @@ import {
   UnknownSkuError,
   VendorNotMappedError,
 } from "../domain/storefront.errors";
-
-/** A system-actor session id; never checked, only satisfies the `RequestPrincipal` shape. */
-const SYSTEM_SESSION = "storefront-sync";
 
 /** What an ingestion route returns for one event. */
 export interface IngestResult {
@@ -843,7 +841,7 @@ export class StorefrontIngestionService {
     }
     return {
       userId: connection.actorId,
-      sessionId: SYSTEM_SESSION,
+      sessionId: STOREFRONT_SYNC_SESSION,
       companyId: connection.companyId,
     };
   }

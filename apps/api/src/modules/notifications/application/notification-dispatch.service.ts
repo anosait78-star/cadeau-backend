@@ -46,8 +46,10 @@ function formatMinor(amountMinor: number): string {
  * consumer of this bus would behave).
  *
  * **Recipients.** For a *lifecycle* event (status change, payment) the audience
- * is the order's assignee, and an unassigned order is a silent no-op (D9): the
- * person who owns the order is the person who needs the update. Applying that
+ * is the order's assignee when it has one. An unassigned order used to be a
+ * silent no-op (D9), but orders are usually unassigned — every order in
+ * production was when this was found — so those notifications never went out;
+ * it now falls back to the new-order audience below. Applying the assignee rule
  * same rule to `order.created` produced silence, because a freshly created
  * order almost never has an assignee yet. A new order therefore goes to the
  * **union** of three groups, de-duplicated so nobody gets two copies:
@@ -61,7 +63,8 @@ function formatMinor(amountMinor: number): string {
  * Groups 1 and 2 come from {@link OrderFactsPort.listNewOrderRecipients},
  * resolved by the same three-layer resolver the guards use, so tenant scoping
  * and feature gating are unchanged. The event's `actorId` is always excluded:
- * nobody is notified about their own action.
+ * nobody is notified about their own action. A system action (the storefront
+ * sync) carries `actorId: null`, so it excludes no one.
  *
  * **Content.** The stored `title`/`body` are a plain, single-language
  * *fallback* for Web Push (the OS renders a push payload long before a
@@ -132,19 +135,26 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
 
   private async onOrderStatusChanged(event: DomainEvent<"order.status_changed">): Promise<void> {
     const order = await this.orderFacts.findById(event.companyId, event.payload.orderId);
-    if (order !== null && order.assigneeId !== null) {
-      await this.dispatch(event.companyId, order.assigneeId, {
-        type: "order.status_changed",
-        title: "تحديث حالة طلب",
-        body: `طلب رقم ${order.orderNumber} (${order.customerName}) انتقل إلى ${event.payload.toStatus}.`,
-        payload: {
-          orderId: event.payload.orderId,
-          orderNumber: Number(order.orderNumber),
-          customerName: order.customerName,
-          fromStatus: event.payload.fromStatus,
-          toStatus: event.payload.toStatus,
-        },
-      });
+    if (order !== null) {
+      const recipients = await this.lifecycleRecipients(
+        event.companyId,
+        event.actorId,
+        order.assigneeId,
+      );
+      for (const recipient of recipients) {
+        await this.dispatch(event.companyId, recipient, {
+          type: "order.status_changed",
+          title: "تحديث حالة طلب",
+          body: `طلب رقم ${order.orderNumber} (${order.customerName}) انتقل إلى ${event.payload.toStatus}.`,
+          payload: {
+            orderId: event.payload.orderId,
+            orderNumber: Number(order.orderNumber),
+            customerName: order.customerName,
+            fromStatus: event.payload.fromStatus,
+            toStatus: event.payload.toStatus,
+          },
+        });
+      }
 
       await this.customerMessaging.send({
         companyId: event.companyId,
@@ -194,19 +204,40 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
 
   private async onPaymentCollected(event: DomainEvent<"payment.collected">): Promise<void> {
     const order = await this.orderFacts.findById(event.companyId, event.payload.orderId);
-    if (order === null || order.assigneeId === null) return;
+    if (order === null) return;
 
-    await this.dispatch(event.companyId, order.assigneeId, {
-      type: "payment.collected",
-      title: "تم تحصيل دفعة",
-      body: `تحصيل ${formatMinor(event.payload.amountMinor)} على طلب رقم ${order.orderNumber} (${order.customerName}).`,
-      payload: {
-        orderId: event.payload.orderId,
-        orderNumber: Number(order.orderNumber),
-        customerName: order.customerName,
-        amountMinor: event.payload.amountMinor,
-      },
-    });
+    const recipients = await this.lifecycleRecipients(
+      event.companyId,
+      event.actorId,
+      order.assigneeId,
+    );
+    for (const recipient of recipients) {
+      await this.dispatch(event.companyId, recipient, {
+        type: "payment.collected",
+        title: "تم تحصيل دفعة",
+        body: `تحصيل ${formatMinor(event.payload.amountMinor)} على طلب رقم ${order.orderNumber} (${order.customerName}).`,
+        payload: {
+          orderId: event.payload.orderId,
+          orderNumber: Number(order.orderNumber),
+          customerName: order.customerName,
+          amountMinor: event.payload.amountMinor,
+        },
+      });
+    }
+  }
+
+  /**
+   * Who hears about a lifecycle change (status, payment): the order's assignee
+   * when it has one; otherwise the new-order audience — owners and
+   * `orders.manage` holders — minus the actor (see the class doc).
+   */
+  private async lifecycleRecipients(
+    companyId: string,
+    actorId: string | null,
+    assigneeId: string | null,
+  ): Promise<readonly string[]> {
+    if (assigneeId !== null) return [assigneeId];
+    return this.orderFacts.listNewOrderRecipients(companyId, actorId);
   }
 
   /** Creates the in-app row (if enabled) and queues Web Push deliveries (if enabled). */

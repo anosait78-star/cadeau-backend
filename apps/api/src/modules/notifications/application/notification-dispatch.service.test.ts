@@ -211,6 +211,17 @@ describe("NotificationDispatchService", () => {
       expect(recipients.sort()).toEqual([ASSIGNEE, OWNER].sort());
     });
 
+    it("excludes no one for a system action (storefront sync, actorId null)", async () => {
+      h.orderFacts.listNewOrderRecipients.mockResolvedValueOnce([OWNER]);
+      await h.handlers.get("order.created")?.(createdEvent(null));
+      expect(h.orderFacts.listNewOrderRecipients).toHaveBeenCalledWith(COMPANY, null);
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        OWNER,
+        expect.objectContaining({ type: "order.created" }),
+      );
+    });
+
     it("never notifies the actor about their own order", async () => {
       h = makeHarness(ACTOR);
       h.service.onModuleInit();
@@ -255,13 +266,31 @@ describe("NotificationDispatchService", () => {
       });
     });
 
-    it("is a silent no-op when the order has no assignee (D9)", async () => {
+    it("keeps a status change to the assignee, without asking for the wider audience", async () => {
+      await h.handlers.get("order.status_changed")?.(statusChangedEvent());
+      expect(h.orderFacts.listNewOrderRecipients).not.toHaveBeenCalled();
+      expect(h.repo.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls back to owners and orders.manage holders when the order has no assignee", async () => {
       h = makeHarness(null);
       h.service.onModuleInit();
+      h.orderFacts.listNewOrderRecipients.mockResolvedValueOnce([OWNER, "manager1"]);
       await h.handlers.get("order.status_changed")?.(statusChangedEvent());
-      expect(h.repo.create).not.toHaveBeenCalled();
-      expect(h.audit.record).not.toHaveBeenCalled();
-      expect(h.customerMessaging.send).not.toHaveBeenCalled();
+      expect(h.orderFacts.listNewOrderRecipients).toHaveBeenCalledWith(COMPANY, ACTOR);
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        OWNER,
+        expect.objectContaining({ type: "order.status_changed" }),
+      );
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        "manager1",
+        expect.objectContaining({ type: "order.status_changed" }),
+      );
+      expect(h.deliveryQueue.enqueue).toHaveBeenCalledTimes(2);
+      // The end customer hears about the change once, however many staff do.
+      expect(h.customerMessaging.send).toHaveBeenCalledTimes(1);
     });
 
     it("is a silent no-op when the order cannot be found", async () => {
@@ -365,9 +394,21 @@ describe("NotificationDispatchService", () => {
       expect(h.customerMessaging.send).not.toHaveBeenCalled();
     });
 
-    it("is a silent no-op when the order has no assignee (D9)", async () => {
+    it("falls back to owners and orders.manage holders when the order has no assignee", async () => {
       h = makeHarness(null);
       h.service.onModuleInit();
+      h.orderFacts.listNewOrderRecipients.mockResolvedValueOnce([OWNER]);
+      await h.handlers.get("payment.collected")?.(paymentCollectedEvent());
+      expect(h.orderFacts.listNewOrderRecipients).toHaveBeenCalledWith(COMPANY, ACTOR);
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        OWNER,
+        expect.objectContaining({ type: "payment.collected" }),
+      );
+    });
+
+    it("is a silent no-op when the order cannot be found", async () => {
+      h.orderFacts.findById.mockResolvedValueOnce(null);
       await h.handlers.get("payment.collected")?.(paymentCollectedEvent());
       expect(h.repo.create).not.toHaveBeenCalled();
     });
