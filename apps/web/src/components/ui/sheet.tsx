@@ -20,8 +20,10 @@ const DETENT_CLASS: Record<SheetDetent, string> = {
  * ({@link useDragDismiss}), rather than jumping shut at a fixed threshold.
  *
  * `detent` picks how tall it stands — `auto` for a short menu, `medium`/`large`
- * for content that should open to a predictable height. A title is required for
- * accessibility.
+ * for content that should open to a predictable height. A title is always
+ * required for accessibility; `hideTitle` keeps it for screen readers but takes
+ * it out of the layout, for a sheet whose own content already opens with a
+ * heading of its own (the mobile navigation drawer leads with the user card).
  */
 export function BottomSheet({
   open,
@@ -30,6 +32,7 @@ export function BottomSheet({
   children,
   className,
   detent = "auto",
+  hideTitle = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -37,6 +40,7 @@ export function BottomSheet({
   children: ReactNode;
   className?: string;
   detent?: SheetDetent;
+  hideTitle?: boolean;
 }): ReactNode {
   const drag = useDragDismiss(() => onOpenChange(false));
 
@@ -68,7 +72,9 @@ export function BottomSheet({
           )}
         >
           <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-border" aria-hidden="true" />
-          <Dialog.Title className="mb-3 text-sm font-semibold">{title}</Dialog.Title>
+          <Dialog.Title className={cn(hideTitle ? "sr-only" : "mb-3 text-sm font-semibold")}>
+            {title}
+          </Dialog.Title>
           {children}
         </Dialog.Content>
       </Dialog.Portal>

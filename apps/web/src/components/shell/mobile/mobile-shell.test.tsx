@@ -56,8 +56,10 @@ describe("MobileShell", () => {
     const user = userEvent.setup();
     renderMobile();
     await user.click(screen.getByRole("button", { name: "المزيد" }));
-    expect(await screen.findByRole("button", { name: "المخزون" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "الإعدادات" }));
+    // Each drawer row names itself with its title *and* its subtitle, so match
+    // on the leading title rather than the whole accessible name.
+    expect(await screen.findByRole("button", { name: /^المخزون/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^الإعدادات/ }));
     expect(screen.getByText("settings content")).toBeInTheDocument();
   });
 
