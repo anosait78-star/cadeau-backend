@@ -67,9 +67,17 @@ export function Combobox({
           <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
         </button>
       </PopoverTrigger>
+      {/*
+        The list starts at the trigger's width and grows past it to fit the
+        longest option, capped so it never runs off a phone. Pinning it to the
+        trigger's exact width instead left the list unreadable wherever the
+        trigger sits in a tight row — a narrow dialog squeezed the order form's
+        product picker to a few characters, and every product name wrapped down
+        it one letter at a time.
+      */}
       <PopoverContent
         align="start"
-        className="max-w-none w-[var(--radix-popover-trigger-width)] p-0"
+        className="w-auto min-w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-2rem))] p-0"
       >
         <Command className="flex flex-col">
           <Command.Input

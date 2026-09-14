@@ -396,8 +396,14 @@ export function OrderForm({
         {/* Card 3 — Products. */}
         <Card>
           <CardContent className="card-padding flex flex-col gap-4 pt-4">
+            {/*
+              The product picker takes a row of its own until there is room for
+              the four controls side by side. Sharing one row at every width
+              squeezed it to a few characters in a narrow dialog, leaving no way
+              to tell the products apart.
+            */}
             <fieldset className="flex flex-wrap items-end gap-2 rounded border border-input p-3">
-              <div className="flex flex-1 flex-col gap-1">
+              <div className="flex w-full min-w-0 flex-col gap-1 sm:w-auto sm:flex-1 sm:basis-48">
                 <FormField label={t("orders.form.variant")} htmlFor="order-variant">
                   <Combobox
                     id="order-variant"
@@ -431,7 +437,20 @@ export function OrderForm({
                   />
                 </FormField>
               </div>
-              <Button size="sm" variant="outline" onClick={addLine} type="button">
+              {/*
+                A quantity and a price on their own are not a line — until a
+                product is picked, nothing can be added. The button says so by
+                going inert, rather than swallowing the click and leaving the
+                figures looking like they failed to reach the total.
+              */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={addLine}
+                type="button"
+                disabled={variantId === ""}
+                title={variantId === "" ? t("orders.form.addLineHint") : undefined}
+              >
                 {t("orders.form.addLine")}
               </Button>
             </fieldset>
