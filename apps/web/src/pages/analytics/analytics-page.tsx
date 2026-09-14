@@ -165,12 +165,14 @@ function AnalyticsScreen(): ReactNode {
           })}
         </div>
 
-        <div className="flex flex-wrap items-end gap-2 lg:gap-3">
-          <Field
-            id="analytics-from"
-            label={t("analytics.window.from")}
-            className="flex-1 lg:flex-none"
-          >
+        {/*
+          Two columns on a phone — the dates on one row, then the grouping and
+          the export button — because sharing a single row left each date
+          picker about sixty pixels wide, with the date spilling out of it.
+          From lg there is room for all four side by side.
+        */}
+        <div className="grid grid-cols-2 gap-2 lg:flex lg:flex-wrap lg:items-end lg:gap-3">
+          <Field id="analytics-from" label={t("analytics.window.from")}>
             <DatePicker
               id="analytics-from"
               value={from.length > 0 ? from : null}
@@ -178,7 +180,7 @@ function AnalyticsScreen(): ReactNode {
               ariaLabel={t("analytics.window.from")}
             />
           </Field>
-          <Field id="analytics-to" label={t("analytics.window.to")} className="flex-1 lg:flex-none">
+          <Field id="analytics-to" label={t("analytics.window.to")}>
             <DatePicker
               id="analytics-to"
               value={to.length > 0 ? to : null}
@@ -186,11 +188,7 @@ function AnalyticsScreen(): ReactNode {
               ariaLabel={t("analytics.window.to")}
             />
           </Field>
-          <Field
-            id="analytics-granularity"
-            label={t("analytics.window.granularity")}
-            className="flex-1 lg:flex-none"
-          >
+          <Field id="analytics-granularity" label={t("analytics.window.granularity")}>
             <select
               id="analytics-granularity"
               aria-label={t("analytics.window.granularity")}
@@ -206,7 +204,10 @@ function AnalyticsScreen(): ReactNode {
             </select>
           </Field>
           <PermissionGate permission="analytics.manage">
-            <Button className="h-10 shrink-0 gap-2" onClick={() => void handleExport()}>
+            <Button
+              className="h-10 w-full gap-2 self-end lg:w-auto lg:shrink-0"
+              onClick={() => void handleExport()}
+            >
               <Download className="h-4 w-4" aria-hidden="true" />
               {t("analytics.actions.export")}
             </Button>
