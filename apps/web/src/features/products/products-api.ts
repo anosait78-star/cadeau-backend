@@ -49,6 +49,8 @@ export interface ProductPage {
 /** Query options for the products list. */
 export interface ListOptions {
   readonly cursor?: string;
+  /** Page size; the API clamps it to its own ceiling (100). */
+  readonly limit?: number;
   /** `true` = active only, `false` = archived only, `"all"` = both. */
   readonly active?: boolean | "all";
   readonly q?: string;
@@ -62,6 +64,7 @@ export interface ListOptions {
 function buildQuery(options: ListOptions): string {
   const params = new URLSearchParams();
   if (options.cursor !== undefined) params.set("cursor", options.cursor);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
   if (options.active !== undefined) params.set("active", String(options.active));
   if (options.q !== undefined && options.q.length > 0) params.set("q", options.q);
   if (options.categoryId !== undefined) params.set("categoryId", options.categoryId);

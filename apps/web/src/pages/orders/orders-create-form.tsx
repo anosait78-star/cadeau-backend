@@ -31,7 +31,12 @@ interface CustomerOption {
 /** A flat variant option (product + variant label) for the line builder. */
 interface VariantOption {
   readonly id: string;
+  /** `product — variant`, for the added-lines list. */
   readonly label: string;
+  readonly productName: string;
+  readonly variantName: string;
+  /** The parent product's picture, when it has one. */
+  readonly imageUrl: string | null;
 }
 
 /** A master-data reference row reduced to id + display name. */
@@ -39,6 +44,15 @@ interface RefOption {
   readonly id: string;
   readonly name: string;
 }
+
+/** The API's own ceiling, so the catalogue is walked in as few pages as it allows. */
+const PRODUCT_PAGE_SIZE = 100;
+
+/** A stop on the paging loop, so a runaway cursor can never spin forever. */
+const MAX_PRODUCTS = 2000;
+
+/** How many products' variants are fetched at once. */
+const VARIANT_FETCH_BATCH = 8;
 
 function toMinor(value: string): number {
   return Math.max(0, Math.round(Number(value) * 100));
@@ -128,20 +142,67 @@ export function OrderForm({
       .catch(() => setGovernorates([]));
   }, []);
 
-  // Build a flat variant list from the active products (product — variant).
+  /*
+   * Every active product's variants, flattened into one pickable list.
+   *
+   * This used to read one page of products and keep the first twenty of it, so
+   * a catalogue of any size showed the same twenty and the rest simply could
+   * not be ordered. It now walks every page.
+   *
+   * Variants still cost a request per product — there is no endpoint that
+   * returns them across the catalogue — so the requests run a few at a time
+   * and each batch is published as it lands. The list fills in rather than
+   * waiting on the whole catalogue, and a long catalogue never opens hundreds
+   * of sockets at once.
+   */
   useEffect(() => {
-    void listProducts({ active: true })
-      .then(async (page) => {
-        const details = await Promise.all(page.data.slice(0, 20).map((p) => getProduct(p.id)));
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const products: { id: string; name: string; imageUrl: string | null }[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await listProducts({
+            active: true,
+            limit: PRODUCT_PAGE_SIZE,
+            ...(cursor !== undefined ? { cursor } : {}),
+          });
+          if (cancelled) return;
+          products.push(
+            ...page.data.map((p) => ({ id: p.id, name: p.name, imageUrl: p.imageUrl })),
+          );
+          cursor = page.page.nextCursor ?? undefined;
+        } while (cursor !== undefined && products.length < MAX_PRODUCTS);
+
         const flat: VariantOption[] = [];
-        for (const p of details) {
-          for (const v of p.variants as ProductVariant[]) {
-            flat.push({ id: v.id, label: `${p.name} — ${v.name}` });
-          }
+        for (let i = 0; i < products.length; i += VARIANT_FETCH_BATCH) {
+          const batch = products.slice(i, i + VARIANT_FETCH_BATCH);
+          const details = await Promise.all(batch.map((p) => getProduct(p.id).catch(() => null)));
+          if (cancelled) return;
+          details.forEach((detail, index) => {
+            if (detail === null) return;
+            const parent = batch[index]!;
+            for (const v of detail.variants as ProductVariant[]) {
+              flat.push({
+                id: v.id,
+                label: `${parent.name} — ${v.name}`,
+                productName: parent.name,
+                variantName: v.name,
+                imageUrl: parent.imageUrl,
+              });
+            }
+          });
+          setVariants([...flat]);
         }
-        setVariants(flat);
-      })
-      .catch(() => setVariants([]));
+      } catch {
+        if (!cancelled) setVariants([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const shippingMinor = toMinor(shipping);
@@ -411,7 +472,13 @@ export function OrderForm({
                     value={variantId}
                     onChange={setVariantId}
                     placeholder={DASH}
-                    options={variants.map((v) => ({ value: v.id, label: v.label }))}
+                    /* The product names the row; the variant is the quieter second line. */
+                    options={variants.map((v) => ({
+                      value: v.id,
+                      label: v.productName,
+                      hint: v.variantName,
+                      imageUrl: v.imageUrl,
+                    }))}
                   />
                 </FormField>
               </div>

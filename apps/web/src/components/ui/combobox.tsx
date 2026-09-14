@@ -8,6 +8,39 @@ import { cn } from "@/lib/cn";
 export interface ComboboxOption {
   value: string;
   label: string;
+  /** A thumbnail for the row and the closed trigger — a product's picture, say. */
+  imageUrl?: string | null;
+  /** A second, quieter line under the label: a SKU, a variant name, a price. */
+  hint?: string;
+}
+
+/**
+ * An option's picture, or its first letter on a tinted tile when it has none,
+ * so a list of products still lines up when only some of them carry an image.
+ */
+function OptionThumb({ option }: { readonly option: ComboboxOption }): ReactNode {
+  const shared = "h-7 w-7 shrink-0 rounded-md";
+  if (option.imageUrl === undefined || option.imageUrl === null || option.imageUrl === "") {
+    return (
+      <span
+        aria-hidden="true"
+        className={cn(
+          shared,
+          "flex items-center justify-center bg-muted text-[11px] font-semibold text-muted-foreground",
+        )}
+      >
+        {option.label.slice(0, 1)}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={option.imageUrl}
+      alt=""
+      loading="lazy"
+      className={cn(shared, "border border-border object-cover")}
+    />
+  );
 }
 
 /**
@@ -42,6 +75,12 @@ export function Combobox({
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
+  /*
+   * Thumbnails are all-or-nothing for a given list: as soon as one option
+   * carries a picture every row gets a tile, so the labels stay on one
+   * left edge instead of stepping in and out as pictures come and go.
+   */
+  const withThumbs = options.some((o) => o.imageUrl !== undefined && o.imageUrl !== null);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -61,8 +100,11 @@ export function Combobox({
             className,
           )}
         >
-          <span className="truncate">
-            {selected?.label ?? placeholder ?? t("combobox.placeholder")}
+          <span className="flex min-w-0 items-center gap-2">
+            {selected !== undefined && withThumbs ? <OptionThumb option={selected} /> : null}
+            <span className="truncate">
+              {selected?.label ?? placeholder ?? t("combobox.placeholder")}
+            </span>
           </span>
           <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
         </button>
@@ -102,17 +144,38 @@ export function Combobox({
             {options.map((option) => (
               <Command.Item
                 key={option.value}
-                value={option.label}
+                value={`${option.label} ${option.hint ?? ""}`}
+                /*
+                 * The label and the hint are two separate blocks, which a
+                 * screen reader would otherwise run together into one word.
+                 * Naming the row explicitly reads it the way it looks.
+                 */
+                aria-label={
+                  option.hint !== undefined && option.hint.length > 0
+                    ? `${option.label} — ${option.hint}`
+                    : option.label
+                }
                 onSelect={() => {
                   onChange(option.value);
                   setOpen(false);
                 }}
               >
                 <Check
-                  className={cn("h-4 w-4", option.value === value ? "opacity-100" : "opacity-0")}
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    option.value === value ? "opacity-100" : "opacity-0",
+                  )}
                   aria-hidden="true"
                 />
-                <span>{option.label}</span>
+                {withThumbs ? <OptionThumb option={option} /> : null}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{option.label}</span>
+                  {option.hint !== undefined && option.hint.length > 0 ? (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {option.hint}
+                    </span>
+                  ) : null}
+                </span>
               </Command.Item>
             ))}
           </Command.List>
