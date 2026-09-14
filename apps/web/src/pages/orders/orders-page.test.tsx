@@ -455,7 +455,7 @@ describe("OrdersPage", () => {
     // Wait for the async warehouse fetch to resolve and auto-select the default.
     expect(await screen.findByLabelText("Warehouse")).toHaveTextContent("Main");
     // Save is disabled with no customer and no lines.
-    const saves = screen.getAllByRole("button", { name: "Save" });
+    const saves = screen.getAllByRole("button", { name: "Save order" });
     expect(saves[saves.length - 1]).toBeDisabled();
   });
 
@@ -488,9 +488,9 @@ describe("OrdersPage", () => {
     // The customer + variant comboboxes populate from the reference fetches.
     await pickCombobox(user, "Customer", "Sara");
     await pickCombobox(user, "Product / variant", "Shirt — L");
-    await user.click(screen.getByRole("button", { name: "Add line" }));
+    await user.click(screen.getByRole("button", { name: "Add to order" }));
 
-    const saves = screen.getAllByRole("button", { name: "Save" });
+    const saves = screen.getAllByRole("button", { name: "Save order" });
     await user.click(saves[saves.length - 1]!);
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -565,9 +565,9 @@ describe("OrdersPage", () => {
 
     await pickCombobox(user, "Customer", "Sara");
     await pickCombobox(user, "Product / variant", "Shirt — L");
-    await user.click(screen.getByRole("button", { name: "Add line" }));
+    await user.click(screen.getByRole("button", { name: "Add to order" }));
 
-    const saves = screen.getAllByRole("button", { name: "Save" });
+    const saves = screen.getAllByRole("button", { name: "Save order" });
     expect(saves[saves.length - 1]).toBeDisabled();
     await pickCombobox(user, "Warehouse", "Main");
     expect(saves[saves.length - 1]).not.toBeDisabled();
@@ -582,7 +582,7 @@ describe("OrdersPage", () => {
 
     await pickCombobox(user, "Customer", "Sara");
     await pickCombobox(user, "Product / variant", "Shirt — L");
-    await user.click(screen.getByRole("button", { name: "Add line" }));
+    await user.click(screen.getByRole("button", { name: "Add to order" }));
 
     expect(screen.queryByLabelText("Paid amount")).not.toBeInTheDocument();
 
@@ -591,7 +591,7 @@ describe("OrdersPage", () => {
     await user.clear(paid);
     await user.type(paid, "10");
 
-    const saves = screen.getAllByRole("button", { name: "Save" });
+    const saves = screen.getAllByRole("button", { name: "Save order" });
     expect(saves[saves.length - 1]).toBeDisabled();
     expect(
       screen.getByText("Paid amount doesn't match the selected payment status."),
@@ -607,7 +607,7 @@ describe("OrdersPage", () => {
 
     await pickCombobox(user, "Customer", "Sara");
     await pickCombobox(user, "Product / variant", "Shirt — L");
-    await user.click(screen.getByRole("button", { name: "Add line" }));
+    await user.click(screen.getByRole("button", { name: "Add to order" }));
 
     await user.selectOptions(screen.getByLabelText("Payment status"), "partial");
     const paid = await screen.findByLabelText("Paid amount");
@@ -626,10 +626,10 @@ describe("OrdersPage", () => {
 
     await pickCombobox(user, "Customer", "Sara");
     await pickCombobox(user, "Product / variant", "Shirt — L");
-    await user.click(screen.getByRole("button", { name: "Add line" }));
+    await user.click(screen.getByRole("button", { name: "Add to order" }));
     await user.type(screen.getByLabelText("Notes"), "Deliver after 6pm");
 
-    const saves = screen.getAllByRole("button", { name: "Save" });
+    const saves = screen.getAllByRole("button", { name: "Save order" });
     await user.click(saves[saves.length - 1]!);
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(

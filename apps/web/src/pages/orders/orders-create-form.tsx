@@ -1,7 +1,29 @@
+import {
+  BarChart3,
+  Calculator,
+  Check,
+  Coins,
+  CreditCard,
+  Layers,
+  NotebookPen,
+  NotebookText,
+  Package,
+  PackageOpen,
+  Percent,
+  Plus,
+  ShoppingCart,
+  Tag,
+  Trash2,
+  Truck,
+  UserRound,
+  Warehouse as WarehouseIcon,
+  X,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { ProductThumb } from "@/components/product-thumb/product-thumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
@@ -18,9 +40,13 @@ import {
 } from "@/features/orders/orders-api";
 import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
 import { useI18n } from "@/i18n/i18n-provider";
+import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
 
 const DASH = "—";
+
+/** The API's limit on an order's notes (`@MaxLength(2000)`); the paste box shares it. */
+const TEXT_LIMIT = 2000;
 
 /** A minimal customer option for the create form. */
 interface CustomerOption {
@@ -68,7 +94,32 @@ function computeTotal(
   return { subtotal, total };
 }
 
-/** Create-order form: warehouse, customer, lines, payment, notes — one card per section. */
+type Tone = "info" | "primary" | "violet" | "success" | "warning";
+
+/** Each section's icon wash — one hue per kind of information, as in the design. */
+const TONES: Readonly<Record<Tone, string>> = {
+  info: "bg-info/10 text-info",
+  primary: "bg-primary/10 text-primary",
+  violet: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/15 text-warning",
+};
+
+const INPUT_CLASS =
+  "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/**
+ * Create-order form: smart paste, warehouse, customer, products, discount &
+ * shipping, notes and a live summary — one card per section, each with its own
+ * icon, title and one-line hint, over a quiet grey ground so the cards read
+ * as separate steps.
+ *
+ * One column at every width: the dialog keeps its size on desktop and goes
+ * full screen on a phone, and the same cards stack in both. What changes with
+ * width is only inside the products card — a table with room for columns on
+ * desktop, a card per line on a phone. Save and Cancel stay pinned below the
+ * scroll, so the total never has to be scrolled back to.
+ */
 export function OrderForm({
   onSubmit,
   onCancel,
@@ -77,12 +128,13 @@ export function OrderForm({
   onCancel: () => void;
 }): ReactNode {
   const { t, locale } = useI18n();
+  const currency = t("orders.form.currency");
 
-  // Section 1 — warehouse.
+  // Section — warehouse.
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehouseId, setWarehouseId] = useState("");
 
-  // Section 2 — customer.
+  // Section — customer.
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [governorates, setGovernorates] = useState<RefOption[]>([]);
@@ -95,20 +147,20 @@ export function OrderForm({
   const [newStreet, setNewStreet] = useState("");
   const [savingCustomer, setSavingCustomer] = useState(false);
 
-  // Section 3 — products.
+  // Section — products.
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [lines, setLines] = useState<OrderItemInput[]>([]);
   const [variantId, setVariantId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [price, setPrice] = useState("0");
 
-  // Section 4 — payment.
+  // Section — discount, shipping & payment.
   const [shipping, setShipping] = useState("0");
   const [discount, setDiscount] = useState("0");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("unpaid");
   const [paidAmount, setPaidAmount] = useState("0");
 
-  // Section 5 — notes.
+  // Section — notes.
   const [notes, setNotes] = useState("");
 
   // Smart paste (unchanged behavior — detect only, no autofill).
@@ -230,6 +282,10 @@ export function OrderForm({
     setPrice("0");
   };
 
+  const removeLine = (index: number): void => {
+    setLines((ls) => ls.filter((_, j) => j !== index));
+  };
+
   const newCustomerInvalid = newName.trim() === "" || newPhone.trim() === "";
 
   const saveNewCustomer = async (): Promise<void> => {
@@ -283,23 +339,34 @@ export function OrderForm({
 
   const disabled = customerId === "" || lines.length === 0 || warehouseId === "" || !paymentValid;
 
+  const money = (minor: number): string => `${formatMoney(minor, locale)} ${currency}`;
+
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-        {/* Deterministic smart-paste (no AI): paste a chat, get detected fields. */}
-        <div className="flex flex-col gap-1 rounded border border-dashed border-input p-3">
-          <Label htmlFor="order-paste">{t("orders.paste.label")}</Label>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-muted/40 p-3 sm:gap-4 sm:p-4">
+        {/* Smart paste — deterministic (no AI): paste a chat, get detected fields. */}
+        <SectionCard
+          tone="info"
+          icon={NotebookPen}
+          title={t("orders.paste.label")}
+          optional
+          hint={t("orders.form.pasteHint")}
+        >
           <textarea
             id="order-paste"
-            className="min-h-16 rounded border border-input bg-background px-2 py-1.5 text-sm"
+            className={cn(INPUT_CLASS, "min-h-20 resize-y")}
             value={paste}
+            maxLength={TEXT_LIMIT}
+            placeholder={t("orders.form.pastePlaceholder")}
+            aria-label={t("orders.paste.label")}
             onChange={(e) => setPaste(e.target.value)}
           />
-          <div className="flex items-center gap-2">
+          <div className="mt-2 flex items-center justify-between gap-3">
             <Button
               size="sm"
               variant="outline"
               type="button"
+              disabled={paste.trim().length === 0}
               onClick={() => {
                 void parseOrder(paste)
                   .then(setDraft)
@@ -308,58 +375,70 @@ export function OrderForm({
             >
               {t("orders.paste.button")}
             </Button>
-            {draft !== null ? (
-              <p className="text-xs text-muted-foreground" data-testid="paste-detected">
-                {t("orders.paste.detected")}: {draft.phone ?? DASH}
-                {draft.items.length > 0
-                  ? ` · ${draft.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}`
-                  : ""}
-              </p>
-            ) : null}
+            <CharCount length={paste.length} />
           </div>
-        </div>
+          {draft !== null ? (
+            <p
+              className="mt-2 rounded-lg bg-info/10 px-3 py-2 text-xs text-foreground"
+              data-testid="paste-detected"
+            >
+              {t("orders.paste.detected")}: {draft.phone ?? DASH}
+              {draft.items.length > 0
+                ? ` · ${draft.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}`
+                : ""}
+            </p>
+          ) : null}
+        </SectionCard>
 
-        {/* Card 1 — Warehouse. */}
-        <Card>
-          <CardContent className="card-padding flex flex-col pt-4">
-            <FormField label={t("orders.form.warehouse")} htmlFor="order-warehouse" required>
-              <Combobox
-                id="order-warehouse"
-                ariaLabel={t("orders.form.warehouse")}
-                value={warehouseId}
-                onChange={setWarehouseId}
-                placeholder={DASH}
-                options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
-              />
-            </FormField>
-          </CardContent>
-        </Card>
+        {/* Warehouse. */}
+        <SectionCard
+          tone="primary"
+          icon={WarehouseIcon}
+          title={t("orders.form.warehouse")}
+          required
+          hint={t("orders.form.warehouseHint")}
+        >
+          <Combobox
+            id="order-warehouse"
+            ariaLabel={t("orders.form.warehouse")}
+            value={warehouseId}
+            onChange={setWarehouseId}
+            placeholder={DASH}
+            options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+          />
+        </SectionCard>
 
-        {/* Card 2 — Customer information. */}
-        <Card>
-          <CardContent className="card-padding flex flex-col gap-4 pt-4">
-            <FormField label={t("orders.form.customer")} htmlFor="order-customer" required>
-              <Combobox
-                id="order-customer"
-                ariaLabel={t("orders.form.customer")}
-                value={customerId}
-                onChange={setCustomerId}
-                placeholder={DASH}
-                options={customers.map((c) => ({ value: c.id, label: c.name }))}
-              />
-            </FormField>
+        {/* Customer. */}
+        <SectionCard
+          tone="violet"
+          icon={UserRound}
+          title={t("orders.form.customer")}
+          required
+          hint={t("orders.form.customerHint")}
+        >
+          <div className="flex flex-col gap-3">
+            <Combobox
+              id="order-customer"
+              ariaLabel={t("orders.form.customer")}
+              value={customerId}
+              onChange={setCustomerId}
+              placeholder={DASH}
+              options={customers.map((c) => ({ value: c.id, label: c.name }))}
+            />
 
             <Button
-              size="sm"
               variant="outline"
               type="button"
+              className="h-11 w-full border-dashed bg-muted/40"
+              aria-expanded={creatingCustomer}
               onClick={() => setCreatingCustomer((v) => !v)}
             >
+              <Plus className="h-4 w-4" aria-hidden="true" />
               {t("orders.form.newCustomer")}
             </Button>
 
             {creatingCustomer ? (
-              <fieldset className="form-gap flex flex-col rounded border border-input p-3">
+              <fieldset className="grid grid-cols-1 gap-x-3 rounded-xl border border-border bg-muted/30 p-3 sm:grid-cols-2">
                 <FormField
                   label={t("orders.form.customerName")}
                   htmlFor="new-customer-name"
@@ -442,8 +521,8 @@ export function OrderForm({
                   />
                 </FormField>
                 <Button
-                  size="sm"
                   type="button"
+                  className="h-10 sm:col-span-2"
                   disabled={newCustomerInvalid || savingCustomer}
                   onClick={() => void saveNewCustomer()}
                 >
@@ -451,58 +530,58 @@ export function OrderForm({
                 </Button>
               </fieldset>
             ) : null}
-          </CardContent>
-        </Card>
+          </div>
+        </SectionCard>
 
-        {/* Card 3 — Products. */}
-        <Card>
-          <CardContent className="card-padding flex flex-col gap-4 pt-4">
-            {/*
-              The product picker takes a row of its own until there is room for
-              the four controls side by side. Sharing one row at every width
-              squeezed it to a few characters in a narrow dialog, leaving no way
-              to tell the products apart.
-            */}
-            <fieldset className="flex flex-wrap items-end gap-2 rounded border border-input p-3">
-              <div className="flex w-full min-w-0 flex-col gap-1 sm:w-auto sm:flex-1 sm:basis-48">
-                <FormField label={t("orders.form.variant")} htmlFor="order-variant">
-                  <Combobox
-                    id="order-variant"
-                    ariaLabel={t("orders.form.variant")}
-                    value={variantId}
-                    onChange={setVariantId}
-                    placeholder={DASH}
-                    /* The product names the row; the variant is the quieter second line. */
-                    options={variants.map((v) => ({
-                      value: v.id,
-                      label: v.productName,
-                      hint: v.variantName,
-                      imageUrl: v.imageUrl,
-                    }))}
-                  />
-                </FormField>
+        {/* Products. */}
+        <SectionCard
+          tone="success"
+          icon={Package}
+          title={t("orders.form.variant")}
+          hint={t("orders.form.variantHint")}
+        >
+          <div className="flex flex-col gap-3">
+            <Combobox
+              id="order-variant"
+              ariaLabel={t("orders.form.variant")}
+              value={variantId}
+              onChange={setVariantId}
+              placeholder={DASH}
+              /* The product names the row; the variant is the quieter second line. */
+              options={variants.map((v) => ({
+                value: v.id,
+                label: v.productName,
+                hint: v.variantName,
+                imageUrl: v.imageUrl,
+              }))}
+            />
+
+            <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Label htmlFor="order-qty" className="flex items-center gap-1.5">
+                  <Layers className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  {t("orders.form.quantity")}
+                </Label>
+                <Input
+                  id="order-qty"
+                  value={quantity}
+                  inputMode="numeric"
+                  onChange={(e) => setQuantity(e.target.value)}
+                  aria-label={t("orders.form.quantity")}
+                />
               </div>
-              <div className="flex w-20 flex-col gap-1">
-                <FormField label={t("orders.form.quantity")} htmlFor="order-qty">
-                  <Input
-                    id="order-qty"
-                    value={quantity}
-                    inputMode="numeric"
-                    onChange={(e) => setQuantity(e.target.value)}
-                    aria-label={t("orders.form.quantity")}
-                  />
-                </FormField>
-              </div>
-              <div className="flex w-24 flex-col gap-1">
-                <FormField label={t("orders.form.price")} htmlFor="order-price">
-                  <Input
-                    id="order-price"
-                    value={price}
-                    inputMode="decimal"
-                    onChange={(e) => setPrice(e.target.value)}
-                    aria-label={t("orders.form.price")}
-                  />
-                </FormField>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Label htmlFor="order-price" className="flex items-center gap-1.5">
+                  <Tag className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  {t("orders.form.price")} ({currency})
+                </Label>
+                <Input
+                  id="order-price"
+                  value={price}
+                  inputMode="decimal"
+                  onChange={(e) => setPrice(e.target.value)}
+                  aria-label={t("orders.form.price")}
+                />
               </div>
               {/*
                 A quantity and a price on their own are not a line — until a
@@ -511,76 +590,191 @@ export function OrderForm({
                 figures looking like they failed to reach the total.
               */}
               <Button
-                size="sm"
                 variant="outline"
-                onClick={addLine}
                 type="button"
+                className="col-span-2 h-10 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 sm:col-span-1"
+                onClick={addLine}
                 disabled={variantId === ""}
                 title={variantId === "" ? t("orders.form.addLineHint") : undefined}
               >
-                {t("orders.form.addLine")}
+                <ShoppingCart className="h-4 w-4" aria-hidden="true" />
+                {t("orders.form.addToCart")}
               </Button>
-            </fieldset>
+            </div>
 
-            {lines.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("orders.form.noLines")}</p>
-            ) : (
-              <ul className="flex flex-col gap-1 text-sm">
-                {lines.map((l, i) => {
-                  const v = variants.find((x) => x.id === l.variantId);
-                  return (
-                    <li key={`${l.variantId}-${i}`} className="flex justify-between gap-2">
-                      <span>
-                        {v?.label ?? l.variantId} × {l.quantity}
-                      </span>
-                      <button
-                        type="button"
-                        className="text-muted-foreground underline"
-                        onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}
-                      >
-                        ✕
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Card 4 — Payment. */}
-        <Card>
-          <CardContent className="flex flex-col gap-3 pt-4">
-            <div className="flex flex-wrap gap-3">
-              <div className="flex w-28 flex-col gap-1">
-                <FormField label={t("orders.form.shipping")} htmlFor="order-shipping" optional>
-                  <Input
-                    id="order-shipping"
-                    value={shipping}
-                    inputMode="decimal"
-                    onChange={(e) => setShipping(e.target.value)}
-                    aria-label={t("orders.form.shipping")}
-                  />
-                </FormField>
+            <div className="overflow-hidden rounded-xl border border-border">
+              <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-sm font-semibold text-foreground">
+                <ShoppingCart className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                {t("orders.form.linesTitle")}
+                {lines.length > 0 ? (
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                    {lines.length}
+                  </span>
+                ) : null}
               </div>
-              <div className="flex w-28 flex-col gap-1">
-                <FormField label={t("orders.form.discount")} htmlFor="order-discount" optional>
-                  <Input
-                    id="order-discount"
-                    value={discount}
-                    inputMode="decimal"
-                    onChange={(e) => setDiscount(e.target.value)}
-                    aria-label={t("orders.form.discount")}
-                  />
-                </FormField>
+
+              {lines.length === 0 ? (
+                <div className="flex flex-col items-center gap-1.5 px-4 py-8 text-center">
+                  <PackageOpen className="h-9 w-9 text-muted-foreground/60" aria-hidden="true" />
+                  <p className="text-sm font-medium text-muted-foreground">
+                    {t("orders.form.emptyCartTitle")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t("orders.form.emptyCartHint")}</p>
+                </div>
+              ) : (
+                <>
+                  {/* Desktop: room for columns. */}
+                  <table className="hidden w-full text-sm sm:table">
+                    <thead className="bg-muted/20 text-xs text-muted-foreground">
+                      <tr>
+                        <th className="w-10 px-3 py-2 text-start font-medium">#</th>
+                        <th className="px-3 py-2 text-start font-medium">
+                          {t("orders.form.lineProduct")}
+                        </th>
+                        <th className="px-3 py-2 text-center font-medium">
+                          {t("orders.form.quantity")}
+                        </th>
+                        <th className="px-3 py-2 text-end font-medium">
+                          {t("orders.form.price")} ({currency})
+                        </th>
+                        <th className="px-3 py-2 text-end font-medium">
+                          {t("orders.form.lineTotal")} ({currency})
+                        </th>
+                        <th className="w-16 px-3 py-2 text-center font-medium">
+                          {t("orders.form.lineActions")}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((line, index) => {
+                        const v = variants.find((x) => x.id === line.variantId);
+                        return (
+                          <tr key={`${line.variantId}-${index}`} className="border-t border-border">
+                            <td className="px-3 py-2">
+                              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-muted text-xs font-semibold">
+                                {index + 1}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex min-w-0 items-center gap-2.5">
+                                <ProductThumb imageUrl={v?.imageUrl ?? null} size="sm" />
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium text-foreground">
+                                    {v?.productName ?? line.variantId}
+                                  </p>
+                                  {v !== undefined ? (
+                                    <p className="truncate text-xs text-muted-foreground">
+                                      {v.variantName}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-center tabular-nums">{line.quantity}</td>
+                            <td className="px-3 py-2 text-end tabular-nums" dir="ltr">
+                              {formatMoney(line.price, locale)}
+                            </td>
+                            <td className="px-3 py-2 text-end font-semibold tabular-nums" dir="ltr">
+                              {formatMoney(line.price * line.quantity, locale)}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <RemoveLineButton
+                                label={t("orders.form.removeLine", { name: v?.label ?? "" })}
+                                onClick={() => removeLine(index)}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  {/* Phone: a card per line. */}
+                  <ul className="flex flex-col sm:hidden">
+                    {lines.map((line, index) => {
+                      const v = variants.find((x) => x.id === line.variantId);
+                      return (
+                        <li
+                          key={`${line.variantId}-${index}`}
+                          className="flex items-center gap-3 border-t border-border px-3 py-3 first:border-t-0"
+                        >
+                          <ProductThumb imageUrl={v?.imageUrl ?? null} size="md" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">
+                              {v?.productName ?? line.variantId}
+                            </p>
+                            {v !== undefined ? (
+                              <p className="truncate text-xs text-muted-foreground">
+                                {v.variantName}
+                              </p>
+                            ) : null}
+                            <p className="mt-0.5 text-xs text-muted-foreground" dir="ltr">
+                              {line.quantity} × {formatMoney(line.price, locale)}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-sm font-bold tabular-nums" dir="ltr">
+                            {money(line.price * line.quantity)}
+                          </span>
+                          <RemoveLineButton
+                            label={t("orders.form.removeLine", { name: v?.label ?? "" })}
+                            onClick={() => removeLine(index)}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* Discount, shipping & payment. */}
+        <SectionCard
+          tone="warning"
+          icon={Percent}
+          title={t("orders.form.pricingTitle")}
+          optional
+          hint={t("orders.form.pricingHint")}
+        >
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Label htmlFor="order-discount" className="flex items-center gap-1.5">
+                  <Layers className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  {t("orders.form.discount")} ({currency})
+                </Label>
+                <Input
+                  id="order-discount"
+                  value={discount}
+                  inputMode="decimal"
+                  onChange={(e) => setDiscount(e.target.value)}
+                  aria-label={t("orders.form.discount")}
+                />
+              </div>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Label htmlFor="order-shipping" className="flex items-center gap-1.5">
+                  <Tag className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  {t("orders.form.shipping")} ({currency})
+                </Label>
+                <Input
+                  id="order-shipping"
+                  value={shipping}
+                  inputMode="decimal"
+                  onChange={(e) => setShipping(e.target.value)}
+                  aria-label={t("orders.form.shipping")}
+                />
               </div>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="order-payment-status">{t("orders.form.paymentStatus")}</Label>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="order-payment-status" className="flex items-center gap-1.5">
+                <CreditCard className="h-4 w-4 text-success" aria-hidden="true" />
+                {t("orders.form.paymentStatus")}
+              </Label>
               <select
                 id="order-payment-status"
-                className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+                className={cn(INPUT_CLASS, "h-10")}
                 value={paymentStatus}
                 onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
               >
@@ -591,95 +785,219 @@ export function OrderForm({
             </div>
 
             {paymentStatus !== "unpaid" ? (
-              <div className="flex flex-wrap gap-3">
-                <div className="flex w-32 flex-col gap-1">
-                  <FormField
-                    label={t("orders.form.paidAmount")}
-                    htmlFor="order-paid-amount"
-                    required
-                  >
-                    <Input
-                      id="order-paid-amount"
-                      value={paidAmount}
-                      inputMode="decimal"
-                      onChange={(e) => setPaidAmount(e.target.value)}
-                      aria-label={t("orders.form.paidAmount")}
-                    />
-                  </FormField>
-                </div>
-                <div className="flex w-32 flex-col gap-1">
-                  <FormField
-                    label={t("orders.form.remainingAmount")}
-                    htmlFor="order-remaining-amount"
-                  >
-                    <Input
-                      id="order-remaining-amount"
-                      value={formatMoney(remainingAmount, locale)}
-                      readOnly
-                      dir="ltr"
-                      aria-label={t("orders.form.remainingAmount")}
-                    />
-                  </FormField>
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label={t("orders.form.paidAmount")} htmlFor="order-paid-amount" required>
+                  <Input
+                    id="order-paid-amount"
+                    value={paidAmount}
+                    inputMode="decimal"
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                    aria-label={t("orders.form.paidAmount")}
+                  />
+                </FormField>
+                <FormField
+                  label={t("orders.form.remainingAmount")}
+                  htmlFor="order-remaining-amount"
+                >
+                  <Input
+                    id="order-remaining-amount"
+                    value={formatMoney(remainingAmount, locale)}
+                    readOnly
+                    dir="ltr"
+                    aria-label={t("orders.form.remainingAmount")}
+                  />
+                </FormField>
                 {!paymentValid ? (
-                  <p className="w-full text-sm text-destructive">
+                  <p className="col-span-2 text-sm text-destructive">
                     {t("orders.form.paymentStatus.error")}
                   </p>
                 ) : null}
               </div>
             ) : null}
-          </CardContent>
-        </Card>
+          </div>
+        </SectionCard>
 
-        {/* Card 5 — Notes. */}
-        <Card>
-          <CardContent className="card-padding flex flex-col pt-4">
-            <FormField label={t("orders.form.notes")} htmlFor="order-notes" optional>
-              <textarea
-                id="order-notes"
-                className="min-h-16 rounded border border-input bg-background px-2 py-1.5 text-sm"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                aria-label={t("orders.form.notes")}
-              />
-            </FormField>
-          </CardContent>
-        </Card>
+        {/* Notes. */}
+        <SectionCard tone="info" icon={NotebookText} title={t("orders.form.notes")} optional>
+          <textarea
+            id="order-notes"
+            className={cn(INPUT_CLASS, "min-h-20 resize-y")}
+            value={notes}
+            maxLength={TEXT_LIMIT}
+            placeholder={t("orders.form.notesPlaceholder")}
+            onChange={(e) => setNotes(e.target.value)}
+            aria-label={t("orders.form.notes")}
+          />
+          <div className="mt-2 flex justify-end">
+            <CharCount length={notes.length} />
+          </div>
+        </SectionCard>
 
-        {/* Card 6 — Order summary. */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">{t("orders.form.summary.title")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-1 pt-0 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t("orders.form.summary.subtotal")}</span>
-              <span dir="ltr">{formatMoney(subtotal, locale)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t("orders.form.summary.discount")}</span>
-              <span dir="ltr">{formatMoney(discountMinor, locale)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{t("orders.form.summary.shipping")}</span>
-              <span dir="ltr">{formatMoney(shippingMinor, locale)}</span>
-            </div>
-            <div className="flex justify-between font-medium">
-              <span>{t("orders.form.summary.total")}</span>
-              <span dir="ltr">{formatMoney(total, locale)}</span>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Order summary. */}
+        <section className="rounded-2xl border border-primary/15 bg-primary/5 p-4 sm:p-5">
+          <header className="mb-3 flex items-center gap-3">
+            <span
+              aria-hidden="true"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+            >
+              <BarChart3 className="h-5 w-5" />
+            </span>
+            <h3 className="text-base font-semibold text-foreground">
+              {t("orders.form.summary.title")}
+            </h3>
+          </header>
+          <dl className="flex flex-col gap-2 text-sm">
+            <SummaryRow
+              icon={Calculator}
+              label={t("orders.form.summary.subtotal")}
+              value={money(subtotal)}
+              strong
+            />
+            <SummaryRow
+              icon={Tag}
+              label={t("orders.form.summary.discount")}
+              value={money(discountMinor)}
+            />
+            <SummaryRow
+              icon={Truck}
+              label={t("orders.form.summary.shipping")}
+              value={money(shippingMinor)}
+            />
+          </dl>
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-primary/15 pt-3">
+            <span className="flex items-center gap-2 text-base font-bold text-primary">
+              <Coins className="h-5 w-5" aria-hidden="true" />
+              {t("orders.form.summary.total")}
+            </span>
+            <span className="text-xl font-bold tabular-nums text-primary" dir="ltr">
+              {money(total)}
+            </span>
+          </div>
+        </section>
       </div>
 
-      <div className="flex h-[76px] shrink-0 items-center gap-2 border-t border-border bg-card px-4">
-        <Button onClick={submit} disabled={disabled}>
-          {t("orders.actions.save")}
+      <div className="flex shrink-0 items-center gap-3 border-t border-border bg-card px-3 py-3 sm:px-4">
+        <Button onClick={submit} disabled={disabled} className="h-11 flex-[2] text-base">
+          <Check className="h-4 w-4" aria-hidden="true" />
+          {t("orders.form.saveOrder")}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button variant="outline" onClick={onCancel} className="h-11 flex-1">
+          <X className="h-4 w-4" aria-hidden="true" />
           {t("orders.actions.cancel")}
         </Button>
       </div>
     </>
+  );
+}
+
+/** A form section: tinted icon, title (with required/optional marker), a one-line hint. */
+function SectionCard({
+  tone,
+  icon: Icon,
+  title,
+  hint,
+  required = false,
+  optional = false,
+  children,
+}: {
+  readonly tone: Tone;
+  readonly icon: LucideIcon;
+  readonly title: string;
+  readonly hint?: string;
+  readonly required?: boolean;
+  readonly optional?: boolean;
+  readonly children: ReactNode;
+}): ReactNode {
+  const { t } = useI18n();
+  return (
+    <section className="rounded-2xl border border-border bg-card p-4 shadow-xs sm:p-5">
+      <header className="mb-3 flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+            TONES[tone],
+          )}
+        >
+          <Icon className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <h3 className="text-base font-semibold text-foreground">
+            {title}
+            {required ? (
+              <span className="text-destructive" aria-hidden="true">
+                {" "}
+                *
+              </span>
+            ) : null}
+            {optional ? (
+              <span className="text-sm font-normal text-muted-foreground">
+                {" "}
+                ({t("form.optional")})
+              </span>
+            ) : null}
+          </h3>
+          {hint !== undefined ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+          ) : null}
+        </div>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/** Characters used against the shared text limit. */
+function CharCount({ length }: { readonly length: number }): ReactNode {
+  return (
+    <span className="text-xs tabular-nums text-muted-foreground" dir="ltr">
+      {length}/{TEXT_LIMIT}
+    </span>
+  );
+}
+
+function SummaryRow({
+  icon: Icon,
+  label,
+  value,
+  strong = false,
+}: {
+  readonly icon: LucideIcon;
+  readonly label: string;
+  readonly value: string;
+  readonly strong?: boolean;
+}): ReactNode {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="flex items-center gap-2 text-muted-foreground">
+        <Icon className="h-4 w-4" aria-hidden="true" />
+        {label}
+      </dt>
+      <dd
+        className={cn("tabular-nums", strong ? "font-semibold text-foreground" : "text-foreground")}
+        dir="ltr"
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function RemoveLineButton({
+  label,
+  onClick,
+}: {
+  readonly label: string;
+  readonly onClick: () => void;
+}): ReactNode {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10"
+    >
+      <Trash2 className="h-4 w-4" aria-hidden="true" />
+    </button>
   );
 }

@@ -31,6 +31,8 @@ export function Modal({
   open,
   onOpenChange,
   title,
+  description,
+  icon,
   closeLabel = "Close",
   size = "lg",
   children,
@@ -39,6 +41,10 @@ export function Modal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
+  /** A line under the title. */
+  description?: string;
+  /** A tinted icon beside the title; also gives the close button a bordered frame. */
+  icon?: ReactNode;
   closeLabel?: string;
   /** One of the five standard sizes (§4.2). Defaults to `lg` (760px). */
   size?: ModalSize;
@@ -63,12 +69,33 @@ export function Modal({
               className,
             )}
           >
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-6 py-5">
-              <Dialog.Title className="text-h3">{title}</Dialog.Title>
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-6 py-5">
+              <div className="flex min-w-0 items-center gap-3">
+                {icon !== undefined ? (
+                  <span
+                    aria-hidden="true"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+                  >
+                    {icon}
+                  </span>
+                ) : null}
+                <div className="min-w-0">
+                  <Dialog.Title className="text-h3">{title}</Dialog.Title>
+                  {description !== undefined ? (
+                    <Dialog.Description className="mt-0.5 text-sm text-muted-foreground">
+                      {description}
+                    </Dialog.Description>
+                  ) : null}
+                </div>
+              </div>
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+                  className={cn(
+                    "rounded-md p-1 text-muted-foreground hover:bg-muted",
+                    icon !== undefined &&
+                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border p-0",
+                  )}
                   aria-label={closeLabel}
                 >
                   ✕

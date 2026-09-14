@@ -1,4 +1,4 @@
-import { Download, MoreHorizontal, Plus, Printer } from "lucide-react";
+import { Download, MoreHorizontal, Plus, Printer, ShoppingCart } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
@@ -705,6 +705,8 @@ function OrdersScreen(): ReactNode {
           open={creating}
           onOpenChange={setCreating}
           title={t("orders.actions.create")}
+          description={t("orders.form.header.subtitle")}
+          icon={<ShoppingCart className="h-5 w-5" />}
           closeLabel={t("orders.actions.cancel")}
           size="xl"
         >
