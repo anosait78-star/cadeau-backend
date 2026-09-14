@@ -61,6 +61,7 @@ describe("AccessResolverService", () => {
       // whose feature is not in the plan — both must disappear.
       {
         memberId: "m1",
+        userId: "u1",
         data: {
           ...base,
           role: "store_manager",
@@ -79,6 +80,7 @@ describe("AccessResolverService", () => {
       // A custom member has no template: only its granted overrides count.
       {
         memberId: "m2",
+        userId: "u2",
         data: {
           ...base,
           role: "custom",
@@ -95,8 +97,8 @@ describe("AccessResolverService", () => {
     const members = await resolver.resolveCompanyMembers("c1");
     expect(loadMembers).toHaveBeenCalledWith("c1");
     expect(members).toEqual([
-      { memberId: "m1", role: "store_manager", permissions: ["orders.read"] },
-      { memberId: "m2", role: "custom", permissions: ["access.read"] },
+      { memberId: "m1", userId: "u1", role: "store_manager", permissions: ["orders.read"] },
+      { memberId: "m2", userId: "u2", role: "custom", permissions: ["access.read"] },
     ]);
   });
 });

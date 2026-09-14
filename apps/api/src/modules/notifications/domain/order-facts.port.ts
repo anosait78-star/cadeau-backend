@@ -2,6 +2,16 @@
 export interface OrderFacts {
   readonly assigneeId: string | null;
   readonly orderNumber: bigint;
+  /**
+   * The name of the customer who placed the order — the single fact that makes
+   * a notification recognizable at a glance ("New order from <name>") instead of a bare
+   * number. Personal data, so it is deliberately the *only* customer field
+   * here: no phone, no address, no email (docs/privacy-model.md §6). Every
+   * recipient is a company member who can already open the order and read it.
+   */
+  readonly customerName: string;
+  /** The order total in integer minor units (api-conventions §money). */
+  readonly totalMinor: number;
 }
 
 /**
@@ -25,6 +35,29 @@ export interface OrderVendorGroupRecipient {
  */
 export interface OrderFactsPort {
   findById(companyId: string, orderId: string): Promise<OrderFacts | null>;
+
+  /**
+   * The standing audience for a **new order** in this company, de-duplicated:
+   *
+   *   1. every active member whose role is `owner` — unconditionally, the
+   *      account that answers for the company always hears that an order came
+   *      in, regardless of how its permissions were later edited;
+   *   2. every active member who effectively holds `orders.manage`.
+   *      `orders.manage` (not `orders.read`) is the key that means "may act on
+   *      an order" — read is a viewing grant that analysts and finance roles
+   *      also carry, and a notification is a call to act. Resolved through the
+   *      same three-layer resolver the API guards use, so a member whose
+   *      `orders` feature is off or whose permission an override revoked is
+   *      not a recipient.
+   *
+   * The order's assignee is added by the caller (it is an order fact, not a
+   * company one). `excludeProfileId` drops the actor: nobody is told about
+   * their own action.
+   */
+  listNewOrderRecipients(
+    companyId: string,
+    excludeProfileId: string | null,
+  ): Promise<readonly string[]>;
 
   /**
    * The order's vendor groups that have an active `role = "vendor"` member

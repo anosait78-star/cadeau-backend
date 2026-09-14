@@ -2,6 +2,8 @@ import { apiFetch } from "@/lib/api-client";
 
 /** The closed set of notification types EPIC-15 produces (matches the backend whitelist). */
 export type NotificationType =
+  /** A new order landed in the company (owners, `orders.manage` holders, assignee). */
+  | "order.created"
   | "order.status_changed"
   | "payment.collected"
   /** Vendor Accounts, Phase 5 — sent to a vendor when their group is assigned. */
@@ -10,8 +12,15 @@ export type NotificationType =
 export interface NotificationItem {
   readonly id: string;
   readonly type: NotificationType;
+  /**
+   * The server-written fallback line. Single-language by construction (it is
+   * what Web Push shows) — render notifications with `notificationText()`
+   * instead of reading these two directly, so the reader sees their own
+   * language.
+   */
   readonly title: string;
   readonly body: string;
+  /** Structured facts (customer, order number, amounts) the client renders from. */
   readonly payload: unknown;
   readonly readAt: string | null;
   readonly createdAt: string;

@@ -133,6 +133,7 @@ describe("NotificationsRepository — preferences", () => {
     const { repo } = makeRepo();
     const prefs = await repo.getPreferences(COMPANY, PROFILE);
     expect(prefs).toEqual([
+      { type: "order.created", inAppEnabled: true, webPushEnabled: true },
       { type: "order.status_changed", inAppEnabled: true, webPushEnabled: true },
       { type: "payment.collected", inAppEnabled: true, webPushEnabled: true },
       { type: "order_vendor_group.assigned", inAppEnabled: true, webPushEnabled: true },
@@ -145,7 +146,7 @@ describe("NotificationsRepository — preferences", () => {
       { type: "order.status_changed", inAppEnabled: false, webPushEnabled: true },
     ]);
     const prefs = await repo.getPreferences(COMPANY, PROFILE);
-    expect(prefs[0]).toEqual({
+    expect(prefs).toContainEqual({
       type: "order.status_changed",
       inAppEnabled: false,
       webPushEnabled: true,

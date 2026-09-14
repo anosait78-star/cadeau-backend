@@ -46,8 +46,9 @@ export class AccessResolverService {
    */
   async resolveCompanyMembers(companyId: string): Promise<MemberEffectivePermissions[]> {
     const rows = await this.repo.loadCompanyMembersAccessData(companyId);
-    return rows.map(({ memberId, data }) => ({
+    return rows.map(({ memberId, userId, data }) => ({
       memberId,
+      userId,
       role: data.role ?? "",
       permissions: resolveCapabilities(data).permissions,
     }));
@@ -57,6 +58,8 @@ export class AccessResolverService {
 /** One member's role and resolved permission keys. */
 export interface MemberEffectivePermissions {
   readonly memberId: string;
+  /** The member's user/profile id — what a notification recipient is keyed by. */
+  readonly userId: string;
   readonly role: string;
   readonly permissions: readonly string[];
 }

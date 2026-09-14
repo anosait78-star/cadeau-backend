@@ -100,7 +100,7 @@ export class AccessRepository implements AccessRepositoryPort {
       });
       const members = await tx.companyMember.findMany({
         where: { companyId, status: "active" },
-        select: { id: true, role: true },
+        select: { id: true, userId: true, role: true },
       });
       if (members.length === 0) return [];
 
@@ -130,6 +130,7 @@ export class AccessRepository implements AccessRepositoryPort {
 
       return members.map((member) => ({
         memberId: member.id,
+        userId: member.userId,
         data: {
           planFeatureKeys,
           activeFeatureKeys,

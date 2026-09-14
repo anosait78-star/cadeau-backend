@@ -12,6 +12,19 @@ import { NotificationDispatchService } from "./notification-dispatch.service";
 const COMPANY = "11111111-1111-1111-1111-111111111111";
 const ASSIGNEE = "22222222-2222-2222-2222-222222222222";
 const ORDER = "33333333-3333-3333-3333-333333333333";
+const OWNER = "44444444-4444-4444-4444-444444444444";
+const ACTOR = "actor1";
+const CUSTOMER_NAME = "Layla Hassan";
+
+function createdEvent(actorId: string | null = ACTOR): DomainEvent<"order.created"> {
+  return {
+    type: "order.created",
+    companyId: COMPANY,
+    actorId,
+    occurredAt: 1_700_000_000_000,
+    payload: { orderId: ORDER },
+  };
+}
 
 function statusChangedEvent(): DomainEvent<"order.status_changed"> {
   return {
@@ -54,6 +67,7 @@ interface Harness {
   orderFacts: {
     findById: ReturnType<typeof vi.fn>;
     listVendorGroupRecipients: ReturnType<typeof vi.fn>;
+    listNewOrderRecipients: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -96,8 +110,14 @@ function makeHarness(assigneeId: string | null = ASSIGNEE): Harness {
   };
   const customerMessaging = { send: vi.fn().mockResolvedValue({ sent: false }) };
   const orderFacts = {
-    findById: vi.fn().mockResolvedValue({ assigneeId, orderNumber: 42n }),
+    findById: vi.fn().mockResolvedValue({
+      assigneeId,
+      orderNumber: 42n,
+      customerName: CUSTOMER_NAME,
+      totalMinor: 25_000,
+    }),
     listVendorGroupRecipients: vi.fn().mockResolvedValue([]),
+    listNewOrderRecipients: vi.fn().mockResolvedValue([OWNER]),
   };
   const clock: Clock = { now: () => 1_700_000_000_000 };
 
@@ -120,7 +140,8 @@ describe("NotificationDispatchService", () => {
     h.service.onModuleInit();
   });
 
-  it("subscribes to order.status_changed and payment.collected on init", () => {
+  it("subscribes to order.created, order.status_changed and payment.collected on init", () => {
+    expect(h.handlers.has("order.created")).toBe(true);
     expect(h.handlers.has("order.status_changed")).toBe(true);
     expect(h.handlers.has("payment.collected")).toBe(true);
   });
@@ -128,6 +149,87 @@ describe("NotificationDispatchService", () => {
   it("unsubscribes on destroy", () => {
     h.service.onModuleDestroy();
     expect(h.handlers.size).toBe(0);
+  });
+
+  describe("order.created", () => {
+    it("notifies the standing new-order audience (owners + orders.manage holders)", async () => {
+      h = makeHarness(null);
+      h.service.onModuleInit();
+      h.orderFacts.listNewOrderRecipients.mockResolvedValueOnce([OWNER, "manager1"]);
+
+      await h.handlers.get("order.created")?.(createdEvent());
+
+      expect(h.orderFacts.listNewOrderRecipients).toHaveBeenCalledWith(COMPANY, ACTOR);
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        OWNER,
+        expect.objectContaining({ type: "order.created" }),
+      );
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        "manager1",
+        expect.objectContaining({ type: "order.created" }),
+      );
+      expect(h.repo.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("carries the customer, order number and total in the payload", async () => {
+      h = makeHarness(null);
+      h.service.onModuleInit();
+      await h.handlers.get("order.created")?.(createdEvent());
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        OWNER,
+        expect.objectContaining({
+          payload: {
+            orderId: ORDER,
+            orderNumber: 42,
+            customerName: CUSTOMER_NAME,
+            totalMinor: 25_000,
+          },
+        }),
+      );
+      const input = h.repo.create.mock.calls[0]?.[2] as { body: string };
+      expect(input.body).toContain(CUSTOMER_NAME);
+    });
+
+    it("adds the assignee to the audience without duplicating an already-listed recipient", async () => {
+      h = makeHarness(OWNER);
+      h.service.onModuleInit();
+      h.orderFacts.listNewOrderRecipients.mockResolvedValueOnce([OWNER, "manager1"]);
+      await h.handlers.get("order.created")?.(createdEvent());
+      const recipients = h.repo.create.mock.calls.map((call) => call[1] as string);
+      expect(recipients.sort()).toEqual([OWNER, "manager1"].sort());
+    });
+
+    it("includes an assignee who is not in the standing audience", async () => {
+      h = makeHarness(ASSIGNEE);
+      h.service.onModuleInit();
+      h.orderFacts.listNewOrderRecipients.mockResolvedValueOnce([OWNER]);
+      await h.handlers.get("order.created")?.(createdEvent());
+      const recipients = h.repo.create.mock.calls.map((call) => call[1] as string);
+      expect(recipients.sort()).toEqual([ASSIGNEE, OWNER].sort());
+    });
+
+    it("never notifies the actor about their own order", async () => {
+      h = makeHarness(ACTOR);
+      h.service.onModuleInit();
+      h.orderFacts.listNewOrderRecipients.mockResolvedValueOnce([OWNER]);
+      await h.handlers.get("order.created")?.(createdEvent(ACTOR));
+      const recipients = h.repo.create.mock.calls.map((call) => call[1] as string);
+      expect(recipients).toEqual([OWNER]);
+    });
+
+    it("is a silent no-op when the order cannot be found", async () => {
+      h.orderFacts.findById.mockResolvedValueOnce(null);
+      await h.handlers.get("order.created")?.(createdEvent());
+      expect(h.repo.create).not.toHaveBeenCalled();
+    });
+
+    it("does not message the end customer on creation", async () => {
+      await h.handlers.get("order.created")?.(createdEvent());
+      expect(h.customerMessaging.send).not.toHaveBeenCalled();
+    });
   });
 
   describe("order.status_changed", () => {

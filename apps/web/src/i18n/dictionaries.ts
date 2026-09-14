@@ -1109,6 +1109,24 @@ export const en = {
   "notifications.type.order.status_changed": "Order status",
   "notifications.type.payment.collected": "Payment collected",
   "notifications.type.order_vendor_group.assigned": "New vendor order assigned",
+  "notifications.type.order.created": "New order",
+  // The in-app notification sentences. The API stores a stable type + a
+  // structured payload (customer, order number, amounts); these templates turn
+  // that into the reader's language. The row's own title/body are only the
+  // Web Push fallback.
+  "notifications.content.orderCreated.title": "New order",
+  "notifications.content.orderCreated.body": "Order #{{orderNumber}} from {{customerName}}.",
+  "notifications.content.orderCreated.bodyWithTotal":
+    "Order #{{orderNumber}} from {{customerName}} for {{total}}.",
+  "notifications.content.orderStatusChanged.title": "Order status updated",
+  "notifications.content.orderStatusChanged.body":
+    "{{customerName}}'s order #{{orderNumber}} is now {{status}}.",
+  "notifications.content.paymentCollected.title": "Payment collected",
+  "notifications.content.paymentCollected.body":
+    "Collected {{amount}} on {{customerName}}'s order #{{orderNumber}}.",
+  "notifications.content.vendorGroupAssigned.title": "New order to prepare",
+  "notifications.content.vendorGroupAssigned.body":
+    "You have a new order to prepare: #{{orderNumber}}.",
   "notifications.preferences.title": "Notification preferences",
   "notifications.preferences.subtitle": "Choose how you want to hear about each type of update.",
   "notifications.preferences.inApp": "In-app",
@@ -2350,6 +2368,20 @@ export const ar: Record<TranslationKey, string> = {
   "notifications.type.order.status_changed": "حالة الطلب",
   "notifications.type.payment.collected": "تحصيل الدفع",
   "notifications.type.order_vendor_group.assigned": "طلب تاجر جديد",
+  "notifications.type.order.created": "طلب جديد",
+  "notifications.content.orderCreated.title": "طلب جديد",
+  "notifications.content.orderCreated.body":
+    "وصل طلب جديد رقم {{orderNumber}} من {{customerName}}.",
+  "notifications.content.orderCreated.bodyWithTotal":
+    "وصل طلب جديد رقم {{orderNumber}} من {{customerName}} بقيمة {{total}}.",
+  "notifications.content.orderStatusChanged.title": "تحديث حالة الطلب",
+  "notifications.content.orderStatusChanged.body":
+    "طلب {{customerName}} رقم {{orderNumber}} أصبح {{status}}.",
+  "notifications.content.paymentCollected.title": "تم تحصيل دفعة",
+  "notifications.content.paymentCollected.body":
+    "تم تحصيل {{amount}} على طلب {{customerName}} رقم {{orderNumber}}.",
+  "notifications.content.vendorGroupAssigned.title": "طلب جديد للتجهيز",
+  "notifications.content.vendorGroupAssigned.body": "لديك طلب جديد لتجهيزه رقم {{orderNumber}}.",
   "notifications.preferences.title": "تفضيلات الإشعارات",
   "notifications.preferences.subtitle": "اختر الطريقة التي تريد بها معرفة كل نوع من التحديثات.",
   "notifications.preferences.inApp": "داخل التطبيق",

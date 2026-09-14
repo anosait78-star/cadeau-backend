@@ -8,6 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { notificationText } from "@/features/notifications/notification-content";
 import {
   listNotifications,
   markNotificationsRead,
@@ -40,7 +41,7 @@ type PanelState =
  * checked with a cheap `read=false&limit=1` poll, not a number.
  */
 export function NotificationBell(): ReactNode {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const push = usePushPrompt();
   const [hasUnread, setHasUnread] = useState(false);
   const [panel, setPanel] = useState<PanelState>({ kind: "idle" });
@@ -167,21 +168,26 @@ export function NotificationBell(): ReactNode {
 
         {panel.kind === "ready" && panel.items.length > 0 ? (
           <ul className="max-h-80 overflow-y-auto">
-            {panel.items.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => void markRead(item.id)}
-                  className={cn(
-                    "flex w-full flex-col gap-0.5 rounded-sm px-2 py-2 text-start hover:bg-muted",
-                    item.readAt === null && "bg-primary/5",
-                  )}
-                >
-                  <span className="text-sm font-medium text-foreground">{item.title}</span>
-                  <span className="text-xs text-muted-foreground">{item.body}</span>
-                </button>
-              </li>
-            ))}
+            {panel.items.map((item) => {
+              // Rendered from the row's type + payload so the reader sees their
+              // own language; the stored title/body are only the fallback.
+              const text = notificationText(item, t, locale);
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => void markRead(item.id)}
+                    className={cn(
+                      "flex w-full flex-col gap-0.5 rounded-sm px-2 py-2 text-start hover:bg-muted",
+                      item.readAt === null && "bg-primary/5",
+                    )}
+                  >
+                    <span className="text-sm font-medium text-foreground">{text.title}</span>
+                    <span className="text-xs text-muted-foreground">{text.body}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         ) : null}
 

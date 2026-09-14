@@ -4,6 +4,12 @@
  * M15.1 migration enforces the same list at the database.
  */
 export const NOTIFICATION_TYPES = [
+  /**
+   * A new order landed in the company. Sent on `order.created` to the people
+   * who are expected to act on a fresh order (assignee if any, otherwise the
+   * `orders.manage` holders) — see `NotificationDispatchService`.
+   */
+  "order.created",
   "order.status_changed",
   "payment.collected",
   /**

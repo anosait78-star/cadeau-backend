@@ -90,6 +90,59 @@ describe("NotificationBell", () => {
     expect(await screen.findByText("Order n1 moved")).toBeInTheDocument();
   });
 
+  it("names the customer on a new-order notification, in the reader's language", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(200, { data: [], page: { limit: 1, nextCursor: null, hasMore: false } }),
+    );
+    const user = userEvent.setup();
+    renderBell();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    fetchMock.mockResolvedValueOnce(
+      json(200, {
+        data: [
+          notification("n1", {
+            type: "order.created",
+            // The stored strings are only the Web Push fallback; the panel must
+            // render from the payload instead.
+            title: "should not be shown",
+            body: "should not be shown either",
+            payload: {
+              orderId: "o1",
+              orderNumber: 42,
+              customerName: "ليلى حسن",
+              totalMinor: 25_000,
+            },
+          }),
+        ],
+        page: { limit: 10, nextCursor: null, hasMore: false },
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "الإشعارات" }));
+
+    expect(await screen.findByText("طلب جديد")).toBeInTheDocument();
+    expect(screen.getByText(/ليلى حسن/)).toBeInTheDocument();
+    expect(screen.queryByText("should not be shown")).toBeNull();
+  });
+
+  it("falls back to the stored strings for a row with no structured payload", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(200, { data: [], page: { limit: 1, nextCursor: null, hasMore: false } }),
+    );
+    const user = userEvent.setup();
+    renderBell();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    fetchMock.mockResolvedValueOnce(
+      json(200, {
+        data: [notification("legacy", { title: "Order status changed", payload: {} })],
+        page: { limit: 10, nextCursor: null, hasMore: false },
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "الإشعارات" }));
+    expect(await screen.findByText("Order status changed")).toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no recent notifications", async () => {
     fetchMock.mockResolvedValueOnce(
       json(200, { data: [], page: { limit: 1, nextCursor: null, hasMore: false } }),

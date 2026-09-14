@@ -31,8 +31,9 @@
  *     `payment.recorded`, `invoice.issued`, `refund.issued`, `period.closed`.
  *   - **Live now (EPIC-15 notifications):** `notification.created`/
  *     `notification.delivered`. This is also the catalog's first real
- *     *subscriber* — `order.status_changed`/`payment.collected` above are
- *     consumed by the notification dispatcher, not just published.
+ *     *subscriber* — `order.created`/`order.status_changed`/
+ *     `payment.collected` above are consumed by the notification dispatcher,
+ *     not just published.
  *
  * **Forward-declared** entries (none currently pending).
  *

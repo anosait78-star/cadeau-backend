@@ -22,19 +22,54 @@ import {
   NOTIFICATIONS_REPOSITORY,
   type NotificationsRepositoryPort,
 } from "../domain/notifications-repository.port";
+import type { NotificationType } from "../domain/notification-types";
 import { ORDER_FACTS, type OrderFactsPort } from "../domain/order-facts.port";
 
 /**
- * The event-bus subscriber that turns `order.status_changed`/
+ * Formats an integer minor-unit amount for the stored fallback strings only
+ * (api-conventions §money). No currency symbol: the company's currency is a
+ * display concern the client owns, and the fallback text must not imply one.
+ */
+function formatMinor(amountMinor: number): string {
+  return (amountMinor / 100).toFixed(2);
+}
+
+/**
+ * The event-bus subscriber that turns `order.created`/`order.status_changed`/
  * `payment.collected` into an in-app notification (+ queued Web Push
- * deliveries + a best-effort end-customer message) for the order's assignee
- * (EPIC-15 M15.2, decision D6). The **first real subscriber** on the EPIC-6
- * event bus — every publisher before this epic had zero subscribers.
+ * deliveries + a best-effort end-customer message) (EPIC-15 M15.2, decision
+ * D6). The **first real subscriber** on the EPIC-6 event bus — every publisher
+ * before this epic had zero subscribers.
  *
  * Subscribes in `onModuleInit` (the bus has no "replay" — only events
  * published after this module boots are seen, exactly like every other
- * consumer of this bus would behave). An order with no `assigneeId` is a
- * silent no-op (D9): no row, no audit, nothing queued.
+ * consumer of this bus would behave).
+ *
+ * **Recipients.** For a *lifecycle* event (status change, payment) the audience
+ * is the order's assignee, and an unassigned order is a silent no-op (D9): the
+ * person who owns the order is the person who needs the update. Applying that
+ * same rule to `order.created` produced silence, because a freshly created
+ * order almost never has an assignee yet. A new order therefore goes to the
+ * **union** of three groups, de-duplicated so nobody gets two copies:
+ *
+ *   1. the company's `owner` members, unconditionally;
+ *   2. everyone effectively holding `orders.manage` — the permission that
+ *      means "may act on an order", as opposed to the viewing-only
+ *      `orders.read`;
+ *   3. the order's assignee, when it has one.
+ *
+ * Groups 1 and 2 come from {@link OrderFactsPort.listNewOrderRecipients},
+ * resolved by the same three-layer resolver the guards use, so tenant scoping
+ * and feature gating are unchanged. The event's `actorId` is always excluded:
+ * nobody is notified about their own action.
+ *
+ * **Content.** The stored `title`/`body` are a plain, single-language
+ * *fallback* for Web Push (the OS renders a push payload long before a
+ * locale-aware client sees it) — written in Arabic, the product's primary
+ * language. The real in-app text is rendered from the stable `type` +
+ * structured `payload` by the web client's i18n dictionaries, so one row reads
+ * correctly in either language. A localized sentence must never be the only
+ * copy: the reader's language is not known at write time.
  */
 @Injectable()
 export class NotificationDispatchService implements OnModuleInit, OnModuleDestroy {
@@ -53,6 +88,7 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
 
   onModuleInit(): void {
     this.unsubscribes = [
+      this.events.subscribe("order.created", (event) => this.onOrderCreated(event)),
       this.events.subscribe("order.status_changed", (event) => this.onOrderStatusChanged(event)),
       this.events.subscribe("payment.collected", (event) => this.onPaymentCollected(event)),
     ];
@@ -63,15 +99,48 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
     this.unsubscribes = [];
   }
 
+  /**
+   * A brand-new order: owners + `orders.manage` holders + the assignee, as a
+   * de-duplicated set with the actor removed (see the class doc).
+   */
+  private async onOrderCreated(event: DomainEvent<"order.created">): Promise<void> {
+    const order = await this.orderFacts.findById(event.companyId, event.payload.orderId);
+    if (order === null) return;
+
+    const recipients = new Set(
+      await this.orderFacts.listNewOrderRecipients(event.companyId, event.actorId),
+    );
+    if (order.assigneeId !== null && order.assigneeId !== event.actorId) {
+      recipients.add(order.assigneeId);
+    }
+
+    const payload = {
+      orderId: event.payload.orderId,
+      orderNumber: Number(order.orderNumber),
+      customerName: order.customerName,
+      totalMinor: order.totalMinor,
+    };
+    for (const recipient of recipients) {
+      await this.dispatch(event.companyId, recipient, {
+        type: "order.created",
+        title: "طلب جديد",
+        body: `طلب رقم ${order.orderNumber} من ${order.customerName} بقيمة ${formatMinor(order.totalMinor)}.`,
+        payload,
+      });
+    }
+  }
+
   private async onOrderStatusChanged(event: DomainEvent<"order.status_changed">): Promise<void> {
     const order = await this.orderFacts.findById(event.companyId, event.payload.orderId);
     if (order !== null && order.assigneeId !== null) {
       await this.dispatch(event.companyId, order.assigneeId, {
         type: "order.status_changed",
-        title: "Order status changed",
-        body: `Order ${order.orderNumber} moved from ${event.payload.fromStatus} to ${event.payload.toStatus}.`,
+        title: "تحديث حالة طلب",
+        body: `طلب رقم ${order.orderNumber} (${order.customerName}) انتقل إلى ${event.payload.toStatus}.`,
         payload: {
           orderId: event.payload.orderId,
+          orderNumber: Number(order.orderNumber),
+          customerName: order.customerName,
           fromStatus: event.payload.fromStatus,
           toStatus: event.payload.toStatus,
         },
@@ -107,11 +176,13 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
     for (const recipient of recipients) {
       await this.dispatch(event.companyId, recipient.vendorUserId, {
         type: "order_vendor_group.assigned",
-        title: "New order assigned",
+        title: "طلب جديد للتجهيز",
+        // Deliberately no customer name here: a vendor sees only their own
+        // group's ids, never the buyer (Vendor Accounts, Phase 5).
         body:
           orderNumber === null
-            ? "You have a new order to prepare."
-            : `You have a new order: #${orderNumber}.`,
+            ? "لديك طلب جديد لتجهيزه."
+            : `لديك طلب جديد لتجهيزه: #${orderNumber}.`,
         payload: {
           orderId: event.payload.orderId,
           orderVendorGroupId: recipient.orderVendorGroupId,
@@ -127,9 +198,14 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
 
     await this.dispatch(event.companyId, order.assigneeId, {
       type: "payment.collected",
-      title: "Payment collected",
-      body: `Order ${order.orderNumber} collected ${event.payload.amountMinor} (minor units).`,
-      payload: { orderId: event.payload.orderId, amountMinor: event.payload.amountMinor },
+      title: "تم تحصيل دفعة",
+      body: `تحصيل ${formatMinor(event.payload.amountMinor)} على طلب رقم ${order.orderNumber} (${order.customerName}).`,
+      payload: {
+        orderId: event.payload.orderId,
+        orderNumber: Number(order.orderNumber),
+        customerName: order.customerName,
+        amountMinor: event.payload.amountMinor,
+      },
     });
   }
 
@@ -138,7 +214,7 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
     companyId: string,
     profileId: string,
     input: {
-      type: "order.status_changed" | "payment.collected" | "order_vendor_group.assigned";
+      type: NotificationType;
       title: string;
       body: string;
       payload: unknown;

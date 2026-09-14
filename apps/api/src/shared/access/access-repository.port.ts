@@ -21,6 +21,12 @@ export interface AccessRepositoryPort {
 /** One active member's {@link AccessData}, keyed by the membership id. */
 export interface MemberAccessData {
   readonly memberId: string;
+  /**
+   * The member's user/profile id. Carried alongside the membership id because a
+   * caller that *targets a person* (notification recipients) needs the profile
+   * id, while a caller that *administers a membership* needs `memberId`.
+   */
+  readonly userId: string;
   readonly data: AccessData;
 }
 

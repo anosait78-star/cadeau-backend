@@ -100,8 +100,8 @@ describe("AccessRepository.loadCompanyMembersAccessData", () => {
       companyMember: {
         findMany: () =>
           Promise.resolve([
-            { id: "m1", role: "store_manager" },
-            { id: "m2", role: "custom" },
+            { id: "m1", userId: "u1", role: "store_manager" },
+            { id: "m2", userId: "u2", role: "custom" },
           ]),
       },
       permissionTemplate: {
@@ -126,6 +126,9 @@ describe("AccessRepository.loadCompanyMembersAccessData", () => {
   it("shares the company facts and splits templates and overrides per member", async () => {
     const rows = await new AccessRepository(membersDb()).loadCompanyMembersAccessData(COMPANY);
     expect(rows.map((r) => r.memberId)).toEqual(["m1", "m2"]);
+    // The profile id rides along so a caller that targets a person (notification
+    // recipients) does not need a second membership read.
+    expect(rows.map((r) => r.userId)).toEqual(["u1", "u2"]);
     const [m1, m2] = rows;
     expect(m1?.data.planFeatureKeys).toEqual(["orders"]);
     expect(m1?.data.rolePermissionKeys).toEqual(["orders.read"]);
