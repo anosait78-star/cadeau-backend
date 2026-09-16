@@ -738,6 +738,98 @@ describe("OrdersPage", () => {
     expect(await screen.findByLabelText("Customer")).toHaveTextContent("Mona");
   });
 
+  it("picks the governorate and city from Bosta's lists and saves their ids", async () => {
+    const base = fetchMock.getMockImplementation() as (
+      input: string | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/master-data/governorates"))
+        return Promise.resolve(json(200, { data: [{ id: "g1", name: "القاهرة" }], page: {} }));
+      if (url.includes("/shipping/bosta/cities/city1/districts")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                districtId: "d1",
+                districtName: "Nasr City",
+                districtNameAr: "مدينة نصر",
+                zoneId: "z1",
+                zoneName: "East",
+                zoneNameAr: null,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/shipping/bosta/cities"))
+        return Promise.resolve(
+          json(200, { data: [{ id: "city1", name: "Cairo", nameAr: "القاهره" }] }),
+        );
+      if (url.match(/\/customers\/new1\/addresses$/) && method === "POST")
+        return Promise.resolve(json(201, { id: "addr1", customerId: "new1", line: "x" }));
+      if (url.match(/\/customers$/) && method === "POST")
+        return Promise.resolve(json(201, { id: "new1", name: "Mona", addresses: [] }));
+      return base(input, init);
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    await user.click(screen.getByRole("button", { name: "New customer" }));
+    await user.type(await screen.findByLabelText("Name"), "Mona");
+    await user.type(screen.getByLabelText("Phone"), "01009998888");
+    await pickCombobox(user, "Governorate", "القاهره");
+    await pickCombobox(user, "City", "مدينة نصر");
+    await user.type(screen.getByLabelText("Street address"), "1 Main St");
+    await user.click(screen.getByRole("button", { name: "Save customer" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/customers\/new1\/addresses$/),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const call = fetchMock.mock.calls.find(([u]) => /\/addresses$/.test(String(u)));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({
+      line: "مدينة نصر, 1 Main St",
+      governorateId: "g1",
+      bostaCityId: "city1",
+      bostaCityName: "Cairo",
+      bostaDistrictId: "d1",
+    });
+  });
+
+  it("shows why a new customer could not be saved", async () => {
+    const base = fetchMock.getMockImplementation() as (
+      input: string | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
+      if (String(input).match(/\/customers$/) && init?.method === "POST")
+        return Promise.resolve(json(409, { error: { code: "CONFLICT", statusCode: 409 } }));
+      return base(input, init);
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    await user.click(screen.getByRole("button", { name: "New customer" }));
+    await user.type(await screen.findByLabelText("Name"), "Mona");
+    await user.type(screen.getByLabelText("Phone"), "01009998888");
+    await user.click(screen.getByRole("button", { name: "Save customer" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A customer with this phone number already exists.",
+    );
+  });
+
   it("runs deterministic smart-paste and shows the detected fields", async () => {
     const user = userEvent.setup();
     renderPage();

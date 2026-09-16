@@ -39,7 +39,15 @@ import {
   type PaymentStatus,
 } from "@/features/orders/orders-api";
 import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
+import {
+  listBostaCities,
+  listBostaDistricts,
+  type BostaCity,
+  type BostaDistrict,
+} from "@/features/shipping/shipping-api";
 import { useI18n } from "@/i18n/i18n-provider";
+import { ApiError } from "@/lib/api-client";
+import { canonicalizeArabicName } from "@/lib/arabic-name";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format-money";
 
@@ -146,6 +154,15 @@ export function OrderForm({
   const [newCity, setNewCity] = useState("");
   const [newStreet, setNewStreet] = useState("");
   const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerError, setCustomerError] = useState<string | null>(null);
+  // Bosta's own catalog: its "city" is a governorate, its district is the city.
+  // Empty when Bosta can't be reached — the form then falls back to the
+  // company's governorates and a typed city.
+  const [bostaCities, setBostaCities] = useState<BostaCity[]>([]);
+  const [bostaDistricts, setBostaDistricts] = useState<BostaDistrict[]>([]);
+  const [newBostaCityId, setNewBostaCityId] = useState("");
+  const [newBostaDistrictId, setNewBostaDistrictId] = useState("");
+  const useBosta = bostaCities.length > 0;
 
   // Section — products.
   const [variants, setVariants] = useState<VariantOption[]>([]);
@@ -193,6 +210,22 @@ export function OrderForm({
       )
       .catch(() => setGovernorates([]));
   }, []);
+
+  useEffect(() => {
+    void listBostaCities()
+      .then(({ data }) => setBostaCities(data))
+      .catch(() => setBostaCities([]));
+  }, []);
+
+  useEffect(() => {
+    if (newBostaCityId === "") {
+      setBostaDistricts([]);
+      return;
+    }
+    void listBostaDistricts(newBostaCityId)
+      .then(({ data }) => setBostaDistricts(data))
+      .catch(() => setBostaDistricts([]));
+  }, [newBostaCityId]);
 
   /*
    * Every active product's variants, flattened into one pickable list.
@@ -291,36 +324,79 @@ export function OrderForm({
   const saveNewCustomer = async (): Promise<void> => {
     if (newCustomerInvalid) return;
     setSavingCustomer(true);
+    setCustomerError(null);
+    let created: { id: string; name: string };
     try {
       const customerNotes =
         newSecondaryPhone.trim().length > 0
           ? `${t("orders.form.customerSecondaryPhone")}: ${newSecondaryPhone.trim()}`
           : undefined;
-      const created = await createCustomer({
+      created = await createCustomer({
         name: newName.trim(),
         phone: newPhone.trim(),
         ...(customerNotes !== undefined ? { notes: customerNotes } : {}),
       });
-      if (newGovernorateId !== "" || newCity.trim() !== "" || newStreet.trim() !== "") {
-        const line = [newCity.trim(), newStreet.trim()].filter((s) => s.length > 0).join(", ");
+    } catch (error) {
+      setCustomerError(customerSaveErrorText(error, t));
+      setSavingCustomer(false);
+      return;
+    }
+    // The customer exists from here on: pick it even if the address fails,
+    // so a second click can't create a duplicate.
+    setCustomers((cs) => [...cs, { id: created.id, name: created.name }]);
+    setCustomerId(created.id);
+    try {
+      const city = bostaCities.find((c) => c.id === newBostaCityId);
+      const district = bostaDistricts.find((d) => d.districtId === newBostaDistrictId);
+      const cityName = useBosta ? (city?.nameAr ?? city?.name ?? "") : "";
+      const districtName = district?.districtNameAr ?? district?.districtName ?? "";
+      const typedCity = useBosta ? districtName : newCity.trim();
+      // Bosta's governorate mapped onto the company's own list by name, so
+      // governorate reports keep counting these customers.
+      const governorateId = useBosta
+        ? (governorates.find(
+            (g) =>
+              city !== undefined &&
+              [city.nameAr, city.name].some(
+                (n) => n !== null && canonicalizeArabicName(n) === canonicalizeArabicName(g.name),
+              ),
+          )?.id ?? null)
+        : newGovernorateId !== ""
+          ? newGovernorateId
+          : null;
+      if (
+        city !== undefined ||
+        governorateId !== null ||
+        typedCity !== "" ||
+        newStreet.trim() !== ""
+      ) {
+        const line =
+          [typedCity, newStreet.trim()].filter((s) => s.length > 0).join(", ") || cityName;
         await createAddress(created.id, {
-          line,
-          governorateId: newGovernorateId !== "" ? newGovernorateId : null,
+          // The API needs a non-empty line; a governorate alone still names a place.
+          line:
+            line !== "" ? line : (governorates.find((g) => g.id === governorateId)?.name ?? DASH),
+          governorateId,
+          ...(city !== undefined ? { bostaCityId: city.id, bostaCityName: city.name } : {}),
+          ...(district !== undefined ? { bostaDistrictId: district.districtId } : {}),
           isDefault: true,
         });
       }
-      setCustomers((cs) => [...cs, { id: created.id, name: created.name }]);
-      setCustomerId(created.id);
-      setCreatingCustomer(false);
-      setNewName("");
-      setNewPhone("");
-      setNewSecondaryPhone("");
-      setNewGovernorateId("");
-      setNewCity("");
-      setNewStreet("");
-    } finally {
+    } catch {
+      setCustomerError(t("orders.form.addressSaveFailed"));
       setSavingCustomer(false);
+      return;
     }
+    setCreatingCustomer(false);
+    setNewName("");
+    setNewPhone("");
+    setNewSecondaryPhone("");
+    setNewGovernorateId("");
+    setNewCity("");
+    setNewStreet("");
+    setNewBostaCityId("");
+    setNewBostaDistrictId("");
+    setSavingCustomer(false);
   };
 
   const submit = (): void => {
@@ -487,26 +563,55 @@ export function OrderForm({
                   htmlFor="new-customer-governorate"
                   optional
                 >
-                  <Combobox
-                    id="new-customer-governorate"
-                    ariaLabel={t("orders.form.customerGovernorate")}
-                    value={newGovernorateId}
-                    onChange={setNewGovernorateId}
-                    placeholder={DASH}
-                    options={governorates.map((g) => ({ value: g.id, label: g.name }))}
-                  />
+                  {useBosta ? (
+                    <Combobox
+                      id="new-customer-governorate"
+                      ariaLabel={t("orders.form.customerGovernorate")}
+                      value={newBostaCityId}
+                      onChange={(value) => {
+                        setNewBostaCityId(value);
+                        setNewBostaDistrictId("");
+                      }}
+                      placeholder={DASH}
+                      options={bostaCities.map((c) => ({ value: c.id, label: c.nameAr ?? c.name }))}
+                    />
+                  ) : (
+                    <Combobox
+                      id="new-customer-governorate"
+                      ariaLabel={t("orders.form.customerGovernorate")}
+                      value={newGovernorateId}
+                      onChange={setNewGovernorateId}
+                      placeholder={DASH}
+                      options={governorates.map((g) => ({ value: g.id, label: g.name }))}
+                    />
+                  )}
                 </FormField>
                 <FormField
                   label={t("orders.form.customerCity")}
                   htmlFor="new-customer-city"
                   optional
                 >
-                  <Input
-                    id="new-customer-city"
-                    value={newCity}
-                    onChange={(e) => setNewCity(e.target.value)}
-                    aria-label={t("orders.form.customerCity")}
-                  />
+                  {useBosta ? (
+                    <Combobox
+                      id="new-customer-city"
+                      ariaLabel={t("orders.form.customerCity")}
+                      value={newBostaDistrictId}
+                      onChange={setNewBostaDistrictId}
+                      placeholder={DASH}
+                      disabled={newBostaCityId === ""}
+                      options={bostaDistricts.map((d) => ({
+                        value: d.districtId,
+                        label: d.districtNameAr ?? d.districtName,
+                      }))}
+                    />
+                  ) : (
+                    <Input
+                      id="new-customer-city"
+                      value={newCity}
+                      onChange={(e) => setNewCity(e.target.value)}
+                      aria-label={t("orders.form.customerCity")}
+                    />
+                  )}
                 </FormField>
                 <FormField
                   label={t("orders.form.customerStreet")}
@@ -528,6 +633,11 @@ export function OrderForm({
                 >
                   {t("orders.form.saveCustomer")}
                 </Button>
+                {customerError !== null ? (
+                  <p role="alert" className="mt-2 text-sm text-destructive sm:col-span-2">
+                    {customerError}
+                  </p>
+                ) : null}
               </fieldset>
             ) : null}
           </div>
@@ -1000,4 +1110,13 @@ function RemoveLineButton({
       <Trash2 className="h-4 w-4" aria-hidden="true" />
     </button>
   );
+}
+
+/** The inline new-customer error: a duplicate or bad phone gets its own line. */
+function customerSaveErrorText(error: unknown, t: ReturnType<typeof useI18n>["t"]): string {
+  if (error instanceof ApiError && error.code === "CONFLICT") return t("customers.duplicatePhone");
+  if (error instanceof ApiError && error.code === "UNPROCESSABLE_ENTITY") {
+    return t("customers.invalidPhone");
+  }
+  return t("customers.saveFailed");
 }
