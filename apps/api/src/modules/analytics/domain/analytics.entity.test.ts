@@ -34,13 +34,26 @@ describe("computeBusinessSummary", () => {
       {
         orderCount: 10,
         collectedMinor: 100000,
+        salesMinor: 150000,
         previousOrderCount: 8,
         previousCollectedMinor: 80000,
-        series: [{ bucket: "2026-01-01T00:00:00.000Z", orderCount: 10, collectedMinor: 100000 }],
+        previousSalesMinor: 120000,
+        series: [
+          {
+            bucket: "2026-01-01T00:00:00.000Z",
+            orderCount: 10,
+            collectedMinor: 100000,
+            salesMinor: 150000,
+          },
+        ],
       },
       "day",
     );
-    expect(summary.averageOrderValueMinor).toBe(10000);
+    // Averaged over sales, not collected: 150000 / 10, even though only
+    // 100000 has been taken so far.
+    expect(summary.averageOrderValueMinor).toBe(15000);
+    expect(summary.salesMinor).toBe(150000);
+    expect(summary.salesDeltaPct).toBe(25);
     expect(summary.orderCountDeltaPct).toBe(25);
     expect(summary.collectedDeltaPct).toBe(25);
     expect(summary.granularity).toBe("day");
@@ -52,8 +65,10 @@ describe("computeBusinessSummary", () => {
       {
         orderCount: 0,
         collectedMinor: 0,
+        salesMinor: 0,
         previousOrderCount: 0,
         previousCollectedMinor: 0,
+        previousSalesMinor: 0,
         series: [],
       },
       "month",

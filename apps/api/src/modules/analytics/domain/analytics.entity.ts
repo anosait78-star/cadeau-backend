@@ -12,14 +12,18 @@ export interface SparklinePoint {
   readonly bucket: string;
   readonly orderCount: number;
   readonly collectedMinor: number;
+  /** Orders placed in the bucket, at their full value — see `salesMinor`. */
+  readonly salesMinor: number;
 }
 
 /** Raw aggregate facts the repository reads for the business axis. */
 export interface BusinessRawFacts {
   readonly orderCount: number;
   readonly collectedMinor: number;
+  readonly salesMinor: number;
   readonly previousOrderCount: number;
   readonly previousCollectedMinor: number;
+  readonly previousSalesMinor: number;
   readonly series: readonly SparklinePoint[];
 }
 
@@ -27,9 +31,16 @@ export interface BusinessRawFacts {
 export interface BusinessSummary {
   readonly orderCount: number;
   readonly collectedMinor: number;
+  /**
+   * Expected revenue: every order placed in the window at its full total,
+   * paid or not, excluding cancelled and returned orders. `collectedMinor` is
+   * the money actually taken so far, so this is always the larger figure.
+   */
+  readonly salesMinor: number;
   readonly averageOrderValueMinor: number;
   readonly orderCountDeltaPct: number | null;
   readonly collectedDeltaPct: number | null;
+  readonly salesDeltaPct: number | null;
   readonly series: readonly SparklinePoint[];
   readonly granularity: Granularity;
 }
@@ -45,14 +56,18 @@ export function computeBusinessSummary(
   facts: BusinessRawFacts,
   granularity: Granularity,
 ): BusinessSummary {
+  // Averaged over what the orders are worth, not what has been collected so
+  // far, so it does not shrink just because an order has not been paid yet.
   const averageOrderValueMinor =
-    facts.orderCount === 0 ? 0 : Math.round(facts.collectedMinor / facts.orderCount);
+    facts.orderCount === 0 ? 0 : Math.round(facts.salesMinor / facts.orderCount);
   return {
     orderCount: facts.orderCount,
     collectedMinor: facts.collectedMinor,
+    salesMinor: facts.salesMinor,
     averageOrderValueMinor,
     orderCountDeltaPct: percentDelta(facts.orderCount, facts.previousOrderCount),
     collectedDeltaPct: percentDelta(facts.collectedMinor, facts.previousCollectedMinor),
+    salesDeltaPct: percentDelta(facts.salesMinor, facts.previousSalesMinor),
     series: facts.series,
     granularity,
   };

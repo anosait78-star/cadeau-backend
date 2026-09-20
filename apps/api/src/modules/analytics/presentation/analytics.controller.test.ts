@@ -23,8 +23,17 @@ function business(): BusinessSummary {
     collectedMinor: 100000,
     averageOrderValueMinor: 10000,
     orderCountDeltaPct: 12.5,
+    salesMinor: 120000,
     collectedDeltaPct: null,
-    series: [{ bucket: "2026-01-01T00:00:00.000Z", orderCount: 10, collectedMinor: 100000 }],
+    salesDeltaPct: null,
+    series: [
+      {
+        bucket: "2026-01-01T00:00:00.000Z",
+        orderCount: 10,
+        collectedMinor: 100000,
+        salesMinor: 120000,
+      },
+    ],
     granularity: "day",
   };
 }

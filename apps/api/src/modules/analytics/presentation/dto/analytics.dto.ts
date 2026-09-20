@@ -54,11 +54,15 @@ export class SparklinePointDto {
   @ApiProperty({ example: 450000, description: "Integer minor units." })
   collectedMinor!: number;
 
+  @ApiProperty({ example: 620000, description: "Integer minor units." })
+  salesMinor!: number;
+
   static from(point: SparklinePoint): SparklinePointDto {
     const dto = new SparklinePointDto();
     dto.bucket = point.bucket;
     dto.orderCount = point.orderCount;
     dto.collectedMinor = point.collectedMinor;
+    dto.salesMinor = point.salesMinor;
     return dto;
   }
 }
@@ -71,6 +75,13 @@ export class BusinessSummaryDto {
   @ApiProperty({ example: 1500000, description: "Integer minor units." })
   collectedMinor!: number;
 
+  @ApiProperty({
+    example: 2100000,
+    description:
+      "Expected revenue: orders placed in the window at their full total, paid or not, excluding cancelled and returned. Integer minor units.",
+  })
+  salesMinor!: number;
+
   @ApiProperty({ example: 35714, description: "Integer minor units." })
   averageOrderValueMinor!: number;
 
@@ -79,6 +90,9 @@ export class BusinessSummaryDto {
 
   @ApiPropertyOptional({ example: -3.2, nullable: true })
   collectedDeltaPct!: number | null;
+
+  @ApiPropertyOptional({ example: 8.4, nullable: true })
+  salesDeltaPct!: number | null;
 
   @ApiProperty({ type: [SparklinePointDto] })
   series!: SparklinePointDto[];
@@ -90,9 +104,11 @@ export class BusinessSummaryDto {
     const dto = new BusinessSummaryDto();
     dto.orderCount = view.orderCount;
     dto.collectedMinor = view.collectedMinor;
+    dto.salesMinor = view.salesMinor;
     dto.averageOrderValueMinor = view.averageOrderValueMinor;
     dto.orderCountDeltaPct = view.orderCountDeltaPct;
     dto.collectedDeltaPct = view.collectedDeltaPct;
+    dto.salesDeltaPct = view.salesDeltaPct;
     dto.series = view.series.map(SparklinePointDto.from);
     dto.granularity = view.granularity;
     return dto;

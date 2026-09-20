@@ -25,8 +25,10 @@ function fakeRepo(overrides: Partial<AnalyticsRepositoryPort> = {}): AnalyticsRe
     getBusinessFacts: vi.fn(async (_c: string, _w: Window, _g: Granularity) => ({
       orderCount: 10,
       collectedMinor: 100000,
+      salesMinor: 120000,
       previousOrderCount: 8,
       previousCollectedMinor: 80000,
+      previousSalesMinor: 90000,
       series: [],
     })),
     getProductPerformance: vi.fn(async () => []),
@@ -78,7 +80,8 @@ describe("AnalyticsService", () => {
     const { service } = makeService();
     const summary = await service.getBusiness(principal(), {});
     expect(summary.orderCount).toBe(10);
-    expect(summary.averageOrderValueMinor).toBe(10000);
+    // Sales ÷ orders (120000 / 10), not collected ÷ orders.
+    expect(summary.averageOrderValueMinor).toBe(12000);
     expect(summary.orderCountDeltaPct).toBe(25);
   });
 

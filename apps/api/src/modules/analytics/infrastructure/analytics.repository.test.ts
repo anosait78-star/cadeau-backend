@@ -43,33 +43,72 @@ describe("AnalyticsRepository — business", () => {
     const { repo, models, queryRaw } = makeRepo();
     models.order.aggregate
       .mockResolvedValueOnce({ _count: { _all: 10 }, _sum: { collectedAmount: 100000n } })
-      .mockResolvedValueOnce({ _count: { _all: 8 }, _sum: { collectedAmount: 80000n } });
+      .mockResolvedValueOnce({ _count: { _all: 8 }, _sum: { collectedAmount: 80000n } })
+      .mockResolvedValueOnce({ _sum: { total: 150000n } })
+      .mockResolvedValueOnce({ _sum: { total: 120000n } });
     queryRaw
       .mockResolvedValueOnce([]) // setTenantContext
       .mockResolvedValueOnce([
-        { bucket: new Date("2026-01-01T00:00:00.000Z"), order_count: 5n, collected_minor: 50000n },
+        {
+          bucket: new Date("2026-01-01T00:00:00.000Z"),
+          order_count: 5n,
+          collected_minor: 50000n,
+          sales_minor: 75000n,
+        },
       ]);
 
     const facts = await repo.getBusinessFacts(COMPANY, WINDOW, "day");
 
     expect(facts.orderCount).toBe(10);
     expect(facts.collectedMinor).toBe(100000);
+    expect(facts.salesMinor).toBe(150000);
     expect(facts.previousOrderCount).toBe(8);
     expect(facts.previousCollectedMinor).toBe(80000);
+    expect(facts.previousSalesMinor).toBe(120000);
     expect(facts.series).toEqual([
-      { bucket: "2026-01-01T00:00:00.000Z", orderCount: 5, collectedMinor: 50000 },
+      {
+        bucket: "2026-01-01T00:00:00.000Z",
+        orderCount: 5,
+        collectedMinor: 50000,
+        salesMinor: 75000,
+      },
     ]);
+  });
+
+  it("leaves cancelled and returned orders out of the sales totals", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.order.aggregate
+      .mockResolvedValueOnce({ _count: { _all: 10 }, _sum: { collectedAmount: 100000n } })
+      .mockResolvedValueOnce({ _count: { _all: 8 }, _sum: { collectedAmount: 80000n } })
+      .mockResolvedValueOnce({ _sum: { total: 150000n } })
+      .mockResolvedValueOnce({ _sum: { total: 120000n } });
+    queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await repo.getBusinessFacts(COMPANY, WINDOW, "day");
+
+    // The order-count/collected aggregates cover every order; only the two
+    // sales aggregates filter the void statuses out.
+    const wheres = (
+      models.order.aggregate.mock.calls as { where: { status?: { notIn: string[] } } }[][]
+    ).map((call) => call[0]?.where.status);
+    expect(wheres[0]).toBeUndefined();
+    expect(wheres[1]).toBeUndefined();
+    expect(wheres[2]).toEqual({ notIn: ["cancelled", "returned"] });
+    expect(wheres[3]).toEqual({ notIn: ["cancelled", "returned"] });
   });
 
   it("defaults null sums to zero", async () => {
     const { repo, models, queryRaw } = makeRepo();
     models.order.aggregate
       .mockResolvedValueOnce({ _count: { _all: 0 }, _sum: { collectedAmount: null } })
-      .mockResolvedValueOnce({ _count: { _all: 0 }, _sum: { collectedAmount: null } });
+      .mockResolvedValueOnce({ _count: { _all: 0 }, _sum: { collectedAmount: null } })
+      .mockResolvedValueOnce({ _sum: { total: null } })
+      .mockResolvedValueOnce({ _sum: { total: null } });
     queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
     const facts = await repo.getBusinessFacts(COMPANY, WINDOW, "week");
     expect(facts.collectedMinor).toBe(0);
+    expect(facts.salesMinor).toBe(0);
     expect(facts.series).toEqual([]);
   });
 });

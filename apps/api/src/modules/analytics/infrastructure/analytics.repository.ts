@@ -35,6 +35,7 @@ interface SeriesRow {
   readonly bucket: Date;
   readonly order_count: bigint;
   readonly collected_minor: bigint | null;
+  readonly sales_minor: bigint | null;
 }
 
 interface ProductRow {
@@ -86,7 +87,7 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
     return this.tenantTx(companyId, async (tx) => {
       const previous = precedingWindow(window.from, window.to);
 
-      const [current, previousAgg, seriesRows] = await Promise.all([
+      const [current, previousAgg, currentSales, previousSales, seriesRows] = await Promise.all([
         tx.order.aggregate({
           where: { companyId, createdAt: { gte: window.from, lte: window.to } },
           _count: { _all: true },
@@ -97,10 +98,31 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
           _count: { _all: true },
           _sum: { collectedAmount: true },
         }),
+        // Expected revenue: what the orders are worth, paid or not, minus the
+        // ones that will never be paid (same exclusion as product revenue).
+        tx.order.aggregate({
+          where: {
+            companyId,
+            createdAt: { gte: window.from, lte: window.to },
+            status: { notIn: VOID_ORDER_STATUSES },
+          },
+          _sum: { total: true },
+        }),
+        tx.order.aggregate({
+          where: {
+            companyId,
+            createdAt: { gte: previous.from, lte: previous.to },
+            status: { notIn: VOID_ORDER_STATUSES },
+          },
+          _sum: { total: true },
+        }),
         tx.$queryRaw<SeriesRow[]>`
           SELECT date_trunc(${TRUNC_UNIT[granularity]}, created_at) AS bucket,
                  count(*)::bigint AS order_count,
-                 sum(collected_amount)::bigint AS collected_minor
+                 sum(collected_amount)::bigint AS collected_minor,
+                 sum(total) FILTER (
+                   WHERE status <> ALL (${VOID_ORDER_STATUSES})
+                 )::bigint AS sales_minor
             FROM public.orders
            WHERE company_id = ${companyId}::uuid
              AND created_at BETWEEN ${window.from} AND ${window.to}
@@ -112,13 +134,16 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
         bucket: row.bucket.toISOString(),
         orderCount: Number(row.order_count),
         collectedMinor: Number(row.collected_minor ?? 0n),
+        salesMinor: Number(row.sales_minor ?? 0n),
       }));
 
       return {
         orderCount: current._count._all,
         collectedMinor: Number(current._sum.collectedAmount ?? 0n),
+        salesMinor: Number(currentSales._sum.total ?? 0n),
         previousOrderCount: previousAgg._count._all,
         previousCollectedMinor: Number(previousAgg._sum.collectedAmount ?? 0n),
+        previousSalesMinor: Number(previousSales._sum.total ?? 0n),
         series,
       };
     });
