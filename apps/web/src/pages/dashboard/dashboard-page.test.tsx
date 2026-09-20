@@ -91,7 +91,7 @@ function mockFetch(): ReturnType<typeof vi.fn> {
   return vi.fn((input: string | URL) => {
     const url = String(input);
     if (url.includes("/orders/status-counts"))
-      return Promise.resolve(json(200, { counts: { new: 2, delivered: 1 } }));
+      return Promise.resolve(json(200, { counts: { new: 2, ready: 4, shipped: 3, delivered: 1 } }));
     if (url.includes("/orders")) {
       return Promise.resolve(
         json(200, { data: [ORDER], page: { limit: 20, nextCursor: null, hasMore: false } }),
@@ -102,10 +102,14 @@ function mockFetch(): ReturnType<typeof vi.fn> {
         json(200, {
           orderCount: 3,
           collectedMinor: 50000,
-          averageOrderValueMinor: 1000,
+          salesMinor: 90000,
+          averageOrderValueMinor: 30000,
           orderCountDeltaPct: null,
           collectedDeltaPct: null,
-          series: [{ bucket: "2026-01-01", orderCount: 3, collectedMinor: 50000 }],
+          salesDeltaPct: null,
+          series: [
+            { bucket: "2026-01-01", orderCount: 3, collectedMinor: 50000, salesMinor: 90000 },
+          ],
           granularity: "day",
         }),
       );
@@ -161,7 +165,22 @@ describe("DashboardPage", () => {
 
     // The period-scoped KPI row, which replaced the old overview tiles.
     const kpiRow = await screen.findByTestId("dashboard-kpi-row");
-    expect(within(kpiRow).getByText("500.00")).toBeInTheDocument(); // collected
+    // Expected revenue — the orders' full value, not the 500.00 collected.
+    expect(within(kpiRow).getByText("Expected revenue")).toBeInTheDocument();
+    expect(within(kpiRow).getByText("900.00")).toBeInTheDocument();
+    expect(within(kpiRow).queryByText("500.00")).not.toBeInTheDocument();
+    // Ready sits between "In progress" and "Shipped"; "Total in period" is gone.
+    const labels = within(kpiRow)
+      .getAllByTestId("kpi-label")
+      .map((node) => node.textContent);
+    expect(labels).toEqual([
+      "Expected revenue",
+      "Orders",
+      "Average order",
+      "In progress",
+      "Ready",
+      "Shipped",
+    ]);
 
     // Recent orders + activity, both derived from the same /orders call
     expect(screen.getByText("#101")).toBeInTheDocument();

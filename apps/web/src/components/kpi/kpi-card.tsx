@@ -59,7 +59,9 @@ export function KpiCard({
         ) : null}
       </div>
       <div>
-        <p className="truncate text-caption text-muted-foreground">{tile.label}</p>
+        <p className="truncate text-caption text-muted-foreground" data-testid="kpi-label">
+          {tile.label}
+        </p>
         <p className="text-h1 leading-tight text-foreground tabular-nums" dir="ltr">
           {tile.value}
         </p>

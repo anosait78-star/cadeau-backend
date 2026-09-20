@@ -9,20 +9,22 @@ export type KpiPeriod = (typeof KPI_PERIODS)[number];
 const PENDING_STATUSES = ["new", "confirming", "processing", "incomplete"] as const;
 
 export interface PeriodKpis {
-  /** Money actually collected in the period, in minor units. */
-  readonly collectedMinor: number;
-  readonly collectedTrendPct: number | null;
+  /**
+   * Expected revenue: what the period's orders are worth, paid or not, less
+   * cancelled and returned ones. In minor units.
+   */
+  readonly salesMinor: number;
+  readonly salesTrendPct: number | null;
   readonly orderCount: number;
   readonly orderCountTrendPct: number | null;
   readonly averageOrderValueMinor: number;
   readonly shipped: number;
+  readonly ready: number;
   readonly processing: number;
-  /** Orders created in the period, from the status aggregate. */
-  readonly totalInPeriod: number;
   /** Order-count history across the period, oldest → newest. */
   readonly orderSeries: readonly number[];
-  /** Collected-money history across the period, oldest → newest. */
-  readonly collectedSeries: readonly number[];
+  /** Expected-revenue history across the period, oldest → newest. */
+  readonly salesSeries: readonly number[];
 }
 
 function startOfToday(): Date {
@@ -75,10 +77,6 @@ function pendingCount(counts: Record<string, number>): number {
   return PENDING_STATUSES.reduce((sum, key) => sum + (counts[key] ?? 0), 0);
 }
 
-function sumCounts(counts: Record<string, number>): number {
-  return Object.values(counts).reduce((a, b) => a + b, 0);
-}
-
 /**
  * KPI figures for one period.
  *
@@ -102,15 +100,15 @@ export async function fetchPeriodKpis(period: KpiPeriod): Promise<PeriodKpis> {
   ]);
 
   return {
-    collectedMinor: business.collectedMinor,
-    collectedTrendPct: business.collectedDeltaPct,
+    salesMinor: business.salesMinor,
+    salesTrendPct: business.salesDeltaPct,
     orderCount: business.orderCount,
     orderCountTrendPct: business.orderCountDeltaPct,
     averageOrderValueMinor: business.averageOrderValueMinor,
     shipped: counts.counts["shipped"] ?? 0,
+    ready: counts.counts["ready"] ?? 0,
     processing: pendingCount(counts.counts),
-    totalInPeriod: sumCounts(counts.counts),
     orderSeries: business.series.map((point) => point.orderCount),
-    collectedSeries: business.series.map((point) => point.collectedMinor),
+    salesSeries: business.series.map((point) => point.salesMinor),
   };
 }

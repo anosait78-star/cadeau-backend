@@ -47,18 +47,49 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-/** What this device's current state is, without prompting for anything. */
+/**
+ * What this device's current state is, without prompting for anything.
+ *
+ * A subscription the browser is holding is also re-registered with the server
+ * in the background. The browser's copy and the server's row can fall out of
+ * step in several ordinary ways — the registering request never landed, the
+ * push service retired the endpoint and the row was pruned, the user moved to
+ * another company — and every one of them looks identical from here: the app
+ * says "enabled" while nothing can ever be delivered. Re-registering is an
+ * idempotent upsert on the endpoint, so repairing it costs one request and
+ * removes a state no one could otherwise get out of.
+ */
 export async function getPushState(): Promise<PushState> {
   if (!isPushSupported()) return "unsupported";
   if (Notification.permission === "denied") return "denied";
   try {
     const registration = await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
-    if (existing !== null && Notification.permission === "granted") return "enabled";
+    if (existing !== null && Notification.permission === "granted") {
+      void syncSubscription(existing);
+      return "enabled";
+    }
   } catch {
     // A worker that never became ready is indistinguishable from not subscribed.
   }
   return "idle";
+}
+
+/** Re-register a subscription the browser already holds. Best effort. */
+async function syncSubscription(subscription: PushSubscription): Promise<void> {
+  const json = subscription.toJSON();
+  const p256dh = json.keys?.["p256dh"];
+  const auth = json.keys?.["auth"];
+  if (p256dh === undefined || auth === undefined) return;
+  try {
+    await registerPushSubscription({
+      endpoint: subscription.endpoint,
+      keys: { p256dh, auth },
+      userAgent: navigator.userAgent,
+    });
+  } catch {
+    // Offline, or a server that already knows: either way nothing to report.
+  }
 }
 
 /**

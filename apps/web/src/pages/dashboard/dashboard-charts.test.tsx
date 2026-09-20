@@ -15,8 +15,8 @@ describe("SalesChart", () => {
     render(
       <SalesChart
         points={[
-          { bucket: "2026-01-01", orderCount: 1, collectedMinor: 100 },
-          { bucket: "2026-01-02", orderCount: 2, collectedMinor: 400 },
+          { bucket: "2026-01-01", orderCount: 1, collectedMinor: 100, salesMinor: 150 },
+          { bucket: "2026-01-02", orderCount: 2, collectedMinor: 400, salesMinor: 500 },
         ]}
       />,
     );

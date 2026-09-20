@@ -117,6 +117,24 @@ describe("push", () => {
     expect(await getPushState()).toBe("enabled");
   });
 
+  it("re-registers a subscription the server may not know about", async () => {
+    stubBrowser("granted", subscription());
+
+    expect(await getPushState()).toBe("enabled");
+
+    /*
+     * The browser holding a subscription is no proof the server has the row:
+     * the registering request may never have landed, or the row may have been
+     * pruned. Without this the app would say "enabled" while nothing could
+     * ever be delivered, with no way out.
+     */
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/push/subscriptions"))).toBe(
+        true,
+      ),
+    );
+  });
+
   it("unsubscribes the device and forgets it server-side", async () => {
     const existing = subscription();
     stubBrowser("granted", existing);

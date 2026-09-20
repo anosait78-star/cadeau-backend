@@ -169,6 +169,29 @@ describe("buildOrderDetailSections", () => {
     ]);
   });
 
+  it("shows what is still owed on a part-paid order, and nothing extra otherwise", () => {
+    const build = (detail: typeof ORDER_DETAIL) =>
+      buildOrderDetailSections({
+        detail,
+        activity: [],
+        vendorGroups: [],
+        t,
+        locale: "en",
+        companyId: "co1",
+        onNotify: () => {},
+        onPatch: () => {},
+      }).find((s) => s.key === "summary");
+
+    const partial = build({ ...ORDER_DETAIL, collectedAmount: 6000, paymentStatus: "partial" });
+    const { unmount } = render(<div>{partial?.content}</div>);
+    expect(screen.getByText("orders.field.remaining")).toBeInTheDocument();
+    expect(screen.getByText("90.00")).toBeInTheDocument(); // 150.00 − 60.00
+    unmount();
+
+    render(<div>{build(ORDER_DETAIL)?.content}</div>);
+    expect(screen.queryByText("orders.field.remaining")).not.toBeInTheDocument();
+  });
+
   it("notes section shows the order's notes", () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,

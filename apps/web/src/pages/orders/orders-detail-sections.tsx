@@ -563,6 +563,23 @@ function SummarySection({
             ltr
             emphasis
           />
+          {/* What is still owed, only while something is owed: on an unpaid
+              order it would just repeat the total, on a paid one it is zero. */}
+          {detail.paymentStatus === "partial" && (
+            <>
+              <DetailRow
+                label={t("orders.field.collected")}
+                value={formatMoney(detail.collectedAmount, locale)}
+                ltr
+              />
+              <DetailRow
+                label={t("orders.field.remaining")}
+                value={formatMoney(Math.max(0, detail.total - detail.collectedAmount), locale)}
+                ltr
+                emphasis
+              />
+            </>
+          )}
         </DetailGroup>
       </section>
 

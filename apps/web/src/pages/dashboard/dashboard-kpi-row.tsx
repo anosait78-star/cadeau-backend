@@ -1,4 +1,4 @@
-import { CalendarDays, Clock, Coins, ShoppingBag, Truck, Wallet } from "lucide-react";
+import { Clock, Coins, PackageCheck, ShoppingBag, Truck, Wallet } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { KpiRow, type KpiTileSpec } from "@/components/kpi/kpi-card";
 import { CardListSkeleton } from "@/components/states/skeleton";
@@ -119,12 +119,12 @@ function buildTiles(
 ): KpiTileSpec[] {
   return [
     {
-      label: t("dashboard.kpi.collected"),
-      value: formatMoney(kpis.collectedMinor, locale),
+      label: t("dashboard.kpi.expectedRevenue"),
+      value: formatMoney(kpis.salesMinor, locale),
       icon: <Wallet className="h-5 w-5" aria-hidden="true" />,
       iconToneClassName: "bg-success/10 text-success",
-      trendPct: kpis.collectedTrendPct,
-      series: kpis.collectedSeries.length > 1 ? kpis.collectedSeries : null,
+      trendPct: kpis.salesTrendPct,
+      series: kpis.salesSeries.length > 1 ? kpis.salesSeries : null,
     },
     {
       label: t("dashboard.kpi.orders"),
@@ -143,14 +143,6 @@ function buildTiles(
       series: null,
     },
     {
-      label: t("dashboard.kpi.shipped"),
-      value: String(kpis.shipped),
-      icon: <Truck className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-info/10 text-info",
-      trendPct: null,
-      series: null,
-    },
-    {
       label: t("dashboard.kpi.processing"),
       value: String(kpis.processing),
       icon: <Clock className="h-5 w-5" aria-hidden="true" />,
@@ -159,10 +151,18 @@ function buildTiles(
       series: null,
     },
     {
-      label: t("dashboard.kpi.totalInPeriod"),
-      value: String(kpis.totalInPeriod),
-      icon: <CalendarDays className="h-5 w-5" aria-hidden="true" />,
-      iconToneClassName: "bg-muted text-foreground",
+      label: t("dashboard.kpi.ready"),
+      value: String(kpis.ready),
+      icon: <PackageCheck className="h-5 w-5" aria-hidden="true" />,
+      iconToneClassName: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+      trendPct: null,
+      series: null,
+    },
+    {
+      label: t("dashboard.kpi.shipped"),
+      value: String(kpis.shipped),
+      icon: <Truck className="h-5 w-5" aria-hidden="true" />,
+      iconToneClassName: "bg-info/10 text-info",
       trendPct: null,
       series: null,
     },

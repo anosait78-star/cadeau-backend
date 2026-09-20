@@ -20,14 +20,21 @@ export interface SparklinePoint {
   readonly bucket: string;
   readonly orderCount: number;
   readonly collectedMinor: number;
+  readonly salesMinor: number;
 }
 
 export interface BusinessSummary {
   readonly orderCount: number;
   readonly collectedMinor: number;
+  /**
+   * Expected revenue: every order placed in the window at its full total,
+   * paid or not, less cancelled and returned ones.
+   */
+  readonly salesMinor: number;
   readonly averageOrderValueMinor: number;
   readonly orderCountDeltaPct: number | null;
   readonly collectedDeltaPct: number | null;
+  readonly salesDeltaPct: number | null;
   readonly series: readonly SparklinePoint[];
   readonly granularity: "day" | "week" | "month";
 }
