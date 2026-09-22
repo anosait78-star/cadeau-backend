@@ -8,7 +8,7 @@ type Translate = (key: TranslationKey, params?: Record<string, string | number>)
 export interface PermissionLabel {
   readonly name: string;
   readonly description: string;
-  /** `null` for the four permissions that are not a plain `<module>.<action>` pair. */
+  /** `null` for the permissions that are not a plain `<module>.<action>` pair. */
   readonly action: "read" | "manage" | null;
 }
 
@@ -35,6 +35,9 @@ const SPECIAL_KEYS: Readonly<Record<string, readonly [TranslationKey, Translatio
     "team.permission.orders.vendorGroupsOverride.name",
     "team.permission.orders.vendorGroupsOverride.desc",
   ],
+  // EPIC-17: neither `.read` nor `.manage` — "send" is the vendor's half of
+  // messaging, bounded to the one thread they participate in.
+  "messaging.send": ["team.permission.messaging.send.name", "team.permission.messaging.send.desc"],
 };
 
 /**
@@ -52,9 +55,9 @@ export function moduleLabel(featureKey: string, t: Translate): string {
  * A permission's name and description in the active language.
  *
  * The API sends the catalog's English `description` straight from the seed, so
- * it cannot be localized server-side. Rather than translating 22 rows twice,
+ * it cannot be localized server-side. Rather than translating every row twice,
  * this derives the common case — `<feature>.<read|manage>` — from the module
- * label plus one word for the action, and keeps a small table for the four keys
+ * label plus one word for the action, and keeps a small table for the few keys
  * that genuinely say something else.
  *
  * An unknown key (a permission added after this build) degrades to the raw key

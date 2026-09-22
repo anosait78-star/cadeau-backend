@@ -72,6 +72,11 @@ model Profile {
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
   pushSubscriptions       PushSubscription[]
+  sentMessages            Message[]                 @relation("MessageSender")
+  uploadedAttachments     MessageAttachment[]       @relation("MessageAttachmentUploader")
+  messageReads            MessageRead[]
+  createdMessageThreads   MessageThread[]           @relation("MessageThreadCreatedBy")
+  updatedMessageThreads   MessageThread[]           @relation("MessageThreadUpdatedBy")
 
   @@map("profiles")
 }
@@ -155,6 +160,11 @@ model Company {
   warehouseJoinCodes           WarehouseJoinCode[]
   orderVendorGroups             OrderVendorGroup[]
   orderReviews                  OrderReview[]
+  messageThreads                MessageThread[]
+  messages                      Message[]
+  messageAttachments            MessageAttachment[]
+  messageOrderRefs              MessageOrderRef[]
+  messageReads                  MessageRead[]
 
   @@map("companies")
 }
@@ -183,6 +193,7 @@ model CompanyMember {
   user        Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
   warehouse   Warehouse?         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   permissions MemberPermission[]
+  messageThread MessageThread?
 
   @@unique([companyId, userId], map: "company_members_company_user_key")
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "company_members_keyset_idx")
@@ -786,6 +797,7 @@ model Warehouse {
   vendorMembers         CompanyMember[]
   joinCode              WarehouseJoinCode?
   orderVendorGroups     OrderVendorGroup[]
+  messageThread         MessageThread?
 
   @@unique([companyId, name], map: "warehouses_company_name_key")
   @@index([companyId, name, id], map: "warehouses_keyset_idx")
@@ -1101,6 +1113,7 @@ model Order {
   refunds      Refund[]
   vendorGroups OrderVendorGroup[]
   review       OrderReview?
+  messageRefs  MessageOrderRef[]
 
   @@unique([companyId, orderNumber], map: "orders_company_number_key")
   @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
@@ -1925,4 +1938,141 @@ model NotificationDelivery {
   @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "notification_deliveries_keyset_idx")
   @@index([status, nextAttemptAt], map: "notification_deliveries_pending_idx")
   @@map("notification_deliveries")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor messaging (EPIC-17)
+// ---------------------------------------------------------------------------
+
+/// One vendor ↔ company conversation (EPIC-17 · M17.1). Keyed by the vendor's
+/// warehouse, because a vendor membership is scoped to exactly one warehouse
+/// (`CompanyMember.warehouseId`) — so `(companyId, warehouseId)` is unique and
+/// the thread is created lazily on the first message. Staff see every thread in
+/// the company; a vendor sees only their own, enforced in RLS through
+/// `app.current_member_warehouse_id()`, not just in the service.
+/// `lastMessageAt`/`lastMessagePreview` are denormalized from the newest
+/// message so the thread list needs no per-row subquery.
+model MessageThread {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  warehouseId        String    @unique(map: "message_threads_warehouse_key") @map("warehouse_id") @db.Uuid
+  vendorMemberId     String    @unique(map: "message_threads_vendor_member_key") @map("vendor_member_id") @db.Uuid
+  status             String    @default("open")
+  lastMessageAt      DateTime? @map("last_message_at") @db.Timestamptz(6)
+  lastMessagePreview String?   @map("last_message_preview")
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  vendorMember CompanyMember @relation(fields: [vendorMemberId], references: [id], onDelete: Cascade)
+  creator      Profile?      @relation("MessageThreadCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updater      Profile?      @relation("MessageThreadUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  messages     Message[]
+  reads        MessageRead[]
+
+  @@index([companyId, lastMessageAt(sort: Desc), id(sort: Desc)], map: "message_threads_keyset_idx")
+  @@map("message_threads")
+}
+
+/// A single message in a vendor thread (EPIC-17 · M17.1). `body` is nullable
+/// because an image-only message is valid — the "text or at least one
+/// attachment" rule is enforced by the service, since attachments are linked
+/// after the insert. Deletes are soft (`deletedAt`) so the audit trail and the
+/// order-reference history survive a removal.
+model Message {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  threadId        String    @map("thread_id") @db.Uuid
+  senderProfileId String    @map("sender_profile_id") @db.Uuid
+  /// "vendor" or "staff" — which side of the conversation sent this.
+  senderKind      String    @map("sender_kind")
+  body            String?
+  editedAt        DateTime? @map("edited_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  thread      MessageThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender      Profile             @relation("MessageSender", fields: [senderProfileId], references: [id], onDelete: Restrict)
+  attachments MessageAttachment[]
+  orderRefs   MessageOrderRef[]
+
+  @@index([threadId, createdAt(sort: Desc), id(sort: Desc)], map: "messages_thread_keyset_idx")
+  @@map("messages")
+}
+
+/// An image attached to a message (EPIC-17 · M17.3). The bytes live in object
+/// storage under `storageKey`; this row is the tenant-scoped permission record
+/// for them. `messageId` is nullable because the upload endpoint creates the
+/// row *before* the message exists — an unattached row is an orphan the cleanup
+/// job reaps after 24h. Everything is re-encoded to WebP server-side (EXIF
+/// stripped), so `mimeType` is always a type we produced.
+model MessageAttachment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  messageId  String?  @map("message_id") @db.Uuid
+  uploadedBy String   @map("uploaded_by") @db.Uuid
+  storageKey String   @unique(map: "message_attachments_storage_key_key") @map("storage_key")
+  mimeType   String   @map("mime_type")
+  sizeBytes  Int      @map("size_bytes")
+  width      Int
+  height     Int
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  message  Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploader Profile  @relation("MessageAttachmentUploader", fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@index([messageId], map: "message_attachments_message_idx")
+  @@map("message_attachments")
+}
+
+/// An order referenced from a message — the "@" mention (EPIC-17 · M17.4). Its
+/// own table rather than a JSON column so "every message that mentions this
+/// order" is an index hit and the FK keeps a mention from outliving its order.
+/// `orderNumber` is a display snapshot. Which orders may be referenced is
+/// decided by the service: only orders with an `OrderVendorGroup` in the
+/// thread's warehouse, for both sides of the conversation.
+model MessageOrderRef {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  messageId   String   @map("message_id") @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  orderNumber String   @map("order_number")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, orderId], map: "message_order_refs_message_order_key")
+  @@index([companyId, orderId, createdAt(sort: Desc)], map: "message_order_refs_order_idx")
+  @@index([messageId], map: "message_order_refs_message_idx")
+  @@map("message_order_refs")
+}
+
+/// Per-participant read cursor for a thread (EPIC-17 · M17.1). A timestamp
+/// cursor rather than a row per read message: the unread badge is then one
+/// indexed COUNT, and the table stays one row per participant. RLS restricts a
+/// member to their own cursor.
+model MessageRead {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  threadId   String   @map("thread_id") @db.Uuid
+  profileId  String   @map("profile_id") @db.Uuid
+  lastReadAt DateTime @default(now()) @map("last_read_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  thread  MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  profile Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, profileId], map: "message_reads_thread_profile_key")
+  @@map("message_reads")
 }

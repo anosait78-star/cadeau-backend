@@ -46,6 +46,7 @@ export const FEATURES: readonly FeatureDef[] = [
   { key: "finance", name: "Finance & Compliance", category: "finance", active: true },
   { key: "analytics", name: "Analytics", category: "insights", active: true },
   { key: "notifications", name: "Notifications", category: "operations", active: true },
+  { key: "messaging", name: "Vendor Messaging", category: "operations", active: true },
   {
     key: "storefront_integration",
     name: "Storefront Integration",
@@ -66,6 +67,7 @@ const PERMISSIONED_FEATURES: readonly string[] = [
   "finance",
   "analytics",
   "notifications",
+  "messaging",
 ];
 
 /** A catalog permission: its key, a human description, and its gating feature (if any). */
@@ -121,6 +123,18 @@ export const PERMISSIONS: readonly PermissionDef[] = [
     description: "Set any vendor group's status, including moving it backward",
     feature: "orders",
   },
+  // Posting is split out from `messaging.manage` (EPIC-17) because the two sides
+  // of a vendor conversation need different powers. A vendor must be able to
+  // write in their own thread, but `messaging.manage` also carries "every
+  // thread in the company" — granting it to a vendor would expose the others.
+  // So the vendor template gets `messaging.read` + `messaging.send`, whose
+  // reach is bounded by `company_members.warehouse_id` (and by the RLS policy
+  // on `message_threads`) to the single thread they belong to.
+  {
+    key: "messaging.send",
+    description: "Post messages in a conversation you are a participant in",
+    feature: "messaging",
+  },
 ];
 
 /** Every permission key — the Owner template grants all of them. */
@@ -141,7 +155,7 @@ export const PLANS: readonly PlanDef[] = [
   {
     code: "standard",
     name: "Standard",
-    description: "Growing stores: inventory, shipping, and notifications.",
+    description: "Growing stores: inventory, shipping, notifications, and vendor messaging.",
     features: [
       "master-data",
       "products",
@@ -150,6 +164,7 @@ export const PLANS: readonly PlanDef[] = [
       "inventory",
       "shipping",
       "notifications",
+      "messaging",
     ],
   },
   {
@@ -164,6 +179,7 @@ export const PLANS: readonly PlanDef[] = [
       "inventory",
       "shipping",
       "notifications",
+      "messaging",
       "finance",
       "analytics",
       "storefront_integration",
@@ -194,6 +210,8 @@ export const TEMPLATES: readonly TemplateDef[] = [
       "integrations.manage",
       ...perms(["orders", "products", "inventory", "customers", "shipping"], ["read", "manage"]),
       ...perms(["analytics", "finance"], ["read"]),
+      ...perms(["messaging"], ["read", "manage"]),
+      "messaging.send",
     ],
   },
   {
@@ -238,11 +256,16 @@ export const TEMPLATES: readonly TemplateDef[] = [
   // it to the member's own warehouse); no products/orders permissions yet —
   // those modules aren't warehouse-aware until a later phase, and granting
   // them now would leak every other vendor's data.
+  //
+  // EPIC-17 adds `messaging.read` + `messaging.send`: warehouse-scoped like
+  // `inventory.read`, so they reach exactly one thread — the vendor's own. The
+  // company-wide half of messaging lives in `messaging.manage`, which a vendor
+  // never gets.
   {
     key: "vendor",
     name: "Vendor",
     description:
       "Manages their own warehouse only — scoped automatically to the warehouse they joined.",
-    permissions: ["inventory.read"],
+    permissions: ["inventory.read", "messaging.read", "messaging.send"],
   },
 ];

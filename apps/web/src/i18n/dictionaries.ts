@@ -245,6 +245,9 @@ export const en = {
   "team.permission.orders.vendorGroupsOverride.name": "Override vendor status",
   "team.permission.orders.vendorGroupsOverride.desc":
     "Set any vendor group's status, including moving it backward.",
+  "team.permission.messaging.send.name": "Reply in conversations",
+  "team.permission.messaging.send.desc":
+    "Post messages in a conversation you are a participant in.",
   "team.invite.manager.grantAccessManage":
     "Also let this Manager manage team members and permissions",
   "team.invite.custom.description":
@@ -269,6 +272,7 @@ export const en = {
   "team.module.finance": "Finance",
   "team.module.analytics": "Analytics",
   "team.module.notifications": "Notifications",
+  "team.module.messaging": "Conversations",
   "team.module.storefrontIntegration": "Integrations",
   "team.permission.action.read": "View",
   "team.permission.action.manage": "Manage",
@@ -1535,6 +1539,8 @@ export const ar: Record<TranslationKey, string> = {
   "team.permission.orders.vendorGroupsOverride.name": "تجاوز حالة التاجر",
   "team.permission.orders.vendorGroupsOverride.desc":
     "تغيير حالة أي مجموعة تاجر، بما في ذلك إرجاعها إلى حالة سابقة.",
+  "team.permission.messaging.send.name": "الرد في المحادثات",
+  "team.permission.messaging.send.desc": "إرسال رسائل داخل محادثة يكون العضو طرفًا فيها.",
   "team.invite.manager.grantAccessManage": "منح هذا المدير صلاحية إدارة أعضاء الفريق والصلاحيات",
   "team.invite.custom.description":
     "مجموعة الصلاحيات هذه خاصة بهذه الدعوة فقط — بعد القبول، تُصبح صلاحيات هذا العضو تحديدًا. هي ليست دورًا قابلًا لإعادة الاستخدام؛ دعوة شخص آخر تعني اختيار الصلاحيات من جديد.",
@@ -1558,6 +1564,7 @@ export const ar: Record<TranslationKey, string> = {
   "team.module.finance": "المالية",
   "team.module.analytics": "التحليلات",
   "team.module.notifications": "الإشعارات",
+  "team.module.messaging": "المحادثات",
   "team.module.storefrontIntegration": "الربط",
   "team.permission.action.read": "عرض",
   "team.permission.action.manage": "إدارة",
