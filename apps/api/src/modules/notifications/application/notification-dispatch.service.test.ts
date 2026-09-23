@@ -4,6 +4,7 @@ import type { EventBusPort, EventHandler } from "../../../shared/events/event-bu
 import type { Clock } from "../../../shared/time/clock";
 import type { CustomerMessagingPort } from "../domain/customer-messaging.port";
 import type { DeliveryQueuePort } from "../domain/delivery-queue.port";
+import type { MessagingFactsPort } from "../domain/messaging-facts.port";
 import type { NotificationsAuditPort } from "../domain/notifications-audit.port";
 import type { NotificationsRepositoryPort } from "../domain/notifications-repository.port";
 import type { OrderFactsPort } from "../domain/order-facts.port";
@@ -13,6 +14,8 @@ const COMPANY = "11111111-1111-1111-1111-111111111111";
 const ASSIGNEE = "22222222-2222-2222-2222-222222222222";
 const ORDER = "33333333-3333-3333-3333-333333333333";
 const OWNER = "44444444-4444-4444-4444-444444444444";
+const THREAD = "88888888-8888-8888-8888-888888888888";
+const VENDOR = "99999999-9999-9999-9999-999999999999";
 const ACTOR = "actor1";
 const CUSTOMER_NAME = "Layla Hassan";
 
@@ -56,6 +59,19 @@ function enteredProcessingEvent(): DomainEvent<"order.status_changed"> {
   };
 }
 
+function messageCreatedEvent(
+  senderKind: "vendor" | "staff",
+  actorId: string | null = ACTOR,
+): DomainEvent<"message.created"> {
+  return {
+    type: "message.created",
+    companyId: COMPANY,
+    actorId,
+    occurredAt: 1_700_000_000_000,
+    payload: { threadId: THREAD, warehouseId: "w1", senderKind, preview: "hi there" },
+  };
+}
+
 interface Harness {
   service: NotificationDispatchService;
   handlers: Map<DomainEventType, EventHandler<DomainEventType>>;
@@ -68,6 +84,10 @@ interface Harness {
     findById: ReturnType<typeof vi.fn>;
     listVendorGroupRecipients: ReturnType<typeof vi.fn>;
     listNewOrderRecipients: ReturnType<typeof vi.fn>;
+  };
+  messagingFacts: {
+    findThreadVendor: ReturnType<typeof vi.fn>;
+    listMessagingManageRecipients: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -119,6 +139,10 @@ function makeHarness(assigneeId: string | null = ASSIGNEE): Harness {
     listVendorGroupRecipients: vi.fn().mockResolvedValue([]),
     listNewOrderRecipients: vi.fn().mockResolvedValue([OWNER]),
   };
+  const messagingFacts = {
+    findThreadVendor: vi.fn().mockResolvedValue({ vendorUserId: VENDOR }),
+    listMessagingManageRecipients: vi.fn().mockResolvedValue([OWNER]),
+  };
   const clock: Clock = { now: () => 1_700_000_000_000 };
 
   const service = new NotificationDispatchService(
@@ -128,9 +152,20 @@ function makeHarness(assigneeId: string | null = ASSIGNEE): Harness {
     deliveryQueue as unknown as DeliveryQueuePort,
     customerMessaging as unknown as CustomerMessagingPort,
     orderFacts as unknown as OrderFactsPort,
+    messagingFacts as unknown as MessagingFactsPort,
     clock,
   );
-  return { service, handlers, repo, audit, deliveryQueue, customerMessaging, events, orderFacts };
+  return {
+    service,
+    handlers,
+    repo,
+    audit,
+    deliveryQueue,
+    customerMessaging,
+    events,
+    orderFacts,
+    messagingFacts,
+  };
 }
 
 describe("NotificationDispatchService", () => {
@@ -140,10 +175,11 @@ describe("NotificationDispatchService", () => {
     h.service.onModuleInit();
   });
 
-  it("subscribes to order.created, order.status_changed and payment.collected on init", () => {
+  it("subscribes to order.created, order.status_changed, payment.collected and message.created on init", () => {
     expect(h.handlers.has("order.created")).toBe(true);
     expect(h.handlers.has("order.status_changed")).toBe(true);
     expect(h.handlers.has("payment.collected")).toBe(true);
+    expect(h.handlers.has("message.created")).toBe(true);
   });
 
   it("unsubscribes on destroy", () => {
@@ -410,6 +446,65 @@ describe("NotificationDispatchService", () => {
     it("is a silent no-op when the order cannot be found", async () => {
       h.orderFacts.findById.mockResolvedValueOnce(null);
       await h.handlers.get("payment.collected")?.(paymentCollectedEvent());
+      expect(h.repo.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("message.created", () => {
+    it("notifies every messaging.manage holder when a vendor wrote", async () => {
+      h.messagingFacts.listMessagingManageRecipients.mockResolvedValueOnce([OWNER, "manager1"]);
+      await h.handlers.get("message.created")?.(messageCreatedEvent("vendor"));
+
+      expect(h.messagingFacts.listMessagingManageRecipients).toHaveBeenCalledWith(COMPANY, ACTOR);
+      expect(h.messagingFacts.findThreadVendor).not.toHaveBeenCalled();
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        OWNER,
+        expect.objectContaining({
+          type: "message.received",
+          payload: { threadId: THREAD, preview: "hi there" },
+        }),
+      );
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        "manager1",
+        expect.objectContaining({ type: "message.received" }),
+      );
+      expect(h.repo.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("notifies the thread's vendor when staff wrote", async () => {
+      await h.handlers.get("message.created")?.(messageCreatedEvent("staff"));
+
+      expect(h.messagingFacts.findThreadVendor).toHaveBeenCalledWith(COMPANY, THREAD);
+      expect(h.messagingFacts.listMessagingManageRecipients).not.toHaveBeenCalled();
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        VENDOR,
+        expect.objectContaining({
+          type: "message.received",
+          payload: { threadId: THREAD, preview: "hi there" },
+        }),
+      );
+      expect(h.repo.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("never puts the preview in the stored title/body fallback", async () => {
+      await h.handlers.get("message.created")?.(messageCreatedEvent("staff"));
+      const input = h.repo.create.mock.calls[0]?.[2] as { title: string; body: string };
+      expect(input.title).not.toContain("hi there");
+      expect(input.body).not.toContain("hi there");
+    });
+
+    it("is a silent no-op when the thread cannot be found", async () => {
+      h.messagingFacts.findThreadVendor.mockResolvedValueOnce(null);
+      await h.handlers.get("message.created")?.(messageCreatedEvent("staff"));
+      expect(h.repo.create).not.toHaveBeenCalled();
+    });
+
+    it("never notifies the actor about their own message", async () => {
+      h.messagingFacts.findThreadVendor.mockResolvedValueOnce({ vendorUserId: ACTOR });
+      await h.handlers.get("message.created")?.(messageCreatedEvent("staff", ACTOR));
       expect(h.repo.create).not.toHaveBeenCalled();
     });
   });

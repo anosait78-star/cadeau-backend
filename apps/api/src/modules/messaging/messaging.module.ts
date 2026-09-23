@@ -19,7 +19,8 @@ import { MessagingController } from "./presentation/messaging.controller";
  * directly under its own Prisma client and tenant transaction — the
  * sibling-module idiom `reviews` uses for `orders`, never an import from
  * another module. The three-layer resolver + guards come from the global
- * `AccessCoreModule`.
+ * `AccessCoreModule`; the event bus (`message.created`, EPIC-17 M17.5) from
+ * the global `EventBusModule`.
  */
 @Module({
   controllers: [MessagingController],

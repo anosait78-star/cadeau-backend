@@ -28,6 +28,7 @@ confined to exactly one warehouse (Vendor Accounts, Phase 1). That column, not
 | M17.2     | `6766f45` | Domain/service/repository/controller for text messages                                  |
 | M17.3     | `ced83e4` | `@cadeau/storage`, image upload + re-encode, orphan sweeper                             |
 | M17.4     | `6d282c6` | `@` order mentions: picker + server-side validation                                     |
+| M17.5     | _pending_ | `message.received` notification dispatch                                                |
 
 ### Files
 
@@ -37,12 +38,31 @@ packages/database/prisma/migrations/20260923000000_messaging/
 apps/api/src/modules/messaging/
   domain/        message.entity.ts, participation.ts, image-rules.ts,
                  mention-rules.ts, *.port.ts, messaging.errors.ts
-  application/   messaging.service.ts
+  application/   messaging.service.ts               # publishes `message.created`
   infrastructure/messaging.repository.ts, sharp-image-processor.ts,
                  file-storage.provider.ts, orphan-attachment-sweeper.ts,
                  audit-log.adapter.ts
   presentation/  messaging.controller.ts, dto/messaging.dto.ts
+apps/api/src/modules/notifications/         # M17.5 additions, not a new module
+  domain/        messaging-facts.port.ts
+  infrastructure/messaging-facts.adapter.ts # reads message_threads/company_members
+                                             # directly, own Prisma client — the same
+                                             # cross-module idiom order-facts.adapter.ts
+                                             # uses for `orders`
+  application/notification-dispatch.service.ts  # +onMessageCreated
 ```
+
+M17.5 in one paragraph: `MessagingService.sendMessage` publishes
+`message.created` (`shared/events/event-catalog.ts`) with `threadId`,
+`warehouseId`, `senderKind` and a `preview` — the same capped string already
+stored on `MessageThread.lastMessagePreview`, never the raw body.
+`NotificationDispatchService.onMessageCreated` resolves the audience through
+the new `MessagingFactsPort` (every `messaging.manage` holder when a vendor
+wrote, the thread's vendor when staff wrote) and raises `message.received`.
+The stored `title`/`body` — what `apps/web/public/sw.js` puts on the OS push
+banner, outside any auth check — stay generic with no message content; the
+`preview` only ever travels inside the push payload's `data`, read by the
+same authenticated recipient who could already see it via `GET /threads`.
 
 ### Endpoints (all under `/v1/messaging`)
 
@@ -97,27 +117,7 @@ not a refactor.
 
 ## 4. Remaining milestones
 
-### M17.5 — `message.received` notification (~0.5 day)
-
-The type is **already allowed by the database** (M17.1 widened both
-`notifications.type_check` and `notification_preferences.type_check`). What is
-missing is the dispatch.
-
-- Add `"message.received"` to `NOTIFICATION_TYPES` in
-  `apps/api/src/modules/notifications/domain/notification-types.ts`.
-  The DB constraint already accepts it — no new migration needed.
-- Subscribe in `NotificationDispatchService` (same shape as
-  `order_vendor_group.assigned`):
-  - message from a vendor → every holder of `messaging.manage`
-  - message from staff → the thread's vendor member
-  - the sender is always excluded
-- Payload: `threadId` and a short preview only. **No message body** — it is
-  free text and may contain customer details, and a push notification is
-  rendered outside the app.
-- Emit from `MessagingService.sendMessage`. Follow the existing event-bus
-  idiom (`shared/events`) rather than calling the notifications module
-  directly — `messaging` must not import from `notifications`
-  (the architecture check enforces this).
+M17.5 is done (see §2 for what landed). What is left:
 
 ### M17.6 — Web UI (~2 days)
 

@@ -14,6 +14,7 @@ import {
 import { CLOCK, type Clock } from "../../../shared/time/clock";
 import { CUSTOMER_MESSAGING, type CustomerMessagingPort } from "../domain/customer-messaging.port";
 import { DELIVERY_QUEUE, type DeliveryQueuePort } from "../domain/delivery-queue.port";
+import { MESSAGING_FACTS, type MessagingFactsPort } from "../domain/messaging-facts.port";
 import {
   NOTIFICATIONS_AUDIT,
   type NotificationsAuditPort,
@@ -86,6 +87,7 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
     @Inject(DELIVERY_QUEUE) private readonly deliveryQueue: DeliveryQueuePort,
     @Inject(CUSTOMER_MESSAGING) private readonly customerMessaging: CustomerMessagingPort,
     @Inject(ORDER_FACTS) private readonly orderFacts: OrderFactsPort,
+    @Inject(MESSAGING_FACTS) private readonly messagingFacts: MessagingFactsPort,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
@@ -94,6 +96,7 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
       this.events.subscribe("order.created", (event) => this.onOrderCreated(event)),
       this.events.subscribe("order.status_changed", (event) => this.onOrderStatusChanged(event)),
       this.events.subscribe("payment.collected", (event) => this.onPaymentCollected(event)),
+      this.events.subscribe("message.created", (event) => this.onMessageCreated(event)),
     ];
   }
 
@@ -224,6 +227,52 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
         },
       });
     }
+  }
+
+  /**
+   * A message landed in a vendor conversation (EPIC-17 M17.5). The audience is
+   * the *other* side of that one thread: every `messaging.manage` holder when
+   * a vendor wrote, or the thread's vendor when staff wrote — never both, and
+   * never the sender. The title/body stay generic (no preview, no sender
+   * name): they are what Web Push renders on the OS notification banner,
+   * outside the app and outside any auth check, so the message's own text
+   * never belongs there (see the `message.created` payload doc). The
+   * structured `preview` is safe on the *dispatch* payload only because it is
+   * carried inside the queued push message's data, not rendered on the
+   * banner (`apps/web/public/sw.js`) — the in-app client that reads it is the
+   * same recipient who could already read the thread's preview through
+   * `GET /threads`.
+   */
+  private async onMessageCreated(event: DomainEvent<"message.created">): Promise<void> {
+    const payload = { threadId: event.payload.threadId, preview: event.payload.preview };
+
+    if (event.payload.senderKind === "vendor") {
+      const recipients = await this.messagingFacts.listMessagingManageRecipients(
+        event.companyId,
+        event.actorId,
+      );
+      for (const recipient of recipients) {
+        await this.dispatch(event.companyId, recipient, {
+          type: "message.received",
+          title: "رسالة جديدة",
+          body: "وصلت رسالة جديدة من أحد الموردين.",
+          payload,
+        });
+      }
+      return;
+    }
+
+    const vendor = await this.messagingFacts.findThreadVendor(
+      event.companyId,
+      event.payload.threadId,
+    );
+    if (vendor === null || vendor.vendorUserId === event.actorId) return;
+    await this.dispatch(event.companyId, vendor.vendorUserId, {
+      type: "message.received",
+      title: "رسالة جديدة",
+      body: "وصلتك رسالة جديدة من الفريق.",
+      payload,
+    });
   }
 
   /**

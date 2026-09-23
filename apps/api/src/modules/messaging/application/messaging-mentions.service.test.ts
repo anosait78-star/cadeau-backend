@@ -87,11 +87,15 @@ function makeService(participant: Participant = staff) {
     delete: vi.fn(),
   };
   const images = { toStorableImage: vi.fn() };
+  const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
+  const clock = { now: () => 1_700_000_000_000 };
   const service = new MessagingService(
     repo as unknown as MessagingRepositoryPort,
     audit,
     storage,
     images,
+    events,
+    clock,
   );
   return { service, repo, audit };
 }

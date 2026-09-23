@@ -5,6 +5,7 @@ import { NotificationDispatchService } from "./application/notification-dispatch
 import { NotificationsService } from "./application/notifications.service";
 import { CUSTOMER_MESSAGING } from "./domain/customer-messaging.port";
 import { DELIVERY_QUEUE } from "./domain/delivery-queue.port";
+import { MESSAGING_FACTS } from "./domain/messaging-facts.port";
 import { NOTIFICATIONS_AUDIT } from "./domain/notifications-audit.port";
 import { NOTIFICATIONS_REPOSITORY } from "./domain/notifications-repository.port";
 import { ORDER_FACTS } from "./domain/order-facts.port";
@@ -13,6 +14,7 @@ import { NotificationsAuditLogAdapter } from "./infrastructure/audit-log.adapter
 import { DeliveryQueueRepository } from "./infrastructure/delivery-queue.repository";
 import { DeliveryRetryWorker } from "./infrastructure/delivery-retry-worker";
 import { LoggingCustomerMessagingAdapter } from "./infrastructure/logging-customer-messaging.adapter";
+import { MessagingFactsAdapter } from "./infrastructure/messaging-facts.adapter";
 import { NotificationsRepository } from "./infrastructure/notifications.repository";
 import { OrderFactsAdapter } from "./infrastructure/order-facts.adapter";
 import { notificationsPrismaClientProvider } from "./infrastructure/prisma-client.provider";
@@ -47,6 +49,7 @@ import { NotificationsController } from "./presentation/notifications.controller
     { provide: PUSH_SENDER, useClass: WebPushAdapter },
     { provide: CUSTOMER_MESSAGING, useClass: LoggingCustomerMessagingAdapter },
     { provide: ORDER_FACTS, useClass: OrderFactsAdapter },
+    { provide: MESSAGING_FACTS, useClass: MessagingFactsAdapter },
   ],
   exports: [NotificationsService],
 })

@@ -5,6 +5,8 @@ import type { FileStoragePort } from "@cadeau/storage";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors } from "../../../shared/errors/app-exception";
 import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
+import { EVENT_BUS, type EventBusPort } from "../../../shared/events/event-bus.port";
+import { CLOCK, type Clock } from "../../../shared/time/clock";
 import {
   IMAGE_PROCESSOR,
   ImageProcessingError,
@@ -74,6 +76,8 @@ export class MessagingService {
     @Inject(MESSAGING_AUDIT) private readonly audit: MessagingAuditPort,
     @Inject(FILE_STORAGE) private readonly storage: FileStoragePort,
     @Inject(IMAGE_PROCESSOR) private readonly images: ImageProcessorPort,
+    @Inject(EVENT_BUS) private readonly events: EventBusPort,
+    @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
   /**
@@ -342,11 +346,14 @@ export class MessagingService {
       );
     }
 
+    const senderKind = senderKindOf(participant);
+    const preview = buildPreview(body.length === 0 ? null : body);
+
     const message = await this.repo.createMessage(actor, {
       threadId,
-      senderKind: senderKindOf(participant),
+      senderKind,
       body: body.length === 0 ? null : body,
-      preview: buildPreview(body.length === 0 ? null : body),
+      preview,
       attachmentIds,
       orderRefs,
     });
@@ -366,6 +373,17 @@ export class MessagingService {
         attachmentCount: attachmentIds.length,
         orderIds: orderRefs.map((ref) => ref.orderId),
       },
+    });
+
+    // `preview` is the same capped, already-committed string just written to
+    // the thread row — not the raw body — so this stays inside the
+    // `message.created` payload doc's privacy bound (EPIC-17 M17.5).
+    await this.events.publish({
+      type: "message.created",
+      companyId,
+      actorId: principal.userId,
+      occurredAt: this.clock.now(),
+      payload: { threadId, warehouseId: thread.warehouseId, senderKind, preview },
     });
 
     return this.withUrls(message);

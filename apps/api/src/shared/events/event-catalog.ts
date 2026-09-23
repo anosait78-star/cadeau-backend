@@ -34,6 +34,9 @@
  *     *subscriber* — `order.created`/`order.status_changed`/
  *     `payment.collected` above are consumed by the notification dispatcher,
  *     not just published.
+ *   - **Live now (EPIC-17 messaging):** `message.created`, emitted by
+ *     `MessagingService.sendMessage` and consumed by the notification
+ *     dispatcher to raise `message.received`.
  *
  * **Forward-declared** entries (none currently pending).
  *
@@ -268,6 +271,23 @@ export interface EventPayloads {
     readonly periodKey: string;
   };
 
+  /**
+   * A message was posted in a vendor conversation (EPIC-17). Emitted
+   * alongside the durable audit write, after the `Message` row commits.
+   * `preview` mirrors `MessageThread.lastMessagePreview` — capped at 200
+   * characters, `null` for an image-only message — which is already visible
+   * to both sides of *this exact thread* through `GET /threads`, so carrying
+   * it here discloses nothing a recipient could not already read. The full
+   * message body is never on this payload: it is unbounded free text that may
+   * hold customer details, and a queued Web Push delivery leaves this process
+   * (docs/privacy-model.md §6).
+   */
+  "message.created": {
+    readonly threadId: string;
+    readonly warehouseId: string;
+    readonly senderKind: "vendor" | "staff";
+    readonly preview: string | null;
+  };
   /**
    * An in-app notification was created for one recipient (EPIC-15). Emitted
    * alongside the durable audit write, after the `Notification` row commits.

@@ -18,6 +18,13 @@ export const NOTIFICATION_TYPES = [
    * only that vendor's own ids, never the full order or other vendors' data.
    */
   "order_vendor_group.assigned",
+  /**
+   * A message landed in a vendor conversation (EPIC-17 M17.5). Sent on
+   * `message.created` to the other side of that one thread — every
+   * `messaging.manage` holder when a vendor wrote, or the thread's vendor
+   * when staff wrote. The sender is always excluded.
+   */
+  "message.received",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

@@ -137,6 +137,7 @@ describe("NotificationsRepository — preferences", () => {
       { type: "order.status_changed", inAppEnabled: true, webPushEnabled: true },
       { type: "payment.collected", inAppEnabled: true, webPushEnabled: true },
       { type: "order_vendor_group.assigned", inAppEnabled: true, webPushEnabled: true },
+      { type: "message.received", inAppEnabled: true, webPushEnabled: true },
     ]);
   });
 

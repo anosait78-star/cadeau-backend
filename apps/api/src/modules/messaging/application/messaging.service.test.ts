@@ -118,13 +118,17 @@ function makeService(participant: Participant = staff) {
       height: 600,
     }),
   };
+  const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };
+  const clock = { now: () => 1_700_000_000_000 };
   const service = new MessagingService(
     repo as unknown as MessagingRepositoryPort,
     audit,
     storage,
     images,
+    events,
+    clock,
   );
-  return { service, repo, audit, storage, images };
+  return { service, repo, audit, storage, images, events };
 }
 
 describe("MessagingService — tenant and membership", () => {
@@ -304,6 +308,29 @@ describe("MessagingService — posting", () => {
       service.sendMessage(principal, THREAD_A, { body: "hi", attachmentIds: [], orderIds: [] }),
     ).rejects.toMatchObject({
       status: 409,
+    });
+  });
+
+  it("publishes message.created with the preview, never the raw body", async () => {
+    const { service, events } = makeService(vendorA);
+
+    await service.sendMessage(principal, THREAD_A, {
+      body: "  hello\n\nthere  ",
+      attachmentIds: [],
+      orderIds: [],
+    });
+
+    expect(events.publish).toHaveBeenCalledWith({
+      type: "message.created",
+      companyId: COMPANY,
+      actorId: USER,
+      occurredAt: 1_700_000_000_000,
+      payload: {
+        threadId: THREAD_A,
+        warehouseId: WAREHOUSE_A,
+        senderKind: "vendor",
+        preview: "hello there",
+      },
     });
   });
 
