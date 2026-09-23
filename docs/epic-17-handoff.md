@@ -28,7 +28,7 @@ confined to exactly one warehouse (Vendor Accounts, Phase 1). That column, not
 | M17.2     | `6766f45` | Domain/service/repository/controller for text messages                                  |
 | M17.3     | `ced83e4` | `@cadeau/storage`, image upload + re-encode, orphan sweeper                             |
 | M17.4     | `6d282c6` | `@` order mentions: picker + server-side validation                                     |
-| M17.5     | _pending_ | `message.received` notification dispatch                                                |
+| M17.5     | `4b181e5` | `message.received` notification dispatch                                                |
 
 ### Files
 
