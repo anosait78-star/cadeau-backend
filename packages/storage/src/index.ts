@@ -14,5 +14,7 @@ export type { FetchLike, S3StorageConfig } from "./s3-file-storage";
 export { InMemoryFileStorage } from "./in-memory-file-storage";
 export type { StoredObject } from "./in-memory-file-storage";
 
+export { DisabledFileStorage } from "./disabled-file-storage";
+
 export { MAX_PRESIGN_SECONDS, presignUrl, signRequest, uriEncode } from "./sigv4";
 export type { PresignInput, SignRequestInput, SignedRequest, SigV4Credentials } from "./sigv4";

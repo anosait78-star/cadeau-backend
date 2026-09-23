@@ -1,16 +1,24 @@
 import { Logger, type Provider } from "@nestjs/common";
-import { InMemoryFileStorage, S3FileStorage, type FileStoragePort } from "@cadeau/storage";
+import {
+  DisabledFileStorage,
+  InMemoryFileStorage,
+  S3FileStorage,
+  type FileStoragePort,
+} from "@cadeau/storage";
 import { APP_CONFIG, type InjectedAppConfig } from "../../../shared/config/config.tokens";
 import { FILE_STORAGE } from "../domain/file-storage.token";
 
 /**
  * Chooses the object store from configuration (EPIC-17 · M17.3).
  *
- * A configured bucket gives the S3 adapter. With none configured the in-memory
- * one keeps the upload path working for a developer with no credentials — but
- * only outside production, where "uploads vanish when the process restarts"
- * is a data-loss bug rather than a convenience. Booting a production node with
- * no bucket fails here, loudly, instead of at the first upload.
+ * A configured bucket gives the S3 adapter. With none configured, production
+ * and staging get {@link DisabledFileStorage} rather than the in-memory one:
+ * "uploads vanish when the process restarts" is a data-loss bug, not a
+ * convenience, outside development. This used to throw here instead — which
+ * took the *entire* API down at boot for a missing setting on one optional
+ * feature. That blast radius was the actual bug: messaging.controller.ts's
+ * upload route now fails on its own (`FileStorageError` → 503, mapped in
+ * `MessagingService.uploadAttachment`), and every other route is unaffected.
  */
 export const fileStorageProvider: Provider = {
   provide: FILE_STORAGE,
@@ -30,11 +38,12 @@ export const fileStorageProvider: Provider = {
     }
 
     if (config.isProduction || config.isStaging) {
-      throw new Error(
+      new Logger("FileStorage").error(
         "Object storage is not configured: set S3_ENDPOINT, S3_BUCKET, S3_REGION, " +
-          "S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY. In-memory storage loses every " +
-          "uploaded image on restart and is never used outside development.",
+          "S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY. Message attachments are disabled " +
+          "until then — text-only messaging still works.",
       );
+      return new DisabledFileStorage();
     }
 
     new Logger("FileStorage").warn(

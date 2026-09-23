@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { clampLimit, InvalidCursorError, type KeysetPage } from "@cadeau/database";
-import type { FileStoragePort } from "@cadeau/storage";
+import { FileStorageError, type FileStoragePort } from "@cadeau/storage";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors } from "../../../shared/errors/app-exception";
 import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
@@ -212,7 +212,18 @@ export class MessagingService {
 
     const id = randomUUID();
     const storageKey = attachmentStorageKey(companyId, id);
-    await this.storage.put(storageKey, processed.body, processed.contentType);
+    try {
+      await this.storage.put(storageKey, processed.body, processed.contentType);
+    } catch (error) {
+      // `DisabledFileStorage` (object storage not yet configured for this
+      // deploy) or a real S3 failure both land here — either way the caller
+      // gets an honest "try again later" instead of a raw 500, and nothing
+      // was written, so there is no row to clean up.
+      if (error instanceof FileStorageError) {
+        throw AppErrors.serviceUnavailable(error.message);
+      }
+      throw error;
+    }
 
     const record = await this.repo.createAttachment(
       { companyId, actorId: principal.userId },

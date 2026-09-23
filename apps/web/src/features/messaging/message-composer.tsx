@@ -127,9 +127,15 @@ export function MessageComposer({
             current.map((a) => (a.localId === localId ? { ...a, status: "ready", attachment } : a)),
           );
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           setAttachments((current) =>
             current.map((a) => (a.localId === localId ? { ...a, status: "error" } : a)),
+          );
+          toast.show(
+            error instanceof ApiError && error.code === "SERVICE_UNAVAILABLE"
+              ? t("messaging.composer.attachmentsUnavailable")
+              : t("messaging.composer.attachFailed"),
+            { variant: "error" },
           );
         });
     }
