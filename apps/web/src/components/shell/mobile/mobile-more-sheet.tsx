@@ -32,6 +32,7 @@ const ROW_APPEARANCE: Readonly<
   "/customers": { descriptionKey: "nav.desc.customers", tint: "bg-info/10 text-info" },
   "/products": { descriptionKey: "nav.desc.products", tint: "bg-violet/10 text-violet" },
   "/inventory": { descriptionKey: "nav.desc.inventory", tint: "bg-primary/10 text-primary" },
+  "/messages": { descriptionKey: "nav.desc.messages", tint: "bg-info/10 text-info" },
   "/finance": { descriptionKey: "nav.desc.finance", tint: "bg-info/10 text-info" },
   "/analytics": { descriptionKey: "nav.desc.analytics", tint: "bg-success/10 text-success" },
   "/master-data": { descriptionKey: "nav.desc.masterData", tint: "bg-violet/10 text-violet" },

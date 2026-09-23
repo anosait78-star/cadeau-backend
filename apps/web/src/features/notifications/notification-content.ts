@@ -22,6 +22,10 @@ interface NotificationPayload {
   readonly totalMinor: number | undefined;
   readonly amountMinor: number | undefined;
   readonly toStatus: string | undefined;
+  /** `message.received` only (EPIC-17 M17.5). */
+  readonly threadId: string | undefined;
+  /** The capped preview `message.created`'s payload carries — never the raw message body. */
+  readonly preview: string | undefined;
 }
 
 const NO_PAYLOAD: NotificationPayload = {
@@ -30,6 +34,8 @@ const NO_PAYLOAD: NotificationPayload = {
   totalMinor: undefined,
   amountMinor: undefined,
   toStatus: undefined,
+  threadId: undefined,
+  preview: undefined,
 };
 
 function readPayload(raw: unknown): NotificationPayload {
@@ -43,6 +49,8 @@ function readPayload(raw: unknown): NotificationPayload {
     totalMinor: pick<number>("totalMinor", "number"),
     amountMinor: pick<number>("amountMinor", "number"),
     toStatus: pick<string>("toStatus", "string"),
+    threadId: pick<string>("threadId", "string"),
+    preview: pick<string>("preview", "string"),
   };
 }
 
@@ -117,6 +125,19 @@ export function notificationText(
       return {
         title: t("notifications.content.vendorGroupAssigned.title"),
         body: t("notifications.content.vendorGroupAssigned.body", { orderNumber }),
+      };
+    }
+    case "message.received": {
+      // `preview` is the same capped string already visible on the thread
+      // list through `GET /threads` — never the raw message body (EPIC-17
+      // M17.5's `message.created` payload doc).
+      const { preview } = payload;
+      return {
+        title: t("notifications.content.messageReceived.title"),
+        body:
+          preview === undefined || preview.length === 0
+            ? t("notifications.content.messageReceived.bodyNoPreview")
+            : t("notifications.content.messageReceived.body", { preview }),
       };
     }
     default:

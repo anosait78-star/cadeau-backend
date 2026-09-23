@@ -29,6 +29,7 @@ confined to exactly one warehouse (Vendor Accounts, Phase 1). That column, not
 | M17.3     | `ced83e4` | `@cadeau/storage`, image upload + re-encode, orphan sweeper                             |
 | M17.4     | `6d282c6` | `@` order mentions: picker + server-side validation                                     |
 | M17.5     | `4b181e5` | `message.received` notification dispatch                                                |
+| M17.6     | _pending_ | Web UI: staff thread list/panel, vendor tab, composer, `@` picker, lightbox             |
 
 ### Files
 
@@ -63,6 +64,63 @@ The stored `title`/`body` — what `apps/web/public/sw.js` puts on the OS push
 banner, outside any auth check — stay generic with no message content; the
 `preview` only ever travels inside the push payload's `data`, read by the
 same authenticated recipient who could already see it via `GET /threads`.
+
+### Web files (M17.6)
+
+```
+apps/web/src/features/messaging/
+  messaging-api.ts             # typed client for every /v1/messaging route
+  use-message-thread.ts        # one open thread: ordering, loadOlder, send, 15s poll
+  use-thread-list.ts           # staff's GET /threads, keyset "load more"
+  use-mentionable-orders.ts    # 250ms-debounced @ picker search
+  thread-view.tsx              # message list + composer, shared by both sides
+  thread-view-frame.tsx        # bounds ThreadView's scroll region on both shells
+  thread-list-row.tsx          # staff list row (avatar, preview, unread dot, time)
+  message-bubble.tsx           # one message: text, image grid, order-ref cards
+  message-composer.tsx         # textarea, @ popover, attach, send
+  image-lightbox.tsx           # full-screen image viewer
+  order-ref-status-tones.ts    # status → BadgeTone for the mention card
+apps/web/src/pages/messaging/messaging-page.tsx      # staff: list + SideSheet panel
+apps/web/src/pages/vendor/vendor-messages-page.tsx   # vendor: GET /threads/me, full page
+```
+
+Also touched: `router.tsx`/`config/navigation.ts` (routes + nav items),
+`lib/api-client.ts` (+`apiFetchMultipart`, the only upload in this app),
+`i18n/dictionaries.ts` (+`messaging.*`/`vendor.messages.*`/`nav.messages`
+keys, both languages), `features/notifications/notifications-api.ts` +
+`notification-content.ts` (`"message.received"` added to the frontend's own
+copy of the closed type union — the backend already emitted it since M17.5,
+the web client did not know about it yet), and `pages/orders/orders-page.tsx`
+(new `?orderId=` deep-link handling, so an `@` mention's "clickable through
+to the order" and `sw.js`'s existing `notificationUrl()` both actually land
+on the order instead of just the bare list).
+
+**Frontend decisions worth knowing before touching this again:**
+
+- **`ThreadViewFrame` (`thread-view-frame.tsx`) is `position: fixed` on
+  mobile, `flex-1`/`static` on desktop — not a stylistic choice.** The Mobile
+  shell is "a fixed header + _scrolling document_ + fixed bottom nav"
+  (`globals.css`'s own comment on `.mobile-main`): there is no bounded-height
+  region to hand a chat's internal scroll to, unlike the Desktop shell's
+  `<main>` (a real `overflow-auto` flex box). Fixed, pinned between the same
+  `--mobile-header-total`/`--mobile-nav-total` custom properties the header/nav
+  bars use, is what gives the message list its own scroll region on mobile
+  without fighting the shell.
+- **A vendor's order-mention card is not a link.** `OrderReference` carries
+  `orderId`, but the vendor's own order route is keyed by `groupId`
+  (`/vendor/orders/:groupId`), and nothing in this payload maps one to the
+  other. Staff mentions link to `/orders?orderId=…` (the new deep link);
+  a vendor's chip renders unlinked rather than guessing.
+- **Polling is one flat 15s loop, not two.** The handoff also asks for a
+  refetch "when a `message.received` notification arrives" — wiring that in
+  would mean a new cross-feature event bus for a single consumer (the
+  notification bell's own poll runs independently, with nothing to subscribe
+  to client-side). A 15s ceiling already bounds the same staleness a
+  notification-triggered refetch would fix, so `use-message-thread.ts` stays
+  one loop, documented at the call site.
+- **The composer never optimistically renders a sent message.** It appends
+  whatever `POST /threads/:id/messages` actually returns, after it returns —
+  simpler, and matches how order creation works elsewhere in this app.
 
 ### Endpoints (all under `/v1/messaging`)
 
@@ -117,28 +175,7 @@ not a refactor.
 
 ## 4. Remaining milestones
 
-M17.5 is done (see §2 for what landed). What is left:
-
-### M17.6 — Web UI (~2 days)
-
-New feature folder `apps/web/src/features/messaging`, plus a tab inside
-`apps/web/src/features/vendor` for the vendor side.
-
-- **Staff:** thread list (vendor name, last message, unread badge) → thread view.
-- **Vendor:** one tab that opens straight onto `GET /threads/me`.
-- **Message bubble:** text, image grid with a lightbox, and an order card per
-  `orderRefs` entry (number + status, clickable through to the order).
-- **`@` picker:** typing `@` opens a popover, 250 ms debounce against
-  `mentionable-orders`, selection inserts a chip. **Chips are stored separately
-  from the text** and sent as `orderIds` — never parsed back out of the body, or
-  a user could forge a mention by typing one.
-- **Refresh:** poll every 15 s while the view is open, pause on
-  `visibilitychange`, and refetch when a `message.received` notification
-  arrives. No SSE — there is no realtime infrastructure in this codebase and
-  adding it is its own epic.
-- RTL and mobile-first (ADR-002); reuse the existing UI components.
-- Remember to add Arabic + English strings to `apps/web/src/i18n/dictionaries.ts`
-  (both dictionaries — there is a parity test).
+M17.5 and M17.6 are done (see §2 for what landed in each). What is left:
 
 ### M17.7 — Quality gate (~1 day)
 
@@ -166,6 +203,25 @@ Postgres were unavailable in the session that wrote M17.1–M17.4, so:
 - `S3FileStorage` is verified against AWS's published signature vectors, but has
   never talked to a live bucket.
 
+**The M17.6 web UI has never rendered behind a real login.** The database was
+still unmigrated in the session that wrote it, so there was no way to
+authenticate and click through `MessagingPage`/`VendorMessagesPage` in a
+browser. What _was_ checked: `tsc --noEmit` and `eslint` clean on
+`apps/web`, the full existing web test suite still green (see below), the
+dev server boots with an empty console (`preview_start` → the login screen
+renders, RTL, no errors) confirming the new routes/imports don't break the
+bundle, and two new unit-test files
+(`features/messaging/use-message-thread.test.ts`,
+plus new cases in `features/notifications/notification-content.test.ts`)
+covering the trickiest pure logic (newest-first→oldest-first reordering,
+`loadOlder` prepending, the `message.received` payload→text rendering). No
+component test exists yet for `ThreadView`/`MessageComposer`/either page —
+that, and an actual click-through once the database is up, are the
+highest-value things to do before trusting this UI in front of a real user.
+The mobile `ThreadViewFrame` fixed-position layout in particular (see the
+Web files section above) was reasoned through from `globals.css`, never
+visually confirmed on a phone-width viewport.
+
 **Pre-existing red gates** (confirmed failing on a clean tree, unrelated to this
 work — a background task was filed for them):
 
@@ -174,6 +230,15 @@ work — a background task was filed for them):
   whole API type-check fail, so filter it out when checking your own work.
 - `apps/api/src/modules/shipping/infrastructure/shipping.repository.test.ts`
   — 10 of 29 tests fail.
+- `apps/web/src/pages/finance/finance-page.test.tsx` — 2 of its tests fail
+  ("lists purchase orders, filters by status, and creates one",
+  "records an expense from the dialog"). Confirmed pre-existing by stashing
+  the M17.6 changes and re-running against the clean tree — identical failure,
+  nothing here touches finance.
+- `apps/web/src/app.test.tsx` — "toggles language (direction) and theme via
+  the Mobile More sheet" fails the same way on the clean tree. Also confirmed
+  by the same stash-and-rerun; adding a `/messages` row to the More sheet did
+  not cause it.
 
 **Shell quirks in this environment** (they cost real time):
 
@@ -200,5 +265,6 @@ git checkout feat/epic-17-messaging
 ```
 
 Then start the database and apply the migration — verifying M17.1–M17.4 against
-a real Postgres is worth more than starting M17.5 on top of unverified
-foundations.
+a real Postgres, and clicking through the M17.6 web UI as both a staff member
+and a vendor for the first time, is worth more than starting M17.7 on top of
+unverified foundations.

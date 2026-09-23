@@ -9,6 +9,7 @@ import { DashboardPage } from "@/pages/dashboard/dashboard-page";
 import { FinancePage } from "@/pages/finance/finance-page";
 import { InventoryPage } from "@/pages/inventory/inventory-page";
 import { MasterDataPage } from "@/pages/master-data/master-data-page";
+import { MessagingPage } from "@/pages/messaging/messaging-page";
 import { OrdersPage } from "@/pages/orders/orders-page";
 import { ProductsPage } from "@/pages/products/products-page";
 import { LoginPage } from "@/pages/auth/login-page";
@@ -18,6 +19,7 @@ import { CreateCompanyPage } from "@/pages/onboarding/create-company-page";
 import { JoinCompanyPage } from "@/pages/onboarding/join-company-page";
 import { OnboardingStartPage } from "@/pages/onboarding/onboarding-start-page";
 import { VendorDashboardPage } from "@/pages/vendor/vendor-dashboard-page";
+import { VendorMessagesPage } from "@/pages/vendor/vendor-messages-page";
 import { VendorOrderDetailPage } from "@/pages/vendor/vendor-order-detail-page";
 import { VendorOrdersPage } from "@/pages/vendor/vendor-orders-page";
 import { VendorProductsPage } from "@/pages/vendor/vendor-products-page";
@@ -47,7 +49,9 @@ export const router = createBrowserRouter([
           { path: "vendor/orders", element: <VendorOrdersPage /> },
           { path: "vendor/orders/:groupId", element: <VendorOrderDetailPage /> },
           { path: "vendor/products", element: <VendorProductsPage /> },
+          { path: "vendor/messages", element: <VendorMessagesPage /> },
           { path: "orders", element: <OrdersPage /> },
+          { path: "messages", element: <MessagingPage /> },
           { path: "customers", element: <CustomersPage /> },
           { path: "products", element: <ProductsPage /> },
           { path: "inventory", element: <InventoryPage /> },

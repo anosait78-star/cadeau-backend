@@ -32,6 +32,7 @@ import {
   bulkAssign,
   bulkStatus,
   createOrder,
+  getOrder,
   listOrders,
   orderStatusCounts,
   ORDER_STATUSES,
@@ -146,6 +147,25 @@ function OrdersScreen(): ReactNode {
   }, [searchParams, setSearchParams, capabilities]);
   const [labelsById, setLabelsById] = useState<Map<string, OrderLabel>>(new Map());
   const [selectedOrder, setSelectedOrder] = useState<OrderListItem | null>(null);
+
+  // A deep link into one order (e.g. an `@` mention in a vendor conversation,
+  // EPIC-17, or a Web Push tap — `apps/web/public/sw.js`'s `notificationUrl`).
+  // Fetched directly rather than found in the loaded list/board page, which may
+  // not include this order at all (a different filter, a later page). The
+  // parameter is consumed on arrival so a reload does not reopen it.
+  useEffect(() => {
+    const orderId = searchParams.get("orderId");
+    if (orderId === null) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("orderId");
+    setSearchParams(next, { replace: true });
+    void getOrder(orderId)
+      .then((detail) => setSelectedOrder(toListItem(detail)))
+      .catch(() => {
+        // Deleted, or not in this company — nothing to open.
+      });
+  }, [searchParams, setSearchParams]);
+
   // Shipments are always created one order at a time (no bulk shipping) — set
   // when exactly one row is selected and "Create shipment" is clicked.
   const [shippingOrder, setShippingOrder] = useState<OrderListItem | null>(null);

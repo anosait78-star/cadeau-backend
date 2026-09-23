@@ -157,6 +157,43 @@ export async function apiFetchBlob(
   return response.blob();
 }
 
+/**
+ * Multipart upload against the BFF, with the same bearer-token +
+ * refresh-and-retry + error-envelope handling as {@link apiFetch}. `Content-Type`
+ * is deliberately never set — the browser derives it (with the boundary) from
+ * the `FormData` itself, the same way `multer`'s `FileInterceptor` on the API
+ * side expects it. Used for `POST /v1/messaging/attachments` (EPIC-17 M17.6),
+ * the only upload endpoint in this app.
+ */
+export async function apiFetchMultipart<T>(path: string, formData: FormData): Promise<T> {
+  const send = async (accessToken: string | null): Promise<Response> => {
+    const headers: Record<string, string> = {};
+    if (accessToken !== null) headers["Authorization"] = `Bearer ${accessToken}`;
+    return fetch(`${BASE_URL}${path}`, { method: "POST", headers, body: formData });
+  };
+
+  const initialToken = readTokens()?.accessToken ?? null;
+  let response = await send(initialToken);
+
+  if (response.status === 401) {
+    const decoded = await peekError(response);
+    if (decoded !== null && isTwoFactorChallenge(decoded)) {
+      throw toApiError(decoded, response.status);
+    }
+    const rotated = await refreshAccessToken();
+    if (rotated !== null) {
+      response = await send(rotated);
+    } else if (decoded !== null) {
+      throw toApiError(decoded, response.status);
+    }
+  }
+
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as T;
+}
+
 /** Rotate the access token using the stored refresh token; `null` on failure. */
 async function refreshAccessToken(): Promise<string | null> {
   const current = readTokens();

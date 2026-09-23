@@ -73,6 +73,7 @@ describe("useNavItems", () => {
         "/vendor",
         "/vendor/orders",
         "/vendor/products",
+        "/vendor/messages",
       ]),
     );
   });

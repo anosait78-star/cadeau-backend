@@ -137,6 +137,33 @@ describe("notificationText", () => {
     expect(text).toEqual({ title: "stored title", body: "stored body" });
   });
 
+  it("renders a message notification's preview, in Arabic and English", () => {
+    const ar = notificationText(
+      item("message.received", { threadId: "t1", preview: "هل الطلب جاهز؟" }),
+      translator("ar"),
+      "ar",
+    );
+    expect(ar.title).toBe("رسالة جديدة");
+    expect(ar.body).toBe("هل الطلب جاهز؟");
+
+    const en = notificationText(
+      item("message.received", { threadId: "t1", preview: "Is it ready?" }),
+      translator("en"),
+      "en",
+    );
+    expect(en.title).toBe("New message");
+    expect(en.body).toBe("Is it ready?");
+  });
+
+  it("falls back to a generic body for an image-only message (no preview)", () => {
+    const text = notificationText(
+      item("message.received", { threadId: "t1", preview: "" }),
+      translator("en"),
+      "en",
+    );
+    expect(text.body).toBe("You have a new message.");
+  });
+
   it("falls back rather than throwing on a null or malformed payload", () => {
     for (const payload of [null, undefined, "nonsense", 7]) {
       expect(notificationText(item("order.created", payload), translator("en"), "en")).toEqual({

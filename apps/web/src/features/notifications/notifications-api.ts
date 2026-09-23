@@ -7,7 +7,9 @@ export type NotificationType =
   | "order.status_changed"
   | "payment.collected"
   /** Vendor Accounts, Phase 5 — sent to a vendor when their group is assigned. */
-  | "order_vendor_group.assigned";
+  | "order_vendor_group.assigned"
+  /** EPIC-17 M17.5 — a message landed in a vendor conversation. */
+  | "message.received";
 
 export interface NotificationItem {
   readonly id: string;

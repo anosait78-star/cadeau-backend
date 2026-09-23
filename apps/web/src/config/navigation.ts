@@ -3,6 +3,7 @@ import {
   Database,
   Home,
   LayoutDashboard,
+  MessageCircle,
   Package,
   Settings,
   ShieldAlert,
@@ -44,6 +45,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/customers", labelKey: "nav.customers", icon: Users, feature: "customers" },
   { to: "/products", labelKey: "nav.products", icon: Package, feature: "products" },
   { to: "/inventory", labelKey: "nav.inventory", icon: Warehouse, feature: "inventory" },
+  {
+    to: "/messages",
+    labelKey: "nav.messages",
+    icon: MessageCircle,
+    feature: "messaging",
+    permission: "messaging.read",
+  },
   { to: "/finance", labelKey: "nav.finance", icon: Wallet, feature: "finance" },
   {
     to: "/analytics",
@@ -76,4 +84,5 @@ export const VENDOR_NAV_ITEMS: readonly NavItem[] = [
   { to: "/vendor", labelKey: "vendor.nav.home", icon: Home, end: true },
   { to: "/vendor/orders", labelKey: "vendor.nav.orders", icon: ShoppingBag },
   { to: "/vendor/products", labelKey: "vendor.nav.products", icon: Package },
+  { to: "/vendor/messages", labelKey: "vendor.nav.messages", icon: MessageCircle },
 ];
