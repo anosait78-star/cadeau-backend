@@ -30,6 +30,7 @@ confined to exactly one warehouse (Vendor Accounts, Phase 1). That column, not
 | M17.4     | `6d282c6` | `@` order mentions: picker + server-side validation                                     |
 | M17.5     | `4b181e5` | `message.received` notification dispatch                                                |
 | M17.6     | `8a7f04c` | Web UI: staff thread list/panel, vendor tab, composer, `@` picker, lightbox             |
+| fix       | `bc44f7e` | Boot-safe storage fallback — see §2b, this is what is actually live in production       |
 
 ### Files
 
@@ -138,6 +139,80 @@ on the order instead of just the bare list).
 
 ---
 
+## 2b. Production status (live as of 2026-09-23)
+
+M17.1–M17.6 plus the `bc44f7e` fix are **deployed and verified against a real
+login** on `crmapi.nosait.com` / `crm.nosait.com` — Ahmed clicked through
+`/messages` himself (thread list, empty state, "new conversation" picker all
+rendered correctly in Arabic). This section is what a later session needs to
+know about that live state; §5 below still lists what is _not_ yet verified.
+
+**Image attachments are deliberately OFF in production right now.** No
+object-storage credentials exist yet (S3-compatible — Cloudflare R2,
+Backblaze B2, DigitalOcean Spaces — or a bespoke Cloudinary adapter, still
+undecided). `fileStorageProvider` serves `DisabledFileStorage` in this state:
+text-only messaging works fully; `POST /messaging/attachments` returns a
+clean `503 SERVICE_UNAVAILABLE` and the composer shows a toast instead of a
+silent failure (see the `bc44f7e` commit message and
+`file-storage.provider.ts`'s doc comment). **To turn images on**: set
+`S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`,
+`S3_SECRET_ACCESS_KEY` in `~/cadeau-backend/.env.production` on the server and
+`pm2 restart cadeau-api --update-env` — no code or migration change needed.
+
+**Two deploy steps this repo's own runbook did not mention, both now real
+gaps in `docs/runbooks/deploy.md`** (worth fixing there separately):
+
+1. **`pnpm --filter @cadeau/database db:seed` must run after every
+   `db:migrate:deploy`.** The migration only creates tables/RLS; the actual
+   `messaging` feature row, its three permission rows, and the template
+   grants (owner/manager/store_manager/vendor) live in
+   `packages/database/src/seed/access/catalog.ts` and only reach the database
+   via the seed. Skipping it means the tables exist but the feature is
+   invisible to every company — that is exactly what happened here, and cost
+   most of the debugging time. The seed is idempotent and safe to (re-)run in
+   any environment (its own doc comment says so); it found 21 pending changes
+   the first time it ran against this production database, meaning **several
+   earlier epics' catalog entries were also never seeded** — worth an
+   explicit audit later, not just messaging's.
+2. **The API's in-process capability cache does not know about a change made
+   directly in the database.** `admin.controller.ts`'s own doc comment notes
+   the cache is invalidated "on change" — but only for changes made through
+   the admin service. A seed run (or any other direct DB write) needs
+   `pm2 restart cadeau-api` afterward, or affected users see stale
+   capabilities until the cache's own TTL/eviction catches up.
+
+**Server-side state changed by this deploy, beyond the application code:**
+
+- `~/cadeau-backend/pnpm-workspace.yaml`'s `onlyBuiltDependencies` gained
+  `sharp` (needed once, to let its install script fetch the right platform
+  binary under pnpm's build-script allowlist). This file is server-local,
+  untracked-by-intent — expect it to keep drifting from git across deploys.
+- The `crmuser` database role was granted `CREATE` on the `app` schema — the
+  messaging migration adds one function there
+  (`app.current_member_warehouse_id()`) and the role only had `USAGE`
+  before. One-time; nothing to redo.
+- A full `pg_dump` of the `orderflow` database was taken before the migration
+  ran, as the `postgres` superuser (the app's own role cannot dump past its
+  own RLS — `FORCE ROW LEVEL SECURITY` blocks even the table owner without
+  `BYPASSRLS`): `~/backups/orderflow-pre-messaging-20260923-100729.dump`
+  (`pg_restore`-format, 70 tables, ~2MB). Kept for now; not on any retention
+  schedule.
+- Frontend mirror (`anosait78-star/cadeau-front`) is at commit `02333ef`,
+  mirroring `bc44f7e`. `/var/www/crm` was backed up to
+  `~/backups/crm-frontend-20260923-105438` before the new bundle
+  (`index-CFZH5NHD.js`) was published.
+
+**Rollback points**, if a later change needs to back out cleanly: backend
+`d172637` (last commit before any EPIC-17 code reached the server — the exact
+`git reset --hard` target used mid-session when the first deploy attempt
+crash-looped), frontend `841c42a` (`cadeau-front`'s prior `main`). The
+database migration is additive-only (Expand, no Contract), so an older app
+version keeps working against the newer schema per `docs/runbooks/rollback.md`
+§2's compatibility rule — no database rollback is needed alongside an
+application rollback here.
+
+---
+
 ## 3. Decisions later milestones must preserve
 
 These are load-bearing. Changing any of them is a security or privacy change,
@@ -189,38 +264,30 @@ M17.5 and M17.6 are done (see §2 for what landed in each). What is left:
 
 ## 5. Known gaps and environment notes
 
-**Nothing here has run against a real database or a real bucket.** Docker and
-Postgres were unavailable in the session that wrote M17.1–M17.4, so:
+**Superseded by §2b:** the migration is applied, the RLS policies and the
+web UI have both been exercised against the real production database and a
+real login. What is left genuinely unverified:
 
-- The messaging migration has **never been applied**. Run
-  `pnpm --filter @cadeau/database db:migrate:deploy` and verify before trusting
-  any of it.
-- The RLS policies are unverified. The highest-value test to write first:
-  _vendor A cannot read vendor B's thread, and cannot mention an order that is
-  not theirs_ — at the database level, not just through the service.
-- The repository queries (especially the `vendorGroups: { some: … }` filter and
-  the nulls-last keyset cursor) are type-checked and mocked, not executed.
-- `S3FileStorage` is verified against AWS's published signature vectors, but has
-  never talked to a live bucket.
-
-**The M17.6 web UI has never rendered behind a real login.** The database was
-still unmigrated in the session that wrote it, so there was no way to
-authenticate and click through `MessagingPage`/`VendorMessagesPage` in a
-browser. What _was_ checked: `tsc --noEmit` and `eslint` clean on
-`apps/web`, the full existing web test suite still green (see below), the
-dev server boots with an empty console (`preview_start` → the login screen
-renders, RTL, no errors) confirming the new routes/imports don't break the
-bundle, and two new unit-test files
-(`features/messaging/use-message-thread.test.ts`,
-plus new cases in `features/notifications/notification-content.test.ts`)
-covering the trickiest pure logic (newest-first→oldest-first reordering,
-`loadOlder` prepending, the `message.received` payload→text rendering). No
-component test exists yet for `ThreadView`/`MessageComposer`/either page —
-that, and an actual click-through once the database is up, are the
-highest-value things to do before trusting this UI in front of a real user.
-The mobile `ThreadViewFrame` fixed-position layout in particular (see the
-Web files section above) was reasoned through from `globals.css`, never
-visually confirmed on a phone-width viewport.
+- **The RLS isolation claim itself** ("vendor A cannot read vendor B's
+  thread, cannot mention an order that is not theirs") has not been tested
+  with two actual competing vendor accounts — only with a single owner
+  account (Ahmed/nosait) that sees everything by design. This is still the
+  highest-value test to write, now against the live schema rather than a
+  hypothetical one.
+- The repository queries (especially the `vendorGroups: { some: … }` filter
+  and the nulls-last keyset cursor) have run for real now (the thread list
+  loaded), but only ever against zero/one rows — never paginated, never with
+  concurrent writes.
+- `S3FileStorage` still has never talked to a live bucket — moot until object
+  storage credentials exist (§2b).
+- No component test exists yet for `ThreadView`/`MessageComposer`/either
+  page — `tsc`/`eslint`/the unit tests for the pure logic
+  (`use-message-thread.test.ts`, `notification-content.test.ts`) are what
+  back this UI, plus the one manual click-through in §2b.
+- The mobile `ThreadViewFrame` fixed-position layout (bounded by
+  `--mobile-header-total`/`--mobile-nav-total`) was reasoned through from
+  `globals.css` and has not been visually confirmed on an actual phone-width
+  viewport — the production click-through so far was desktop-width.
 
 **Pre-existing red gates** (confirmed failing on a clean tree, unrelated to this
 work — a background task was filed for them):
@@ -264,7 +331,14 @@ work — a background task was filed for them):
 git checkout feat/epic-17-messaging
 ```
 
-Then start the database and apply the migration — verifying M17.1–M17.4 against
-a real Postgres, and clicking through the M17.6 web UI as both a staff member
-and a vendor for the first time, is worth more than starting M17.7 on top of
-unverified foundations.
+M17.1–M17.6 are live in production (§2b) — no local database setup is needed
+just to keep going. The two open threads are independent and either is a
+reasonable place to start:
+
+- **Object storage**, so image attachments turn on (§2b: pick an
+  S3-compatible provider — zero code change — or write a Cloudinary adapter
+  against `FileStoragePort`, §2b's "Cloudinary" thread from the deploy
+  session).
+- **M17.7's quality gate** (§4) — now that the live system backs every claim
+  in this document, the docs/tests it asks for describe something real
+  instead of something planned.
