@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { InvalidCursorError } from "@cadeau/database";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
-import type { MessageThreadView, MessageView, Participant } from "../domain/message.entity";
+import type {
+  AttachmentRecord,
+  MessageRecord,
+  MessageThreadView,
+  Participant,
+} from "../domain/message.entity";
 import type {
   MessagingRepositoryPort,
   VendorWarehouseView,
@@ -15,6 +20,7 @@ const WAREHOUSE_A = "33333333-3333-3333-3333-333333333333";
 const WAREHOUSE_B = "44444444-4444-4444-4444-444444444444";
 const THREAD_A = "55555555-5555-5555-5555-555555555555";
 const THREAD_B = "66666666-6666-6666-6666-666666666666";
+const ATTACHMENT = "77777777-7777-7777-7777-777777777777";
 
 const principal: RequestPrincipal = { userId: USER, sessionId: "s1", companyId: COMPANY };
 
@@ -36,7 +42,7 @@ function threadView(extra: Partial<MessageThreadView> = {}): MessageThreadView {
   };
 }
 
-function messageView(extra: Partial<MessageView> = {}): MessageView {
+function messageView(extra: Partial<MessageRecord> = {}): MessageRecord {
   return {
     id: "msg-1",
     threadId: THREAD_A,
@@ -44,6 +50,7 @@ function messageView(extra: Partial<MessageView> = {}): MessageView {
     senderName: "Sara",
     senderKind: "staff",
     body: "hello",
+    attachments: [],
     deletedAt: null,
     createdAt: "2026-01-02T03:04:05.000Z",
     ...extra,
@@ -56,6 +63,18 @@ function vendorWarehouse(extra: Partial<VendorWarehouseView> = {}): VendorWareho
     warehouseName: "Cairo vendor",
     vendorMemberId: "m-a",
     threadId: null,
+    ...extra,
+  };
+}
+
+function attachmentRecord(extra: Partial<AttachmentRecord> = {}): AttachmentRecord {
+  return {
+    id: ATTACHMENT,
+    storageKey: `companies/${COMPANY}/messages/${ATTACHMENT}.webp`,
+    mimeType: "image/webp",
+    sizeBytes: 1024,
+    width: 800,
+    height: 600,
     ...extra,
   };
 }
@@ -77,10 +96,32 @@ function makeService(participant: Participant = staff) {
     }),
     createMessage: vi.fn().mockResolvedValue(messageView()),
     markRead: vi.fn().mockResolvedValue({ lastReadAt: "2026-01-02T03:04:05.000Z" }),
+    createAttachment: vi.fn().mockResolvedValue(attachmentRecord()),
+    findUnclaimedAttachments: vi.fn().mockResolvedValue([]),
+    findOrphanedAttachments: vi.fn().mockResolvedValue([]),
+    deleteAttachments: vi.fn().mockResolvedValue(0),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
-  const service = new MessagingService(repo as unknown as MessagingRepositoryPort, audit);
-  return { service, repo, audit };
+  const storage = {
+    put: vi.fn().mockResolvedValue(undefined),
+    getSignedUrl: vi.fn().mockResolvedValue("https://bucket.example/signed"),
+    delete: vi.fn().mockResolvedValue(undefined),
+  };
+  const images = {
+    toStorableImage: vi.fn().mockResolvedValue({
+      body: Buffer.from("webp-bytes"),
+      contentType: "image/webp",
+      width: 800,
+      height: 600,
+    }),
+  };
+  const service = new MessagingService(
+    repo as unknown as MessagingRepositoryPort,
+    audit,
+    storage,
+    images,
+  );
+  return { service, repo, audit, storage, images };
 }
 
 describe("MessagingService — tenant and membership", () => {
@@ -114,7 +155,9 @@ describe("MessagingService — vendor isolation", () => {
     const { service, repo } = makeService(vendorA);
     repo.findThreadById.mockResolvedValue(threadView({ id: THREAD_B, warehouseId: WAREHOUSE_B }));
 
-    await expect(service.sendMessage(principal, THREAD_B, { body: "hi" })).rejects.toMatchObject({
+    await expect(
+      service.sendMessage(principal, THREAD_B, { body: "hi", attachmentIds: [] }),
+    ).rejects.toMatchObject({
       status: 404,
     });
     expect(repo.createMessage).not.toHaveBeenCalled();
@@ -212,7 +255,10 @@ describe("MessagingService — posting", () => {
   it("stamps the sender kind from the caller's own scope, not the payload", async () => {
     const { service, repo } = makeService(vendorA);
 
-    await service.sendMessage(principal, THREAD_A, { body: "the order is ready" });
+    await service.sendMessage(principal, THREAD_A, {
+      body: "the order is ready",
+      attachmentIds: [],
+    });
 
     expect(repo.createMessage).toHaveBeenCalledWith(
       { companyId: COMPANY, actorId: USER },
@@ -223,7 +269,10 @@ describe("MessagingService — posting", () => {
   it("trims the body and stores a preview alongside it", async () => {
     const { service, repo } = makeService(staff);
 
-    await service.sendMessage(principal, THREAD_A, { body: "  hello\n\nthere  " });
+    await service.sendMessage(principal, THREAD_A, {
+      body: "  hello\n\nthere  ",
+      attachmentIds: [],
+    });
 
     expect(repo.createMessage).toHaveBeenCalledWith(
       expect.anything(),
@@ -234,7 +283,9 @@ describe("MessagingService — posting", () => {
   it("rejects a body that is only whitespace", async () => {
     const { service, repo } = makeService(staff);
 
-    await expect(service.sendMessage(principal, THREAD_A, { body: "   " })).rejects.toMatchObject({
+    await expect(
+      service.sendMessage(principal, THREAD_A, { body: "   ", attachmentIds: [] }),
+    ).rejects.toMatchObject({
       status: 400,
     });
     expect(repo.createMessage).not.toHaveBeenCalled();
@@ -244,7 +295,9 @@ describe("MessagingService — posting", () => {
     const { service, repo } = makeService(staff);
     repo.findThreadById.mockResolvedValue(threadView({ status: "archived" }));
 
-    await expect(service.sendMessage(principal, THREAD_A, { body: "hi" })).rejects.toMatchObject({
+    await expect(
+      service.sendMessage(principal, THREAD_A, { body: "hi", attachmentIds: [] }),
+    ).rejects.toMatchObject({
       status: 409,
     });
   });
@@ -253,7 +306,7 @@ describe("MessagingService — posting", () => {
   it("audits the send without recording the message text", async () => {
     const { service, audit } = makeService(staff);
 
-    await service.sendMessage(principal, THREAD_A, { body: "call 01000000000" });
+    await service.sendMessage(principal, THREAD_A, { body: "call 01000000000", attachmentIds: [] });
 
     const record = audit.record.mock.calls[0]?.[0];
     expect(record).toMatchObject({ action: "message.sent", entityType: "message" });

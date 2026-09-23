@@ -1,9 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsString, IsUUID, Length } from "class-validator";
+import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUUID, Length } from "class-validator";
 import type { KeysetPage } from "@cadeau/database";
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../domain/image-rules";
 import {
   SENDER_KINDS,
   THREAD_STATUSES,
+  type AttachmentView,
   type MessageThreadView,
   type MessageView,
 } from "../../domain/message.entity";
@@ -21,12 +23,28 @@ export class OpenThreadDto {
   warehouseId!: string;
 }
 
-/** Posts a message. Attachments and order references arrive in M17.3/M17.4. */
+/** Posts a message. Order references arrive in M17.4. */
 export class SendMessageDto {
-  @ApiProperty({ minLength: 1, maxLength: BODY_MAX })
+  // Optional and allowed to be empty: an image-only message is valid. The
+  // "text or at least one image" rule spans both fields, so the service
+  // enforces it rather than a per-field decorator.
+  @ApiPropertyOptional({ maxLength: BODY_MAX, default: "" })
+  @IsOptional()
   @IsString()
-  @Length(1, BODY_MAX)
-  body!: string;
+  @Length(0, BODY_MAX)
+  body?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    format: "uuid",
+    maxItems: MAX_ATTACHMENTS_PER_MESSAGE,
+    description: "Ids returned by the attachment upload endpoint.",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_ATTACHMENTS_PER_MESSAGE)
+  @IsUUID("4", { each: true })
+  attachmentIds?: string[];
 }
 
 // ---- Response DTOs -------------------------------------------------------------
@@ -67,6 +85,33 @@ export class MessageThreadDto {
   }
 }
 
+/** One image on a message, with a short-lived link to its bytes. */
+export class AttachmentDto {
+  @ApiProperty({ format: "uuid" })
+  id!: string;
+  @ApiProperty()
+  mimeType!: string;
+  @ApiProperty()
+  sizeBytes!: number;
+  @ApiProperty()
+  width!: number;
+  @ApiProperty()
+  height!: number;
+  @ApiProperty({ description: "Expires shortly; re-fetch the message for a fresh one." })
+  url!: string;
+
+  static from(view: AttachmentView): AttachmentDto {
+    const dto = new AttachmentDto();
+    dto.id = view.id;
+    dto.mimeType = view.mimeType;
+    dto.sizeBytes = view.sizeBytes;
+    dto.width = view.width;
+    dto.height = view.height;
+    dto.url = view.url;
+    return dto;
+  }
+}
+
 /** One message in a conversation. */
 export class MessageDto {
   @ApiProperty({ format: "uuid" })
@@ -79,8 +124,10 @@ export class MessageDto {
   senderName!: string | null;
   @ApiProperty({ enum: SENDER_KINDS })
   senderKind!: string;
-  @ApiProperty({ nullable: true, description: "Null once deleted." })
+  @ApiProperty({ nullable: true, description: "Null once deleted, or image-only." })
   body!: string | null;
+  @ApiProperty({ type: [AttachmentDto] })
+  attachments!: AttachmentDto[];
   @ApiProperty({ format: "date-time", nullable: true })
   deletedAt!: string | null;
   @ApiProperty({ format: "date-time" })
@@ -94,6 +141,7 @@ export class MessageDto {
     dto.senderName = view.senderName;
     dto.senderKind = view.senderKind;
     dto.body = view.body;
+    dto.attachments = view.attachments.map((a) => AttachmentDto.from(a));
     dto.deletedAt = view.deletedAt;
     dto.createdAt = view.createdAt;
     return dto;

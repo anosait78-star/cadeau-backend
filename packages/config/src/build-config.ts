@@ -1,6 +1,7 @@
+import { ConfigValidationError } from "./errors";
 import { splitList } from "./schema";
 import type { ValidatedEnv } from "./schema";
-import type { AppConfig, OAuthConfig, ThirdPartyConfig } from "./types";
+import type { AppConfig, OAuthConfig, S3Config, StorageConfig, ThirdPartyConfig } from "./types";
 
 const REDACTED = "***REDACTED***";
 
@@ -12,6 +13,49 @@ function deepFreeze<T>(value: T): T {
     Object.freeze(value);
   }
   return value;
+}
+
+/** The five settings that together describe a usable bucket. */
+const S3_REQUIRED = [
+  "S3_ENDPOINT",
+  "S3_BUCKET",
+  "S3_REGION",
+  "S3_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+] as const;
+
+/**
+ * The bucket configuration, or `undefined` when none of it is set.
+ *
+ * All-or-nothing on purpose. A half-configured bucket passes validation but
+ * fails at the first upload — in production, long after boot — so a partial
+ * group is rejected here instead, naming the settings that are missing.
+ */
+function buildS3Config(env: ValidatedEnv): { s3: S3Config } | undefined {
+  const missing = S3_REQUIRED.filter((key) => env[key] === undefined);
+  if (missing.length === S3_REQUIRED.length) return undefined;
+  if (missing.length > 0) {
+    throw new ConfigValidationError([
+      {
+        path: missing.join(", "),
+        message:
+          "object storage is partially configured: set all of " +
+          `${S3_REQUIRED.join(", ")}, or none of them to fall back to in-memory storage`,
+      },
+    ]);
+  }
+
+  return {
+    s3: {
+      endpoint: env.S3_ENDPOINT as string,
+      bucket: env.S3_BUCKET as string,
+      region: env.S3_REGION as string,
+      accessKeyId: env.S3_ACCESS_KEY_ID as string,
+      secretAccessKey: env.S3_SECRET_ACCESS_KEY as string,
+      ...(env.S3_SESSION_TOKEN === undefined ? {} : { sessionToken: env.S3_SESSION_TOKEN }),
+      forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    },
+  };
 }
 
 /**
@@ -28,6 +72,8 @@ export function buildConfig(env: ValidatedEnv): AppConfig {
           },
         }
       : {};
+
+  const storage: StorageConfig = { ...(buildS3Config(env) ?? {}) };
 
   const thirdParty: { -readonly [K in keyof ThirdPartyConfig]: ThirdPartyConfig[K] } = {};
   if (env.WHATSAPP_API_KEY !== undefined) thirdParty.whatsappApiKey = env.WHATSAPP_API_KEY;
@@ -83,6 +129,7 @@ export function buildConfig(env: ValidatedEnv): AppConfig {
         subject: env.VAPID_SUBJECT,
       },
     },
+    storage,
     superAdminEmails: env.SUPER_ADMIN_EMAILS !== undefined ? splitList(env.SUPER_ADMIN_EMAILS) : [],
   };
 
@@ -128,6 +175,20 @@ export function redactConfig(config: AppConfig): Record<string, unknown> {
       whatsappApiKey: config.thirdParty.whatsappApiKey ? REDACTED : undefined,
       shippingBostaApiKey: config.thirdParty.shippingBostaApiKey ? REDACTED : undefined,
     },
+    storage:
+      config.storage.s3 === undefined
+        ? { s3: undefined }
+        : {
+            s3: {
+              endpoint: config.storage.s3.endpoint,
+              bucket: config.storage.s3.bucket,
+              region: config.storage.s3.region,
+              accessKeyId: REDACTED,
+              secretAccessKey: REDACTED,
+              sessionToken: config.storage.s3.sessionToken ? REDACTED : undefined,
+              forcePathStyle: config.storage.s3.forcePathStyle,
+            },
+          },
     superAdminEmails: config.superAdminEmails,
   };
 }

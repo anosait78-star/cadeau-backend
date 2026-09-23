@@ -9,6 +9,8 @@ export type {
   OAuthConfig,
   OAuthProviderConfig,
   ThirdPartyConfig,
+  S3Config,
+  StorageConfig,
 } from "./types";
 export { NODE_ENVIRONMENTS, isNodeEnv, resolveNodeEnv, selectEnvFiles } from "./environment";
 export type { NodeEnv } from "./environment";

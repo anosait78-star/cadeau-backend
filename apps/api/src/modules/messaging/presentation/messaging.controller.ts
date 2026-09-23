@@ -8,10 +8,16 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
@@ -22,8 +28,11 @@ import { RequireCapability } from "../../../shared/access/require-capability.dec
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { CurrentUser } from "../../../shared/auth/current-user.decorator";
 import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
+import { AppErrors } from "../../../shared/errors/app-exception";
 import { MessagingService } from "../application/messaging.service";
+import { MAX_UPLOAD_BYTES } from "../domain/image-rules";
 import {
+  AttachmentDto,
   MessageDto,
   MessageListDto,
   MessageThreadDto,
@@ -41,6 +50,17 @@ const MESSAGING_FEATURE = "messaging";
 interface RawListQuery {
   readonly limit?: string;
   readonly cursor?: string;
+}
+
+/**
+ * The single field of a buffered multipart upload this route uses.
+ *
+ * Declared locally rather than pulled from `@types/multer`: only `buffer` is
+ * ever read — the client's filename and content type are ignored, because both
+ * are attacker-controlled and the bytes are what actually get inspected.
+ */
+interface UploadedImage {
+  readonly buffer: Buffer;
 }
 
 /**
@@ -147,8 +167,51 @@ export class MessagingController {
     @Body() body: SendMessageDto,
   ): Promise<MessageDto> {
     return MessageDto.from(
-      await this.service.sendMessage(principal, threadId, { body: body.body }),
+      await this.service.sendMessage(principal, threadId, {
+        body: body.body ?? "",
+        attachmentIds: body.attachmentIds ?? [],
+      }),
     );
+  }
+
+  @Post("attachments")
+  @HttpCode(HttpStatus.CREATED)
+  @RequireCapability({ feature: MESSAGING_FEATURE, permission: "messaging.send" })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      // Buffered, not spooled to disk: the file is re-encoded in memory and
+      // pushed straight to the bucket, so it never needs a filesystem path —
+      // and no half-written upload is left behind on the node.
+      storage: memoryStorage(),
+      // Multer's own ceiling, so an oversized upload is cut off while it is
+      // still arriving instead of after the whole body is in memory. The
+      // domain rule re-checks whatever does arrive.
+      limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+    }),
+  )
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      required: ["file"],
+      properties: { file: { type: "string", format: "binary" } },
+    },
+  })
+  @ApiOperation({
+    summary: "Upload one image, to be attached to a message afterwards",
+    operationId: "uploadMessageAttachment",
+  })
+  @ApiCreatedResponse({ type: AttachmentDto })
+  async uploadAttachment(
+    @CurrentUser() principal: RequestPrincipal,
+    @UploadedFile() file: UploadedImage | undefined,
+  ): Promise<AttachmentDto> {
+    if (file === undefined) {
+      throw AppErrors.validation("Request validation failed", [
+        { field: "file", messages: ["An image file is required."] },
+      ]);
+    }
+    return AttachmentDto.from(await this.service.uploadAttachment(principal, file.buffer));
   }
 
   @Post("threads/:threadId/read")

@@ -326,3 +326,62 @@ describe("redactConfig", () => {
     expect(redacted["http"]?.["port"]).toBe(3000);
   });
 });
+
+/** A complete bucket configuration; individual tests drop pieces of it. */
+const S3_ENV = {
+  S3_ENDPOINT: "https://s3.eu-central-1.amazonaws.com",
+  S3_BUCKET: "cadeau-uploads",
+  S3_REGION: "eu-central-1",
+  S3_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE",
+  S3_SECRET_ACCESS_KEY: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+};
+
+describe("loadConfig — object storage", () => {
+  it("leaves storage unconfigured when no bucket settings are present", () => {
+    const config = loadConfig({ env: validEnv() });
+    expect(config.storage.s3).toBeUndefined();
+  });
+
+  it("builds the bucket configuration when every setting is present", () => {
+    const config = loadConfig({ env: validEnv(S3_ENV) });
+    expect(config.storage.s3).toMatchObject({
+      endpoint: "https://s3.eu-central-1.amazonaws.com",
+      bucket: "cadeau-uploads",
+      region: "eu-central-1",
+      forcePathStyle: true,
+    });
+  });
+
+  // Half a bucket passes per-variable validation and then fails at the first
+  // upload — in production, long after boot. Refusing to start is the whole
+  // point of validating configuration.
+  it.each(Object.keys(S3_ENV))("refuses to boot when only %s is missing", (missing) => {
+    expectConfigError(validEnv({ ...S3_ENV, [missing]: undefined }), missing);
+  });
+
+  it("lets virtual-host addressing be selected explicitly", () => {
+    const config = loadConfig({ env: validEnv({ ...S3_ENV, S3_FORCE_PATH_STYLE: "false" }) });
+    expect(config.storage.s3?.forcePathStyle).toBe(false);
+  });
+
+  it("carries a session token only when one is set", () => {
+    expect(loadConfig({ env: validEnv(S3_ENV) }).storage.s3?.sessionToken).toBeUndefined();
+    expect(
+      loadConfig({ env: validEnv({ ...S3_ENV, S3_SESSION_TOKEN: "tok" }) }).storage.s3
+        ?.sessionToken,
+    ).toBe("tok");
+  });
+
+  it("masks the bucket credentials when the config is logged at boot", () => {
+    const config = loadConfig({ env: validEnv({ ...S3_ENV, S3_SESSION_TOKEN: "tok" }) });
+    const storage = (redactConfig(config) as Record<string, Record<string, unknown>>)["storage"];
+    const s3 = storage?.["s3"] as Record<string, unknown>;
+
+    expect(s3["accessKeyId"]).toBe("***REDACTED***");
+    expect(s3["secretAccessKey"]).toBe("***REDACTED***");
+    expect(s3["sessionToken"]).toBe("***REDACTED***");
+    expect(JSON.stringify(s3)).not.toContain("wJalrXUtnFEMI");
+    // Non-secret, and useful in a boot log.
+    expect(s3["bucket"]).toBe("cadeau-uploads");
+  });
+});

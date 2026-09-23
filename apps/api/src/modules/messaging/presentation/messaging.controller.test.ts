@@ -38,6 +38,7 @@ function messageView(extra: Partial<MessageView> = {}): MessageView {
     senderName: "Sara",
     senderKind: "staff",
     body: "hello",
+    attachments: [],
     deletedAt: null,
     createdAt: "2026-01-02T03:04:05.000Z",
     ...extra,
@@ -190,9 +191,13 @@ describe("MessagingController — messages", () => {
 
     const dto = new SendMessageDto();
     dto.body = "hello";
+    dto.attachmentIds = [];
     const result = await controller.sendMessage(principal, THREAD, dto);
 
-    expect(service.sendMessage).toHaveBeenCalledWith(principal, THREAD, { body: "hello" });
+    expect(service.sendMessage).toHaveBeenCalledWith(principal, THREAD, {
+      body: "hello",
+      attachmentIds: [],
+    });
     expect(result.id).toBe("msg-1");
   });
 

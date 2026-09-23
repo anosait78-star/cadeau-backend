@@ -45,16 +45,51 @@ export interface MessageThreadView {
   readonly createdAt: string;
 }
 
-/** One message in a thread. */
-export interface MessageView {
+/**
+ * One image as it is stored: the row, and the key its bytes live under. What
+ * the repository can produce on its own — minting a URL needs the storage
+ * adapter, which belongs a layer up.
+ */
+export interface AttachmentRecord {
+  readonly id: string;
+  readonly storageKey: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** One image as a caller sees it: the record, with a link they can fetch. */
+export interface AttachmentView {
+  readonly id: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly width: number;
+  readonly height: number;
+  /**
+   * A short-lived signed URL for the bytes. The bucket is private, so this is
+   * the only way to read them — and it is minted per response, never stored.
+   */
+  readonly url: string;
+}
+
+/** A message without its links — what the repository returns. */
+export interface MessageRecord {
   readonly id: string;
   readonly threadId: string;
   readonly senderProfileId: string;
   /** The sender's display name, or `null` if their profile has none set. */
   readonly senderName: string | null;
   readonly senderKind: SenderKind;
-  /** `null` once the message is deleted, or for an image-only message (M17.3). */
+  /** `null` once the message is deleted, or for an image-only message. */
   readonly body: string | null;
+  /** Empty for a text-only message, and always empty once deleted. */
+  readonly attachments: readonly AttachmentRecord[];
   readonly deletedAt: string | null;
   readonly createdAt: string;
+}
+
+/** One message in a thread, with fetchable links for its images. */
+export interface MessageView extends Omit<MessageRecord, "attachments"> {
+  readonly attachments: readonly AttachmentView[];
 }

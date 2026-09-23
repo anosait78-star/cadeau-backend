@@ -86,6 +86,29 @@ export interface NotificationsConfig {
   readonly vapid: VapidConfig;
 }
 
+/** An S3-compatible bucket for user uploads (EPIC-17). */
+export interface S3Config {
+  /** Service origin, e.g. `https://s3.eu-central-1.amazonaws.com`. */
+  readonly endpoint: string;
+  readonly bucket: string;
+  readonly region: string;
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+  /** Present only for temporary (STS) credentials. */
+  readonly sessionToken?: string;
+  /** Bucket in the path rather than the hostname — what most non-AWS stores need. */
+  readonly forcePathStyle: boolean;
+}
+
+export interface StorageConfig {
+  /**
+   * `undefined` when no bucket is configured, which the API reads as "use
+   * in-memory storage". That is a development convenience only — uploads then
+   * live in one process's heap and disappear with it.
+   */
+  readonly s3?: S3Config;
+}
+
 /**
  * The fully validated, structured, read-only application configuration.
  * This is the single source of truth consumed everywhere — no module reads
@@ -106,6 +129,7 @@ export interface AppConfig {
   readonly thirdParty: ThirdPartyConfig;
   readonly shipping: ShippingConfig;
   readonly notifications: NotificationsConfig;
+  readonly storage: StorageConfig;
   /**
    * Emails that bootstrap the platform Super-Admin grant (EPIC-5). The access
    * seed promotes matching profiles into `platform_admins`. Empty when unset.

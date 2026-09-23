@@ -1,9 +1,30 @@
+import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { clampLimit, InvalidCursorError, type KeysetPage } from "@cadeau/database";
+import type { FileStoragePort } from "@cadeau/storage";
 import type { RequestPrincipal } from "../../../shared/auth/authenticated-request";
 import { AppErrors } from "../../../shared/errors/app-exception";
 import { withErrorMapping } from "../../../shared/errors/with-error-mapping";
-import type { MessageThreadView, MessageView, Participant } from "../domain/message.entity";
+import {
+  IMAGE_PROCESSOR,
+  ImageProcessingError,
+  type ImageProcessorPort,
+} from "../domain/image-processor.port";
+import {
+  attachmentStorageKey,
+  describeRejection,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  validateUpload,
+} from "../domain/image-rules";
+import type {
+  AttachmentRecord,
+  AttachmentView,
+  MessageRecord,
+  MessageThreadView,
+  MessageView,
+  Participant,
+} from "../domain/message.entity";
+import { ATTACHMENT_URL_TTL_SECONDS, FILE_STORAGE } from "../domain/file-storage.token";
 import { MESSAGING_AUDIT, type MessagingAuditPort } from "../domain/messaging-audit.port";
 import {
   MESSAGING_REPOSITORY,
@@ -18,6 +39,8 @@ import { buildPreview, canAccessThread, isVendor, senderKindOf } from "../domain
 /** What the caller submits when posting a message. */
 export interface SendMessageCommand {
   readonly body: string;
+  /** Ids from `uploadAttachment`; empty for a text-only message. */
+  readonly attachmentIds: readonly string[];
 }
 
 /**
@@ -39,6 +62,8 @@ export class MessagingService {
   constructor(
     @Inject(MESSAGING_REPOSITORY) private readonly repo: MessagingRepositoryPort,
     @Inject(MESSAGING_AUDIT) private readonly audit: MessagingAuditPort,
+    @Inject(FILE_STORAGE) private readonly storage: FileStoragePort,
+    @Inject(IMAGE_PROCESSOR) private readonly images: ImageProcessorPort,
   ) {}
 
   /**
@@ -132,10 +157,62 @@ export class MessagingService {
     rawQuery: ListQuery,
   ): Promise<KeysetPage<MessageView>> {
     const { companyId } = await this.requireThreadAccess(principal, threadId);
-    return withErrorMapping(
+    const page = await withErrorMapping(
       () => this.repo.listMessages(companyId, threadId, rawQuery),
       (error) => this.mapError(error),
     );
+    return { ...page, data: await Promise.all(page.data.map((m) => this.withUrls(m))) };
+  }
+
+  /**
+   * Accepts an image and hands back the id to attach it with.
+   *
+   * The bytes are validated, re-encoded and stored *before* the row exists, so
+   * a failure anywhere leaves no row pointing at an object that was never
+   * written. The opposite order would leave a broken attachment behind.
+   */
+  async uploadAttachment(principal: RequestPrincipal, source: Buffer): Promise<AttachmentView> {
+    const { companyId, participant } = await this.resolve(principal);
+    // Resolving the participant is the access check: a caller with the
+    // permission but no membership in this tenant has nothing to upload to.
+    void participant;
+
+    const rejection = validateUpload(source);
+    if (rejection !== null) {
+      throw AppErrors.validation("Request validation failed", [
+        { field: "file", messages: [describeRejection(rejection)] },
+      ]);
+    }
+
+    let processed;
+    try {
+      processed = await this.images.toStorableImage(source);
+    } catch (error) {
+      if (error instanceof ImageProcessingError) {
+        throw AppErrors.validation("Request validation failed", [
+          { field: "file", messages: ["The image could not be read."] },
+        ]);
+      }
+      throw error;
+    }
+
+    const id = randomUUID();
+    const storageKey = attachmentStorageKey(companyId, id);
+    await this.storage.put(storageKey, processed.body, processed.contentType);
+
+    const record = await this.repo.createAttachment(
+      { companyId, actorId: principal.userId },
+      {
+        id,
+        storageKey,
+        mimeType: processed.contentType,
+        sizeBytes: processed.body.byteLength,
+        width: processed.width,
+        height: processed.height,
+      },
+    );
+
+    return this.toAttachmentView(record);
   }
 
   async sendMessage(
@@ -150,32 +227,66 @@ export class MessagingService {
     }
 
     const body = command.body.trim();
-    if (body.length === 0) {
+    const attachmentIds = [...new Set(command.attachmentIds)];
+
+    if (attachmentIds.length > MAX_ATTACHMENTS_PER_MESSAGE) {
       throw AppErrors.validation("Request validation failed", [
-        { field: "body", messages: ["body must not be empty"] },
+        {
+          field: "attachmentIds",
+          messages: [`A message can carry at most ${MAX_ATTACHMENTS_PER_MESSAGE} images.`],
+        },
+      ]);
+    }
+
+    // An image on its own is a perfectly good message; nothing at all is not.
+    if (body.length === 0 && attachmentIds.length === 0) {
+      throw AppErrors.validation("Request validation failed", [
+        { field: "body", messages: ["A message needs text or at least one image."] },
       ]);
     }
 
     const actor: WriteActor = { companyId, actorId: principal.userId };
+
+    if (attachmentIds.length > 0) {
+      const found = await this.repo.findUnclaimedAttachments(actor, attachmentIds);
+      // Not found means: never uploaded, uploaded by someone else, or already
+      // on another message. All three are the same answer to the sender, and
+      // saying which would confirm that an id they guessed exists.
+      if (found.length !== attachmentIds.length) {
+        throw AppErrors.validation("Request validation failed", [
+          {
+            field: "attachmentIds",
+            messages: ["One or more images are unknown or already attached."],
+          },
+        ]);
+      }
+    }
+
     const message = await this.repo.createMessage(actor, {
       threadId,
       senderKind: senderKindOf(participant),
-      body,
-      preview: buildPreview(body),
+      body: body.length === 0 ? null : body,
+      preview: buildPreview(body.length === 0 ? null : body),
+      attachmentIds,
     });
 
-    // Ids and a length only — a message body is free text the sender may have
-    // pasted a customer's details into (docs/privacy-model.md §6).
+    // Ids, counts and a length only — a message body is free text the sender
+    // may have pasted a customer's details into (docs/privacy-model.md §6).
     await this.audit.record({
       companyId,
       actorId: principal.userId,
       action: "message.sent",
       entityType: "message",
       entityId: message.id,
-      changes: { threadId, senderKind: message.senderKind, bodyLength: body.length },
+      changes: {
+        threadId,
+        senderKind: message.senderKind,
+        bodyLength: body.length,
+        attachmentCount: attachmentIds.length,
+      },
     });
 
-    return message;
+    return this.withUrls(message);
   }
 
   /** Moves the caller's own read cursor to now. */
@@ -185,6 +296,33 @@ export class MessagingService {
   }
 
   // ---- internals -------------------------------------------------------------
+
+  /**
+   * Attaches a freshly minted signed URL to each of a message's images.
+   *
+   * Minted per response rather than stored, so a link cannot outlive the
+   * permission check that produced it: the caller proved access to the thread
+   * moments ago, and the URL expires shortly after.
+   */
+  private async withUrls(message: MessageRecord): Promise<MessageView> {
+    return {
+      ...message,
+      attachments: await Promise.all(
+        message.attachments.map((attachment) => this.toAttachmentView(attachment)),
+      ),
+    };
+  }
+
+  private async toAttachmentView(record: AttachmentRecord): Promise<AttachmentView> {
+    return {
+      id: record.id,
+      mimeType: record.mimeType,
+      sizeBytes: record.sizeBytes,
+      width: record.width,
+      height: record.height,
+      url: await this.storage.getSignedUrl(record.storageKey, ATTACHMENT_URL_TTL_SECONDS),
+    };
+  }
 
   /**
    * Resolves the thread and proves the caller belongs in it.

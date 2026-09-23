@@ -11,13 +11,15 @@ import {
   type PrismaClient,
 } from "@cadeau/database";
 import type {
+  AttachmentRecord,
+  MessageRecord,
   MessageThreadView,
-  MessageView,
   Participant,
   SenderKind,
   ThreadStatus,
 } from "../domain/message.entity";
 import type {
+  CreateAttachmentInput,
   CreateMessageInput,
   CreateThreadInput,
   ListQuery,
@@ -53,6 +55,15 @@ const THREAD_SELECT = {
 
 type ThreadRow = Prisma.MessageThreadGetPayload<{ select: typeof THREAD_SELECT }>;
 
+const ATTACHMENT_SELECT = {
+  id: true,
+  storageKey: true,
+  mimeType: true,
+  sizeBytes: true,
+  width: true,
+  height: true,
+} as const;
+
 const MESSAGE_SELECT = {
   id: true,
   threadId: true,
@@ -62,6 +73,7 @@ const MESSAGE_SELECT = {
   deletedAt: true,
   createdAt: true,
   sender: { select: { fullName: true } },
+  attachments: { select: ATTACHMENT_SELECT, orderBy: { createdAt: "asc" } },
 } as const;
 
 type MessageRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>;
@@ -200,7 +212,7 @@ export class MessagingRepository implements MessagingRepositoryPort {
     companyId: string,
     threadId: string,
     query: ListQuery,
-  ): Promise<KeysetPage<MessageView>> {
+  ): Promise<KeysetPage<MessageRecord>> {
     const limit = clampLimit(query.limit);
     const cursor = this.decode(query.cursor);
 
@@ -225,7 +237,7 @@ export class MessagingRepository implements MessagingRepositoryPort {
       }),
     );
 
-    const views = rows.map((row) => this.toMessageView(row));
+    const views = rows.map((row) => this.toMessageRecord(row));
     return buildKeysetPage(
       views,
       limit,
@@ -233,9 +245,9 @@ export class MessagingRepository implements MessagingRepositoryPort {
     );
   }
 
-  async createMessage(actor: WriteActor, input: CreateMessageInput): Promise<MessageView> {
+  async createMessage(actor: WriteActor, input: CreateMessageInput): Promise<MessageRecord> {
     return this.tenantTx(actor.companyId, async (tx) => {
-      const row = await tx.message.create({
+      const created = await tx.message.create({
         data: {
           companyId: actor.companyId,
           threadId: input.threadId,
@@ -243,12 +255,33 @@ export class MessagingRepository implements MessagingRepositoryPort {
           senderKind: input.senderKind,
           body: input.body,
         } satisfies Prisma.MessageUncheckedCreateInput,
+        select: { id: true },
+      });
+
+      // Claim the uploads in the same transaction as the insert, so a message
+      // is never briefly visible without the images it was sent with. The
+      // `messageId: null` guard makes the claim idempotent and keeps a replayed
+      // request from moving an attachment off the message that already owns it.
+      if (input.attachmentIds.length > 0) {
+        await tx.messageAttachment.updateMany({
+          where: {
+            id: { in: [...input.attachmentIds] },
+            companyId: actor.companyId,
+            uploadedBy: actor.actorId,
+            messageId: null,
+          },
+          data: { messageId: created.id },
+        });
+      }
+
+      const row = await tx.message.findUniqueOrThrow({
+        where: { id: created.id },
         select: MESSAGE_SELECT,
       });
 
-      // Same transaction as the insert: the thread list reads these two
-      // columns instead of the newest message, so they must never lag behind
-      // a message that is already visible.
+      // Same transaction again: the thread list reads these two columns
+      // instead of the newest message, so they must never lag behind a message
+      // that is already visible.
       await tx.messageThread.update({
         where: { id: input.threadId },
         data: {
@@ -258,7 +291,7 @@ export class MessagingRepository implements MessagingRepositoryPort {
         },
       });
 
-      return this.toMessageView(row);
+      return this.toMessageRecord(row);
     });
   }
 
@@ -273,6 +306,70 @@ export class MessagingRepository implements MessagingRepositoryPort {
       }),
     );
     return { lastReadAt: row.lastReadAt.toISOString() };
+  }
+
+  // ---- attachments (M17.3) ---------------------------------------------------
+
+  async createAttachment(
+    actor: WriteActor,
+    input: CreateAttachmentInput,
+  ): Promise<AttachmentRecord> {
+    return this.tenantTx(actor.companyId, (tx) =>
+      tx.messageAttachment.create({
+        data: {
+          id: input.id,
+          companyId: actor.companyId,
+          uploadedBy: actor.actorId,
+          storageKey: input.storageKey,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          width: input.width,
+          height: input.height,
+        } satisfies Prisma.MessageAttachmentUncheckedCreateInput,
+        select: ATTACHMENT_SELECT,
+      }),
+    );
+  }
+
+  async findUnclaimedAttachments(
+    actor: WriteActor,
+    ids: readonly string[],
+  ): Promise<readonly AttachmentRecord[]> {
+    if (ids.length === 0) return [];
+    return this.tenantTx(actor.companyId, (tx) =>
+      tx.messageAttachment.findMany({
+        where: {
+          id: { in: [...ids] },
+          companyId: actor.companyId,
+          // Your own, and not already on a message. An attachment id is the
+          // only thing between an upload and a message, so neither guard can
+          // be dropped.
+          uploadedBy: actor.actorId,
+          messageId: null,
+        },
+        select: ATTACHMENT_SELECT,
+      }),
+    );
+  }
+
+  async findOrphanedAttachments(cutoff: Date, limit: number): Promise<readonly AttachmentRecord[]> {
+    // Deliberately not tenant-scoped: the sweeper runs as a background job for
+    // the whole deployment, not on behalf of any one company, so it uses the
+    // client directly rather than `tenantTx`.
+    return this.prisma.messageAttachment.findMany({
+      where: { messageId: null, createdAt: { lt: cutoff } },
+      select: ATTACHMENT_SELECT,
+      take: limit,
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  async deleteAttachments(ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const result = await this.prisma.messageAttachment.deleteMany({
+      where: { id: { in: [...ids] }, messageId: null },
+    });
+    return result.count;
   }
 
   // ---- internals -------------------------------------------------------------
@@ -387,7 +484,7 @@ export class MessagingRepository implements MessagingRepositoryPort {
     };
   }
 
-  private toMessageView(row: MessageRow): MessageView {
+  private toMessageRecord(row: MessageRow): MessageRecord {
     return {
       id: row.id,
       threadId: row.threadId,
@@ -397,6 +494,9 @@ export class MessagingRepository implements MessagingRepositoryPort {
       // A deleted message keeps its row for the audit trail, but its text is
       // not part of the conversation any more.
       body: row.deletedAt === null ? row.body : null,
+      // A deleted message keeps its attachment rows for the audit trail, but
+      // they stop being part of the conversation along with its text.
+      attachments: row.deletedAt === null ? row.attachments : [],
       deletedAt: row.deletedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
     };

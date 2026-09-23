@@ -111,6 +111,26 @@ export const envSchema = z
         "must be a mailto: or https: URI identifying an operator contact (RFC 8292)",
       ),
 
+    // Object storage for user uploads (EPIC-17 M17.3). Optional as a group:
+    // with none of it set the API falls back to in-memory storage, so a
+    // developer can run the whole upload path with no bucket. `buildConfig`
+    // rejects a half-filled group — a partially configured bucket would fail
+    // only at the first upload, in production, instead of at boot.
+    S3_ENDPOINT: z.string().url().optional(),
+    S3_BUCKET: z.string().min(1).optional(),
+    S3_REGION: z.string().min(1).optional(),
+    S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+    // Secret.
+    S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    // Set only for temporary (STS) credentials.
+    S3_SESSION_TOKEN: z.string().min(1).optional(),
+    // MinIO/R2 and most self-hosted stores need path-style addressing; AWS
+    // itself prefers virtual-host. Defaults to path-style, the portable choice.
+    S3_FORCE_PATH_STYLE: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((value) => value !== "false"),
+
     // Platform Super-Admin bootstrap (optional, CSV of emails). The access seed
     // (EPIC-5) promotes matching profiles into `platform_admins`; privilege is a
     // separate DB-backed grant, never a tenant-token claim.
