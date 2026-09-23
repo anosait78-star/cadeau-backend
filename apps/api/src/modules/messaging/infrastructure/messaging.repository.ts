@@ -12,6 +12,7 @@ import {
 } from "@cadeau/database";
 import type {
   AttachmentRecord,
+  MentionableOrderView,
   MessageRecord,
   MessageThreadView,
   Participant,
@@ -27,6 +28,7 @@ import type {
   VendorWarehouseView,
   WriteActor,
 } from "../domain/messaging-repository.port";
+import type { MentionSearch } from "../domain/mention-rules";
 import { ThreadAlreadyExistsError } from "../domain/messaging.errors";
 import { MESSAGING_PRISMA_CLIENT } from "./prisma-client.provider";
 
@@ -64,6 +66,14 @@ const ATTACHMENT_SELECT = {
   height: true,
 } as const;
 
+const ORDER_REF_SELECT = {
+  orderId: true,
+  orderNumber: true,
+  // Joined rather than snapshotted: a status shown next to a mention has to be
+  // the order's status now, not what it was when the message was typed.
+  order: { select: { status: true } },
+} as const;
+
 const MESSAGE_SELECT = {
   id: true,
   threadId: true,
@@ -74,6 +84,7 @@ const MESSAGE_SELECT = {
   createdAt: true,
   sender: { select: { fullName: true } },
   attachments: { select: ATTACHMENT_SELECT, orderBy: { createdAt: "asc" } },
+  orderRefs: { select: ORDER_REF_SELECT, orderBy: { createdAt: "asc" } },
 } as const;
 
 type MessageRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>;
@@ -274,6 +285,22 @@ export class MessagingRepository implements MessagingRepositoryPort {
         });
       }
 
+      // Same transaction as the insert, for the same reason as attachments: a
+      // message must never be briefly visible without the orders it points at.
+      if (input.orderRefs.length > 0) {
+        await tx.messageOrderRef.createMany({
+          data: input.orderRefs.map((ref) => ({
+            companyId: actor.companyId,
+            messageId: created.id,
+            orderId: ref.orderId,
+            orderNumber: ref.orderNumber,
+          })),
+          // The service already de-duplicates; this makes a retry harmless
+          // rather than a unique-constraint failure.
+          skipDuplicates: true,
+        });
+      }
+
       const row = await tx.message.findUniqueOrThrow({
         where: { id: created.id },
         select: MESSAGE_SELECT,
@@ -372,7 +399,96 @@ export class MessagingRepository implements MessagingRepositoryPort {
     return result.count;
   }
 
+  // ---- order mentions (M17.4) ------------------------------------------------
+
+  async searchMentionableOrders(
+    companyId: string,
+    warehouseId: string,
+    search: MentionSearch,
+    limit: number,
+    allowCustomerSearch: boolean,
+  ): Promise<readonly MentionableOrderView[]> {
+    // The scope, and the only thing that decides it: an order is mentionable
+    // in this thread exactly when this warehouse has a group in it.
+    const where: Prisma.OrderWhereInput = {
+      companyId,
+      vendorGroups: { some: { warehouseId, companyId } },
+    };
+
+    if (search.kind === "number") {
+      // `orderNumber` is a bigint, so a query that cannot be one matches
+      // nothing rather than throwing on the cast.
+      const asNumber = this.toOrderNumber(search.orderNumber);
+      if (asNumber === null) return [];
+      where.orderNumber = asNumber;
+    } else if (search.kind === "text") {
+      // Customer names are not a vendor's to search. They already reach these
+      // orders, but their view of one is their own items and its number — not
+      // who bought it — and a name search would let them recover that by
+      // probing. Staff searching their own company's customers is ordinary.
+      if (!allowCustomerSearch) return [];
+      where.customer = { name: { contains: search.text, mode: "insensitive" } };
+    }
+
+    const rows = await this.tenantTx(companyId, (tx) =>
+      tx.order.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit,
+        select: { id: true, orderNumber: true, status: true, createdAt: true },
+      }),
+    );
+
+    return rows.map((row) => ({
+      orderId: row.id,
+      orderNumber: row.orderNumber.toString(),
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  async findMentionableOrdersByIds(
+    companyId: string,
+    warehouseId: string,
+    orderIds: readonly string[],
+  ): Promise<readonly MentionableOrderView[]> {
+    if (orderIds.length === 0) return [];
+    const rows = await this.tenantTx(companyId, (tx) =>
+      tx.order.findMany({
+        where: {
+          id: { in: [...orderIds] },
+          companyId,
+          vendorGroups: { some: { warehouseId, companyId } },
+        },
+        select: { id: true, orderNumber: true, status: true, createdAt: true },
+      }),
+    );
+
+    return rows.map((row) => ({
+      orderId: row.id,
+      orderNumber: row.orderNumber.toString(),
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
   // ---- internals -------------------------------------------------------------
+
+  /**
+   * A typed order number, or `null` when the text cannot be one.
+   *
+   * `orderNumber` is a bigint column, so handing Prisma a value it cannot cast
+   * raises instead of simply not matching — and a search box must never turn a
+   * stray keystroke into a 500.
+   */
+  private toOrderNumber(raw: string): bigint | null {
+    try {
+      const value = BigInt(raw);
+      return value < 0n ? null : value;
+    } catch {
+      return null;
+    }
+  }
 
   private async findOneThread(
     companyId: string,
@@ -497,6 +613,17 @@ export class MessagingRepository implements MessagingRepositoryPort {
       // A deleted message keeps its attachment rows for the audit trail, but
       // they stop being part of the conversation along with its text.
       attachments: row.deletedAt === null ? row.attachments : [],
+      orderRefs:
+        row.deletedAt === null
+          ? row.orderRefs.map((ref) => ({
+              orderId: ref.orderId,
+              orderNumber: ref.orderNumber,
+              // The order can be gone while the reference survives (the
+              // snapshot is what keeps the mention readable), so status is
+              // whatever the join found, not an assumption.
+              status: ref.order?.status ?? null,
+            }))
+          : [],
       deletedAt: row.deletedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
     };

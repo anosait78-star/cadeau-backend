@@ -33,6 +33,7 @@ import { MessagingService } from "../application/messaging.service";
 import { MAX_UPLOAD_BYTES } from "../domain/image-rules";
 import {
   AttachmentDto,
+  MentionableOrderListDto,
   MessageDto,
   MessageListDto,
   MessageThreadDto,
@@ -170,7 +171,25 @@ export class MessagingController {
       await this.service.sendMessage(principal, threadId, {
         body: body.body ?? "",
         attachmentIds: body.attachmentIds ?? [],
+        orderIds: body.orderIds ?? [],
       }),
+    );
+  }
+
+  @Get("threads/:threadId/mentionable-orders")
+  @RequireCapability({ feature: MESSAGING_FEATURE, permission: "messaging.read" })
+  @ApiOperation({
+    summary: "Orders that can be referenced in this conversation (the `@` picker)",
+    operationId: "listMentionableOrders",
+  })
+  @ApiOkResponse({ type: MentionableOrderListDto })
+  async listMentionableOrders(
+    @CurrentUser() principal: RequestPrincipal,
+    @Param("threadId", ParseUUIDPipe) threadId: string,
+    @Query("q") q: string | undefined,
+  ): Promise<MentionableOrderListDto> {
+    return MentionableOrderListDto.from(
+      await this.service.searchMentionableOrders(principal, threadId, q),
     );
   }
 

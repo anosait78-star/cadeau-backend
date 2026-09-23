@@ -16,9 +16,16 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   validateUpload,
 } from "../domain/image-rules";
+import {
+  MAX_ORDER_REFS_PER_MESSAGE,
+  MENTION_SEARCH_LIMIT,
+  parseMentionQuery,
+  rejectedOrderIds,
+} from "../domain/mention-rules";
 import type {
   AttachmentRecord,
   AttachmentView,
+  MentionableOrderView,
   MessageRecord,
   MessageThreadView,
   MessageView,
@@ -30,6 +37,7 @@ import {
   MESSAGING_REPOSITORY,
   type ListQuery,
   type MessagingRepositoryPort,
+  type OrderReferenceInput,
   type VendorWarehouseView,
   type WriteActor,
 } from "../domain/messaging-repository.port";
@@ -41,6 +49,8 @@ export interface SendMessageCommand {
   readonly body: string;
   /** Ids from `uploadAttachment`; empty for a text-only message. */
   readonly attachmentIds: readonly string[];
+  /** Orders the message points at — the `@` mentions the composer collected. */
+  readonly orderIds: readonly string[];
 }
 
 /**
@@ -215,6 +225,30 @@ export class MessagingService {
     return this.toAttachmentView(record);
   }
 
+  /**
+   * The orders the `@` picker may offer in this conversation.
+   *
+   * Scoped to the thread's own warehouse for staff as well as for vendors: the
+   * mention is rendered into the vendor's conversation, so an unscoped picker
+   * would let a mistyped selection disclose another vendor's order number.
+   */
+  async searchMentionableOrders(
+    principal: RequestPrincipal,
+    threadId: string,
+    rawQuery: string | undefined,
+  ): Promise<readonly MentionableOrderView[]> {
+    const { companyId, participant, thread } = await this.requireThreadAccess(principal, threadId);
+    return this.repo.searchMentionableOrders(
+      companyId,
+      thread.warehouseId,
+      parseMentionQuery(rawQuery),
+      MENTION_SEARCH_LIMIT,
+      // Staff may search their own company's customers by name; a vendor may
+      // not, because their view of an order does not include who placed it.
+      !isVendor(participant),
+    );
+  }
+
   async sendMessage(
     principal: RequestPrincipal,
     threadId: string,
@@ -228,6 +262,7 @@ export class MessagingService {
 
     const body = command.body.trim();
     const attachmentIds = [...new Set(command.attachmentIds)];
+    const orderIds = [...new Set(command.orderIds)];
 
     if (attachmentIds.length > MAX_ATTACHMENTS_PER_MESSAGE) {
       throw AppErrors.validation("Request validation failed", [
@@ -238,7 +273,18 @@ export class MessagingService {
       ]);
     }
 
+    if (orderIds.length > MAX_ORDER_REFS_PER_MESSAGE) {
+      throw AppErrors.validation("Request validation failed", [
+        {
+          field: "orderIds",
+          messages: [`A message can reference at most ${MAX_ORDER_REFS_PER_MESSAGE} orders.`],
+        },
+      ]);
+    }
+
     // An image on its own is a perfectly good message; nothing at all is not.
+    // A mention alone is not enough either — it says which order, not what
+    // about it.
     if (body.length === 0 && attachmentIds.length === 0) {
       throw AppErrors.validation("Request validation failed", [
         { field: "body", messages: ["A message needs text or at least one image."] },
@@ -262,12 +308,47 @@ export class MessagingService {
       }
     }
 
+    // The authority behind an `@`. The client sends order ids; they are only
+    // written after the database confirms each one belongs to *this thread's*
+    // warehouse. Without this a crafted request could paste any order in the
+    // company into a vendor's conversation — and for staff, so could an
+    // ordinary mistake.
+    const orderRefs: OrderReferenceInput[] = [];
+    if (orderIds.length > 0) {
+      const mentionable = await this.repo.findMentionableOrdersByIds(
+        companyId,
+        thread.warehouseId,
+        orderIds,
+      );
+      const rejected = rejectedOrderIds(
+        orderIds,
+        mentionable.map((order) => order.orderId),
+      );
+      if (rejected.length > 0) {
+        // Which ids were rejected is not named: to a vendor, "this one exists
+        // but is not yours" and "this one does not exist" must look the same.
+        throw AppErrors.validation("Request validation failed", [
+          {
+            field: "orderIds",
+            messages: ["One or more orders cannot be referenced in this conversation."],
+          },
+        ]);
+      }
+      orderRefs.push(
+        ...mentionable.map((order) => ({
+          orderId: order.orderId,
+          orderNumber: order.orderNumber,
+        })),
+      );
+    }
+
     const message = await this.repo.createMessage(actor, {
       threadId,
       senderKind: senderKindOf(participant),
       body: body.length === 0 ? null : body,
       preview: buildPreview(body.length === 0 ? null : body),
       attachmentIds,
+      orderRefs,
     });
 
     // Ids, counts and a length only — a message body is free text the sender
@@ -283,6 +364,7 @@ export class MessagingService {
         senderKind: message.senderKind,
         bodyLength: body.length,
         attachmentCount: attachmentIds.length,
+        orderIds: orderRefs.map((ref) => ref.orderId),
       },
     });
 

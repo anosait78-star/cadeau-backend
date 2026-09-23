@@ -73,6 +73,32 @@ export interface AttachmentView {
   readonly url: string;
 }
 
+/**
+ * An order referenced from a message — what an `@` mention renders as.
+ *
+ * Deliberately thin. A vendor may only ever see their own items in an order,
+ * never the whole of it (`OrderVendorGroup` is the unit of their visibility),
+ * so this carries no customer, no address and no order total: the total is the
+ * sum across *every* vendor in that order, and showing it to one of them would
+ * disclose the others' revenue. Number and status are enough to say which
+ * order is meant; staff who need the rest open the order itself.
+ */
+export interface OrderReferenceView {
+  readonly orderId: string;
+  /** The human-facing per-company number, as shown in the UI. */
+  readonly orderNumber: string;
+  /** `null` when the order has since been deleted and only the snapshot remains. */
+  readonly status: string | null;
+}
+
+/** An order the caller may mention, as the `@` picker lists it. */
+export interface MentionableOrderView {
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly status: string;
+  readonly createdAt: string;
+}
+
 /** A message without its links — what the repository returns. */
 export interface MessageRecord {
   readonly id: string;
@@ -85,6 +111,8 @@ export interface MessageRecord {
   readonly body: string | null;
   /** Empty for a text-only message, and always empty once deleted. */
   readonly attachments: readonly AttachmentRecord[];
+  /** Orders this message points at, and always empty once deleted. */
+  readonly orderRefs: readonly OrderReferenceView[];
   readonly deletedAt: string | null;
   readonly createdAt: string;
 }

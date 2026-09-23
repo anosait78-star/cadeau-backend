@@ -1,11 +1,13 @@
 import type { KeysetPage } from "@cadeau/database";
 import type {
   AttachmentRecord,
+  MentionableOrderView,
   MessageRecord,
   MessageThreadView,
   Participant,
   SenderKind,
 } from "./message.entity";
+import type { MentionSearch } from "./mention-rules";
 
 /** The company + acting user a write is attributed to. */
 export interface WriteActor {
@@ -38,6 +40,17 @@ export interface CreateMessageInput {
    * the images it was sent with.
    */
   readonly attachmentIds: readonly string[];
+  /**
+   * Orders this message points at. Already checked against the thread's
+   * warehouse by the service — the repository writes what it is given.
+   */
+  readonly orderRefs: readonly OrderReferenceInput[];
+}
+
+/** One `@` mention to persist: the order, plus its number as a snapshot. */
+export interface OrderReferenceInput {
+  readonly orderId: string;
+  readonly orderNumber: string;
 }
 
 /** What recording an upload needs beyond the actor. */
@@ -140,6 +153,39 @@ export interface MessagingRepositoryPort {
 
   /** Drops the rows for attachments whose objects have been deleted. */
   deleteAttachments(ids: readonly string[]): Promise<number>;
+
+  // ---- order mentions (M17.4) ------------------------------------------------
+
+  /**
+   * Orders that may be mentioned in the thread for `warehouseId` — those the
+   * warehouse has an `OrderVendorGroup` in, which is exactly the set its vendor
+   * is allowed to see.
+   */
+  searchMentionableOrders(
+    companyId: string,
+    warehouseId: string,
+    search: MentionSearch,
+    limit: number,
+    /**
+     * Whether a free-text query may match the customer's name. False for a
+     * vendor: they reach these orders, but not who placed them, and a name
+     * search would let them recover that by probing.
+     */
+    allowCustomerSearch: boolean,
+  ): Promise<readonly MentionableOrderView[]>;
+
+  /**
+   * The subset of `orderIds` that is mentionable in `warehouseId`'s thread.
+   *
+   * The authority behind an `@`: whatever the client sent is checked against
+   * this before it is written, so a mention can never name an order outside
+   * the conversation it appears in.
+   */
+  findMentionableOrdersByIds(
+    companyId: string,
+    warehouseId: string,
+    orderIds: readonly string[],
+  ): Promise<readonly MentionableOrderView[]>;
 }
 
 /** DI token for {@link MessagingRepositoryPort}. */

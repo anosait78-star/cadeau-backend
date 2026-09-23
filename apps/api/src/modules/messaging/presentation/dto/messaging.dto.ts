@@ -2,12 +2,15 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUUID, Length } from "class-validator";
 import type { KeysetPage } from "@cadeau/database";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "../../domain/image-rules";
+import { MAX_ORDER_REFS_PER_MESSAGE } from "../../domain/mention-rules";
 import {
   SENDER_KINDS,
   THREAD_STATUSES,
   type AttachmentView,
+  type MentionableOrderView,
   type MessageThreadView,
   type MessageView,
+  type OrderReferenceView,
 } from "../../domain/message.entity";
 import type { VendorWarehouseView } from "../../domain/messaging-repository.port";
 
@@ -45,6 +48,20 @@ export class SendMessageDto {
   @ArrayMaxSize(MAX_ATTACHMENTS_PER_MESSAGE)
   @IsUUID("4", { each: true })
   attachmentIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    format: "uuid",
+    maxItems: MAX_ORDER_REFS_PER_MESSAGE,
+    description:
+      "Orders this message points at. Each must be mentionable in this " +
+      "conversation — i.e. the thread's warehouse has a group in it.",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_ORDER_REFS_PER_MESSAGE)
+  @IsUUID("4", { each: true })
+  orderIds?: string[];
 }
 
 // ---- Response DTOs -------------------------------------------------------------
@@ -112,6 +129,63 @@ export class AttachmentDto {
   }
 }
 
+/**
+ * An order a message points at.
+ *
+ * Number and status only. A vendor sees an order solely through their own
+ * group in it, so the order's total — which sums every vendor's items — and
+ * the customer's details stay out of the mention card.
+ */
+export class OrderReferenceDto {
+  @ApiProperty({ format: "uuid" })
+  orderId!: string;
+  @ApiProperty()
+  orderNumber!: string;
+  @ApiProperty({ nullable: true, description: "Null if the order no longer exists." })
+  status!: string | null;
+
+  static from(view: OrderReferenceView): OrderReferenceDto {
+    const dto = new OrderReferenceDto();
+    dto.orderId = view.orderId;
+    dto.orderNumber = view.orderNumber;
+    dto.status = view.status;
+    return dto;
+  }
+}
+
+/** An order the `@` picker offers. */
+export class MentionableOrderDto {
+  @ApiProperty({ format: "uuid" })
+  orderId!: string;
+  @ApiProperty()
+  orderNumber!: string;
+  @ApiProperty()
+  status!: string;
+  @ApiProperty({ format: "date-time" })
+  createdAt!: string;
+
+  static from(view: MentionableOrderView): MentionableOrderDto {
+    const dto = new MentionableOrderDto();
+    dto.orderId = view.orderId;
+    dto.orderNumber = view.orderNumber;
+    dto.status = view.status;
+    dto.createdAt = view.createdAt;
+    return dto;
+  }
+}
+
+/** The orders that may be mentioned in one conversation. */
+export class MentionableOrderListDto {
+  @ApiProperty({ type: [MentionableOrderDto] })
+  data!: MentionableOrderDto[];
+
+  static from(views: readonly MentionableOrderView[]): MentionableOrderListDto {
+    const dto = new MentionableOrderListDto();
+    dto.data = views.map((v) => MentionableOrderDto.from(v));
+    return dto;
+  }
+}
+
 /** One message in a conversation. */
 export class MessageDto {
   @ApiProperty({ format: "uuid" })
@@ -128,6 +202,8 @@ export class MessageDto {
   body!: string | null;
   @ApiProperty({ type: [AttachmentDto] })
   attachments!: AttachmentDto[];
+  @ApiProperty({ type: [OrderReferenceDto] })
+  orderRefs!: OrderReferenceDto[];
   @ApiProperty({ format: "date-time", nullable: true })
   deletedAt!: string | null;
   @ApiProperty({ format: "date-time" })
@@ -142,6 +218,7 @@ export class MessageDto {
     dto.senderKind = view.senderKind;
     dto.body = view.body;
     dto.attachments = view.attachments.map((a) => AttachmentDto.from(a));
+    dto.orderRefs = view.orderRefs.map((r) => OrderReferenceDto.from(r));
     dto.deletedAt = view.deletedAt;
     dto.createdAt = view.createdAt;
     return dto;

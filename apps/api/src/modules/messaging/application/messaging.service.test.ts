@@ -51,6 +51,7 @@ function messageView(extra: Partial<MessageRecord> = {}): MessageRecord {
     senderKind: "staff",
     body: "hello",
     attachments: [],
+    orderRefs: [],
     deletedAt: null,
     createdAt: "2026-01-02T03:04:05.000Z",
     ...extra,
@@ -100,6 +101,8 @@ function makeService(participant: Participant = staff) {
     findUnclaimedAttachments: vi.fn().mockResolvedValue([]),
     findOrphanedAttachments: vi.fn().mockResolvedValue([]),
     deleteAttachments: vi.fn().mockResolvedValue(0),
+    searchMentionableOrders: vi.fn().mockResolvedValue([]),
+    findMentionableOrdersByIds: vi.fn().mockResolvedValue([]),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const storage = {
@@ -156,7 +159,7 @@ describe("MessagingService — vendor isolation", () => {
     repo.findThreadById.mockResolvedValue(threadView({ id: THREAD_B, warehouseId: WAREHOUSE_B }));
 
     await expect(
-      service.sendMessage(principal, THREAD_B, { body: "hi", attachmentIds: [] }),
+      service.sendMessage(principal, THREAD_B, { body: "hi", attachmentIds: [], orderIds: [] }),
     ).rejects.toMatchObject({
       status: 404,
     });
@@ -258,6 +261,7 @@ describe("MessagingService — posting", () => {
     await service.sendMessage(principal, THREAD_A, {
       body: "the order is ready",
       attachmentIds: [],
+      orderIds: [],
     });
 
     expect(repo.createMessage).toHaveBeenCalledWith(
@@ -272,6 +276,7 @@ describe("MessagingService — posting", () => {
     await service.sendMessage(principal, THREAD_A, {
       body: "  hello\n\nthere  ",
       attachmentIds: [],
+      orderIds: [],
     });
 
     expect(repo.createMessage).toHaveBeenCalledWith(
@@ -284,7 +289,7 @@ describe("MessagingService — posting", () => {
     const { service, repo } = makeService(staff);
 
     await expect(
-      service.sendMessage(principal, THREAD_A, { body: "   ", attachmentIds: [] }),
+      service.sendMessage(principal, THREAD_A, { body: "   ", attachmentIds: [], orderIds: [] }),
     ).rejects.toMatchObject({
       status: 400,
     });
@@ -296,7 +301,7 @@ describe("MessagingService — posting", () => {
     repo.findThreadById.mockResolvedValue(threadView({ status: "archived" }));
 
     await expect(
-      service.sendMessage(principal, THREAD_A, { body: "hi", attachmentIds: [] }),
+      service.sendMessage(principal, THREAD_A, { body: "hi", attachmentIds: [], orderIds: [] }),
     ).rejects.toMatchObject({
       status: 409,
     });
@@ -306,7 +311,11 @@ describe("MessagingService — posting", () => {
   it("audits the send without recording the message text", async () => {
     const { service, audit } = makeService(staff);
 
-    await service.sendMessage(principal, THREAD_A, { body: "call 01000000000", attachmentIds: [] });
+    await service.sendMessage(principal, THREAD_A, {
+      body: "call 01000000000",
+      attachmentIds: [],
+      orderIds: [],
+    });
 
     const record = audit.record.mock.calls[0]?.[0];
     expect(record).toMatchObject({ action: "message.sent", entityType: "message" });

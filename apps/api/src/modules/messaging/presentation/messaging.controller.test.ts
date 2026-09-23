@@ -39,6 +39,7 @@ function messageView(extra: Partial<MessageView> = {}): MessageView {
     senderKind: "staff",
     body: "hello",
     attachments: [],
+    orderRefs: [],
     deletedAt: null,
     createdAt: "2026-01-02T03:04:05.000Z",
     ...extra,
@@ -72,6 +73,15 @@ describe("MessagingController — access gating", () => {
       permission: "messaging.read",
     });
     expect(capabilityOf(MessagingController.prototype.listMessages)).toEqual({
+      feature: "messaging",
+      permission: "messaging.read",
+    });
+  });
+
+  // The picker reveals order numbers, so it is gated like any other read of
+  // the conversation rather than left open to anyone who can reach the route.
+  it("gates the @ picker on messaging.read", () => {
+    expect(capabilityOf(MessagingController.prototype.listMentionableOrders)).toEqual({
       feature: "messaging",
       permission: "messaging.read",
     });
@@ -197,6 +207,7 @@ describe("MessagingController — messages", () => {
     expect(service.sendMessage).toHaveBeenCalledWith(principal, THREAD, {
       body: "hello",
       attachmentIds: [],
+      orderIds: [],
     });
     expect(result.id).toBe("msg-1");
   });
