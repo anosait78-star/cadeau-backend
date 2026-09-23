@@ -10,6 +10,7 @@ import { FinanceModule } from "./modules/finance/finance.module";
 import { IntegrationsModule } from "./modules/integrations/integrations.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
+import { MessagingModule } from "./modules/messaging/messaging.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { ProductsModule } from "./modules/products/products.module";
@@ -47,6 +48,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     FinanceModule,
     AnalyticsModule,
     NotificationsModule,
+    MessagingModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })
