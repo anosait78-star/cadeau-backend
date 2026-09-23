@@ -29,7 +29,7 @@ confined to exactly one warehouse (Vendor Accounts, Phase 1). That column, not
 | M17.3     | `ced83e4` | `@cadeau/storage`, image upload + re-encode, orphan sweeper                             |
 | M17.4     | `6d282c6` | `@` order mentions: picker + server-side validation                                     |
 | M17.5     | `4b181e5` | `message.received` notification dispatch                                                |
-| M17.6     | _pending_ | Web UI: staff thread list/panel, vendor tab, composer, `@` picker, lightbox             |
+| M17.6     | `8a7f04c` | Web UI: staff thread list/panel, vendor tab, composer, `@` picker, lightbox             |
 
 ### Files
 
