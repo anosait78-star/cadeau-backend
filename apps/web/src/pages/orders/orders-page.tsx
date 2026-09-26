@@ -67,6 +67,7 @@ import {
 } from "./orders-detail-sections";
 import { downloadCsv, ordersToCsv } from "./orders-export";
 import { OrdersBoard } from "./orders-board";
+import { OrdersMobileStatusBar } from "./orders-mobile-status-bar";
 import { OrdersFilterBar } from "./orders-filter-bar";
 import { TRANSITIONS } from "./orders-row-actions";
 import { isWhatsappStatus, openWhatsappForOrder, type WhatsappStatus } from "./orders-whatsapp";
@@ -579,6 +580,14 @@ function OrdersScreen(): ReactNode {
       ? buildOrderDetailHeader({ detail: detailData.detail, locale, t })
       : null;
 
+  /*
+   * Selection mode on a phone is simply "something is selected": entered by
+   * holding a card, left by clearing. Deriving it rather than storing a flag
+   * means the two can never disagree — in particular, un-picking the last card
+   * always exits, with nothing to remember to reset.
+   */
+  const mobileSelectionMode = !isDesktop && selection.selectedIds.size > 0;
+
   const visibleRows = useMemo(() => {
     if (state.kind !== "ready") return [];
     if (paymentFilter === "all") return state.items;
@@ -693,7 +702,17 @@ function OrdersScreen(): ReactNode {
           statuses, so a tab strip above it would be a second, redundant copy of
           the same axis; on a phone there is no board, so the strip still is the
           only way to narrow by status. */}
-      {isDesktop ? null : (
+      {mobileSelectionMode ? (
+        <OrdersMobileStatusBar
+          selectedCount={selection.selectedIds.size}
+          targets={bulkStatusTargets}
+          onPick={(to) => void onBulkStatus(to)}
+          onClear={selection.clear}
+          t={t}
+        />
+      ) : null}
+
+      {isDesktop || mobileSelectionMode ? null : (
         <div
           className={cn(
             "flex gap-1.5 rounded-2xl border border-border bg-card p-1.5 shadow-xs",
@@ -824,6 +843,10 @@ function OrdersScreen(): ReactNode {
                   sendingWhatsapp={sendingWhatsappId === order.id}
                   onOpenDetail={setSelectedOrder}
                   onSendWhatsapp={() => void sendWhatsapp(order, order.status as WhatsappStatus)}
+                  selectionMode={mobileSelectionMode}
+                  selected={selection.selectedIds.has(order.id)}
+                  onToggleSelect={() => selection.onToggle(order.id)}
+                  canSelect={canManageOrders}
                 />
               )}
               emptyTitle={t("orders.empty")}
@@ -1052,6 +1075,10 @@ function OrderCard({
   sendingWhatsapp,
   onOpenDetail,
   onSendWhatsapp,
+  selectionMode,
+  selected,
+  onToggleSelect,
+  canSelect,
 }: {
   order: OrderListItem;
   t: Translate;
@@ -1059,13 +1086,27 @@ function OrderCard({
   sendingWhatsapp: boolean;
   onOpenDetail: (order: OrderListItem) => void;
   onSendWhatsapp: () => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  /** Only someone who may move orders is offered the gesture at all. */
+  canSelect: boolean;
 }): ReactNode {
   // A list row, not a stacked table: the order number leads, the customer is the
   // title, the money is the trailing value, and the rest is one secondary line.
   return (
     <div className="card-raised overflow-hidden rounded-xl border border-border bg-card">
       <MobileListRow
-        onPress={() => onOpenDetail(order)}
+        /*
+         * Once anything is selected a tap picks rows instead of opening one:
+         * a list that opened a card mid-selection would throw away the
+         * selection the user was still building.
+         */
+        onPress={() => (selectionMode ? onToggleSelect() : onOpenDetail(order))}
+        {...(canSelect ? { onLongPress: onToggleSelect } : {})}
+        selectionMode={selectionMode}
+        selected={selected}
+        selectLabel={t("orders.mobile.selectOrder", { order: order.orderNumber })}
         leading={
           <span
             className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-caption font-semibold text-muted-foreground"

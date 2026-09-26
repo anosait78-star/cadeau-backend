@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
@@ -925,6 +925,108 @@ describe("OrdersPage", () => {
       await screen.findByText("MAN-ABC123");
       expect(screen.queryByRole("button", { name: "Waybill" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Create shipment" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("on a phone", () => {
+    /** The shared setup reports desktop; this narrows it for one block. */
+    function goMobile(): void {
+      window.matchMedia = ((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      })) as unknown as typeof window.matchMedia;
+    }
+
+    /** Hold a card down past the gesture's threshold. */
+    function hold(element: Element): void {
+      fireEvent.pointerDown(element, { clientX: 0, clientY: 0, button: 0, pointerType: "touch" });
+      act(() => void vi.advanceTimersByTime(600));
+      fireEvent.pointerUp(element);
+    }
+
+    beforeEach(() => {
+      goMobile();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("holding an order selects it and offers the statuses it may move to", async () => {
+      renderPage();
+      const card = await screen.findByRole("button", { name: /Sara/ });
+
+      hold(card);
+
+      // "new" may go to confirming / processing / cancelled / postponed.
+      expect(await screen.findByText("1 selected")).toBeInTheDocument();
+      expect(screen.getByRole("group", { name: "Change status to" })).toBeInTheDocument();
+      expect(screen.getByText("Processing")).toBeInTheDocument();
+      // The filter strip stands down while the action strip is up, so the two
+      // identical-looking rows are never on screen together.
+      expect(screen.queryByRole("tab", { name: /All/ })).not.toBeInTheDocument();
+    });
+
+    it("picking a status moves every selected order", async () => {
+      renderPage();
+      const card = await screen.findByRole("button", { name: /Sara/ });
+      hold(card);
+      await screen.findByText("1 selected");
+
+      fireEvent.click(screen.getByText("Processing"));
+
+      await waitFor(() => {
+        const call = fetchMock.mock.calls.find((c) =>
+          (c[0] as string).endsWith("/orders/bulk/status"),
+        );
+        expect(call).toBeDefined();
+        expect(JSON.parse((call![1] as RequestInit).body as string)).toMatchObject({
+          toStatus: "processing",
+        });
+      });
+    });
+
+    it("sends cancelling through the reason dialog rather than straight out", async () => {
+      renderPage();
+      const card = await screen.findByRole("button", { name: /Sara/ });
+      hold(card);
+      await screen.findByText("1 selected");
+
+      fireEvent.click(screen.getByText("Cancelled"));
+
+      // A cancel needs a reason, which the server enforces; no request yet.
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(
+        fetchMock.mock.calls.some((c) => (c[0] as string).endsWith("/orders/bulk/status")),
+      ).toBe(false);
+    });
+
+    it("leaves selection mode when the last order is unpicked", async () => {
+      renderPage();
+      const card = await screen.findByRole("button", { name: /Sara/ });
+      hold(card);
+      await screen.findByText("1 selected");
+
+      fireEvent.click(screen.getByRole("checkbox", { name: /Select order/ }));
+
+      await waitFor(() => expect(screen.queryByText("1 selected")).not.toBeInTheDocument());
+      expect(await screen.findByRole("tab", { name: /All/ })).toBeInTheDocument();
+    });
+
+    it("offers no gesture to someone who may not move orders", async () => {
+      renderPage(["orders"], ["orders.read"]);
+      const card = await screen.findByRole("button", { name: /Sara/ });
+
+      hold(card);
+
+      expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
     });
   });
 });
