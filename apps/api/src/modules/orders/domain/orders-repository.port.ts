@@ -9,7 +9,7 @@ import type {
   StatusChangeResult,
 } from "./order.entity";
 import type { ParsedOrderListQuery } from "./list-query";
-import type { FollowUpState, OrderStatus, PaymentStatus } from "./order-status";
+import type { FollowUpState, OrderStatus, PaymentStatus, SalesChannel } from "./order-status";
 
 /** The tenant + acting member for a write. */
 export interface WriteActor {
@@ -71,6 +71,7 @@ export interface CreateOrderInput {
    * `collectedAmount`/`paymentStatus` when both are given.
    */
   readonly markFullyPaid?: boolean;
+  readonly salesChannel?: SalesChannel | null;
   readonly notes?: string | null;
   readonly delivery?: DeliverySnapshotInput;
   readonly items: readonly CreateOrderItemInput[];

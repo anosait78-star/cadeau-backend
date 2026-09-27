@@ -30,9 +30,12 @@ import {
   FOLLOW_UP_STATES,
   ORDER_STATUSES,
   PAYMENT_STATUSES,
+  SALES_CHANNELS,
+  STAFF_SALES_CHANNELS,
   type FollowUpState,
   type OrderStatus,
   type PaymentStatus,
+  type SalesChannel,
 } from "../../domain/order-status";
 import {
   aggregateVendorOrderStatus,
@@ -129,6 +132,15 @@ export class CreateOrderDto {
   @IsOptional()
   @IsIn(PAYMENT_STATUSES)
   paymentStatus?: PaymentStatus;
+
+  @ApiPropertyOptional({
+    enum: STAFF_SALES_CHANNELS,
+    description:
+      "Where a staff-taken order came from. `storefront` is not accepted here — the integration sets it itself.",
+  })
+  @IsOptional()
+  @IsIn(STAFF_SALES_CHANNELS)
+  salesChannel?: SalesChannel;
 
   @ApiPropertyOptional({
     example: 0,
@@ -376,6 +388,8 @@ class OrderMoneyFields {
   collectedAmount!: number;
   @ApiProperty({ enum: ["unpaid", "partial", "paid"] })
   paymentStatus!: string;
+  @ApiProperty({ enum: SALES_CHANNELS, nullable: true })
+  salesChannel!: string | null;
 }
 
 /** An order line. */
@@ -459,6 +473,7 @@ export class OrderListItemDto extends OrderMoneyFields {
     dto.total = view.total;
     dto.collectedAmount = view.collectedAmount;
     dto.paymentStatus = view.paymentStatus;
+    dto.salesChannel = view.salesChannel;
     dto.statusChangedAt = view.statusChangedAt;
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;

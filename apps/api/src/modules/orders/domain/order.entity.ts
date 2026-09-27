@@ -4,7 +4,7 @@
  * integer minor units (api-conventions §money).
  */
 
-import type { FollowUpState, OrderStatus, PaymentStatus } from "./order-status";
+import type { FollowUpState, OrderStatus, PaymentStatus, SalesChannel } from "./order-status";
 
 /** One line on an order: a variant, a quantity, a unit price, a frozen cost. */
 export interface OrderItemView {
@@ -55,6 +55,8 @@ export interface OrderListView extends OrderMoney {
   readonly reasonId: string | null;
   readonly governorateId: string | null;
   readonly warehouseId: string | null;
+  /** Where the order came from; null when nobody recorded one. */
+  readonly salesChannel: SalesChannel | null;
   readonly itemCount: number;
   readonly statusChangedAt: string;
   readonly createdAt: string;

@@ -350,6 +350,9 @@ export class StorefrontIngestionService {
     const { order } = await this.orders.create(principal, {
       customerId,
       items,
+      // Set here, never offered in the order form: an order that arrived this
+      // way is from the shop, and nobody should be able to say otherwise.
+      salesChannel: "storefront",
       ...(delivery !== undefined ? { delivery } : {}),
       ...(connection.defaultWarehouseId === null
         ? {}

@@ -1077,6 +1077,10 @@ model Order {
   collectedAmount BigInt   @default(0) @map("collected_amount")
   /// Derived from collected vs total: `unpaid` / `partial` / `paid`.
   paymentStatus   String   @default("unpaid") @map("payment_status")
+  /// Where the order came from: `facebook` | `whatsapp` | `tiktok` |
+  /// `instagram` | `phone` | `storefront`. Null on orders placed before this
+  /// column existed, and on manual orders where staff did not say.
+  salesChannel    String?  @map("sales_channel")
   notes           String?
   /// Delivery snapshot (2026-09-13): who and where this order ships to,
   /// captured when it was placed so a customer's later address or name change

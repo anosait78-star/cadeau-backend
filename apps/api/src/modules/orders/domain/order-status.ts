@@ -38,6 +38,23 @@ export const PAYMENT_STATUSES = ["unpaid", "partial", "paid"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 /**
+ * Where an order came from. The first five are what staff pick when they take
+ * an order by hand; `storefront` is set by the integration itself, never
+ * offered in the form. A fixed set rather than editable master data, because
+ * each key carries its own icon in the UI.
+ */
+export const STAFF_SALES_CHANNELS = [
+  "facebook",
+  "whatsapp",
+  "tiktok",
+  "instagram",
+  "phone",
+] as const;
+
+export const SALES_CHANNELS = [...STAFF_SALES_CHANNELS, "storefront"] as const;
+export type SalesChannel = (typeof SALES_CHANNELS)[number];
+
+/**
  * The default legal transitions. A `from` state maps to the set of `to` states
  * it may move to; a state absent from a `from`'s set is illegal (→ `422`).
  * `cancelled` and `exchanged` are terminal (empty sets).

@@ -43,6 +43,8 @@ export interface OrdersIngestionInput {
    * (D4: no duplicated business logic).
    */
   readonly markFullyPaid?: boolean;
+  /** Always `storefront` from this path; the field exists so it is recorded. */
+  readonly salesChannel?: "storefront";
   readonly delivery?: IngestionDeliverySnapshot;
 }
 
