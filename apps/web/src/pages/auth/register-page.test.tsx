@@ -84,4 +84,51 @@ describe("RegisterPage", () => {
       ),
     );
   });
+
+  it("puts a rejected field's message under that field, in place of the generic line", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValueOnce(
+      json(400, {
+        error: {
+          code: "VALIDATION_FAILED",
+          statusCode: 400,
+          details: [
+            { field: "phone", messages: ["phone must be a valid phone number"] },
+            { field: "password", messages: ["password must be longer than 8 characters"] },
+          ],
+        },
+      }),
+    );
+    renderRegister();
+
+    await user.type(screen.getByLabelText("البريد الإلكتروني"), "new@acme.test");
+    await user.type(screen.getByLabelText(/كلمة المرور/), "short");
+    await user.click(screen.getByRole("button", { name: "إنشاء الحساب" }));
+
+    const phone = await screen.findByText("استخدم أرقامًا إنجليزية فقط، مثال: 01001234567.");
+    expect(screen.getByText("كلمة المرور لا تقل عن 8 حروف.")).toBeInTheDocument();
+    // The offending inputs are marked, and each message is tied to its own input.
+    expect(screen.getByLabelText(/الهاتف/)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/الهاتف/)).toHaveAccessibleDescription(phone.textContent!);
+    // The API's English constraint text never reaches the reader.
+    expect(screen.queryByText(/must be/)).not.toBeInTheDocument();
+    // …and the vague summary steps aside for the specific messages.
+    expect(screen.queryByText("يُرجى مراجعة الحقول المميّزة.")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the generic message when the rejection names no field", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValueOnce(
+      json(400, { error: { code: "VALIDATION_FAILED", statusCode: 400 } }),
+    );
+    renderRegister();
+
+    await user.type(screen.getByLabelText("البريد الإلكتروني"), "new@acme.test");
+    await user.type(screen.getByLabelText(/كلمة المرور/), "correct horse battery");
+    await user.click(screen.getByRole("button", { name: "إنشاء الحساب" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("يُرجى مراجعة الحقول المميّزة."),
+    );
+  });
 });

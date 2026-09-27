@@ -29,6 +29,38 @@ export function authErrorKey(error: unknown, context: AuthErrorContext): Transla
   }
 }
 
+/**
+ * The fields a validation failure names, mapped to the message to show under
+ * each one.
+ *
+ * The API answers a rejected form with `details: [{ field, messages }]`, so the
+ * screen can mark the offending input instead of asking the reader to guess
+ * which one it meant. The constraint text itself is English and written for
+ * developers ("password must be longer than or equal to 8 characters"), so the
+ * field name picks our own wording; an unrecognized field is left out rather
+ * than shown raw.
+ */
+export function authFieldErrors(error: unknown): Partial<Record<string, TranslationKey>> {
+  if (!(error instanceof ApiError) || !Array.isArray(error.details)) return {};
+
+  const byField: Partial<Record<string, TranslationKey>> = {};
+  for (const entry of error.details) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const field = (entry as { field?: unknown }).field;
+    if (typeof field !== "string") continue;
+    const key = AUTH_FIELD_MESSAGES[field];
+    if (key !== undefined) byField[field] = key;
+  }
+  return byField;
+}
+
+const AUTH_FIELD_MESSAGES: Readonly<Record<string, TranslationKey>> = {
+  email: "auth.invalid.email",
+  password: "auth.invalid.password",
+  fullName: "auth.invalid.fullName",
+  phone: "auth.invalid.phone",
+};
+
 /** Map a thrown error from the change-password form to a localized message key. */
 export function changePasswordErrorKey(error: unknown): TranslationKey {
   if (error instanceof ApiError && error.code === "BAD_REQUEST") {
