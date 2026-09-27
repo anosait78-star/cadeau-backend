@@ -73,6 +73,11 @@ export function SelectCarrierDialog({
   // storefront's own free-text governorate/area, never sent to the carrier.
   const [savedGovernorateHint, setSavedGovernorateHint] = useState<string | null>(null);
   const [savedAreaHint, setSavedAreaHint] = useState<string | null>(null);
+  // Bosta's own ids, read off a hand-entered address (see `manualMapping`).
+  const [manualMapping, setManualMapping] = useState<{
+    cityId: string;
+    districtId: string | null;
+  } | null>(null);
   const [notes, setNotes] = useState("");
   const [goodsValue, setGoodsValue] = useState("");
   const [recipientFirstName, setRecipientFirstName] = useState("");
@@ -92,6 +97,7 @@ export function SelectCarrierDialog({
     setLandmark("");
     setSavedGovernorateHint(null);
     setSavedAreaHint(null);
+    setManualMapping(null);
     setNotes("");
     setGoodsValue("");
     setRecipientFirstName("");
@@ -122,6 +128,25 @@ export function SelectCarrierDialog({
         const [first, ...rest] = name.trim().split(/\s+/);
         setRecipientFirstName(first ?? "");
         setRecipientLastName(rest.join(" "));
+        const saved =
+          customer?.addresses.find((a) => a.isDefault && a.active) ??
+          customer?.addresses.find((a) => a.active);
+
+        /*
+         * A hand-entered address already holds the Bosta city/district the
+         * staff member picked in the order form, so the pickers below can be
+         * set from those ids instead of guessing from a name. Storefront data
+         * is deliberately left out of this path (2026-09-27 decision): an
+         * order carrying the storefront's own governorate/area text keeps the
+         * name-matching behaviour it has always had, untouched, and only an
+         * address staff typed themselves is read for ids.
+         */
+        const storefrontToldUsWhere =
+          delivery !== null && (delivery.rawState !== null || delivery.rawCity !== null);
+        if (!storefrontToldUsWhere && saved?.source === "manual" && saved.bostaCityId !== null) {
+          setManualMapping({ cityId: saved.bostaCityId, districtId: saved.bostaDistrictId });
+        }
+
         if (delivery !== null && delivery.line !== null) {
           setAddressLine(delivery.line);
           setLandmark(delivery.landmark ?? "");
@@ -129,9 +154,6 @@ export function SelectCarrierDialog({
           setSavedAreaHint(delivery.rawCity);
           return;
         }
-        const saved =
-          customer?.addresses.find((a) => a.isDefault && a.active) ??
-          customer?.addresses.find((a) => a.active);
         if (saved !== undefined) {
           setAddressLine(saved.line);
           setLandmark(saved.landmark ?? "");
@@ -160,6 +182,23 @@ export function SelectCarrierDialog({
   // staff pick), and only on an exact (trimmed) name match — no fuzzy
   // guessing, since a wrong Bosta city/district can misroute the shipment.
   // Staff sees it selected in the same editable dropdown and can correct it.
+  // The hand-entered mapping: exact ids, so no name matching is involved and
+  // the district needs no wait for the city's list to load.
+  useEffect(() => {
+    if (manualMapping === null || bostaCityId !== "" || bostaCities.length === 0) return;
+    if (!bostaCities.some((c) => c.id === manualMapping.cityId)) return;
+    setBostaCityId(manualMapping.cityId);
+  }, [manualMapping, bostaCities, bostaCityId]);
+
+  useEffect(() => {
+    const districtId = manualMapping?.districtId ?? null;
+    if (districtId === null || bostaDistrictId !== "") return;
+    const match = bostaDistricts.find((d) => d.districtId === districtId);
+    if (match === undefined) return;
+    setBostaZoneId(match.zoneId);
+    setBostaDistrictId(match.districtId);
+  }, [manualMapping, bostaDistricts, bostaDistrictId]);
+
   useEffect(() => {
     if (bostaCityId !== "" || !savedGovernorateHint || bostaCities.length === 0) return;
     const target = canonicalizeArabicName(savedGovernorateHint);

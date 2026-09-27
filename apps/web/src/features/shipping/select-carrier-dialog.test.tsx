@@ -314,6 +314,82 @@ describe("SelectCarrierDialog — Bosta fields (moved from the customer/order fo
     expect(screen.getByLabelText("Governorate")).toBeEnabled();
   });
 
+  it("selects the Bosta city/district a hand-entered address already carries", async () => {
+    // The order form stores what staff picked, so the shipment does not have to
+    // re-derive it from a name — these ids match no text on the address at all.
+    customerAddresses = [
+      {
+        id: "addr-1",
+        customerId: "cust-1",
+        line: "5 Tahrir street",
+        landmark: null,
+        notes: null,
+        governorateId: "gov-1",
+        bostaCityId: "c1",
+        bostaDistrictId: "d1",
+        bostaCityName: "Cairo",
+        source: "manual",
+        rawCity: null,
+        rawState: null,
+        isDefault: true,
+        active: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const user = userEvent.setup();
+    renderDialog(() => {});
+
+    await user.click(screen.getByLabelText("Shipping company"));
+    await user.click(await screen.findByRole("option", { name: "bosta" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Governorate")).toHaveTextContent("Cairo"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("District")).toHaveTextContent("1st Settlement"),
+    );
+  });
+
+  it("leaves a storefront order's own text in charge, ignoring any hand-entered ids", async () => {
+    // The storefront named the place on this order, so the long-standing
+    // name-matching path decides — an address staff typed later must not
+    // quietly re-route someone else's order (2026-09-27 decision).
+    orderDelivery = {
+      name: "Naruto Uzumaki",
+      line: "9 Storefront street",
+      landmark: null,
+      rawCity: "1st Settlement",
+      rawState: "Cairo",
+    };
+    customerAddresses = [
+      {
+        id: "addr-2",
+        customerId: "cust-1",
+        line: "5 Tahrir street",
+        landmark: null,
+        notes: null,
+        governorateId: null,
+        bostaCityId: "c-elsewhere",
+        bostaDistrictId: "d-elsewhere",
+        bostaCityName: "Alexandria",
+        source: "manual",
+        rawCity: null,
+        rawState: null,
+        isDefault: true,
+        active: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const user = userEvent.setup();
+    renderDialog(() => {});
+
+    await user.click(screen.getByLabelText("Shipping company"));
+    await user.click(await screen.findByRole("option", { name: "bosta" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Governorate")).toHaveTextContent("Cairo"));
+    expect(screen.getByLabelText("Address")).toHaveValue("9 Storefront street");
+  });
+
   it("matches a common Arabic spelling variant (trailing ة vs ه) — same place, not a guess", async () => {
     // Bosta spells it "المنوفيه" (ه); the storefront's own checkout dropdown
     // spells it "المنوفية" (ة) — same governorate, real-world discrepancy
