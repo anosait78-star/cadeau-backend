@@ -192,6 +192,28 @@ describe("buildOrderDetailSections", () => {
     expect(screen.queryByText("orders.field.remaining")).not.toBeInTheDocument();
   });
 
+  it("shows where the order came from, and nothing when nobody said", () => {
+    const build = (detail: OrderDetail) =>
+      buildOrderDetailSections({
+        detail,
+        activity: [],
+        vendorGroups: [],
+        t,
+        locale: "en",
+        companyId: "co1",
+        onNotify: () => {},
+        onPatch: () => {},
+      }).find((s) => s.key === "summary");
+
+    const viaWhatsApp = build({ ...ORDER_DETAIL, salesChannel: "whatsapp" });
+    const { unmount } = render(<div>{viaWhatsApp?.content}</div>);
+    expect(screen.getByTestId("detail-sales-channel")).toHaveTextContent("orders.channel.whatsapp");
+    unmount();
+
+    render(<div>{build(ORDER_DETAIL)?.content}</div>);
+    expect(screen.queryByTestId("detail-sales-channel")).not.toBeInTheDocument();
+  });
+
   it("notes section shows the order's notes", () => {
     const sections = buildOrderDetailSections({
       detail: ORDER_DETAIL,

@@ -22,7 +22,15 @@ For undoing a bad deploy, see [rollback.md](./rollback.md).
 | Path on server | `~/cadeau-backend`                              | `~/cadeau-front`                               |
 | Layout         | monorepo (`apps/api`, `apps/web`, `packages/*`) | flat mirror of `apps/web` (`src/` at the root) |
 | Served by      | pm2 app `cadeau-api` → `127.0.0.1:3003`         | nginx static root `/var/www/crm`               |
-| Public URL     | `https://crmapi.nosait.com`                     | `https://crm.nosait.com`                       |
+| Public URL     | `https://crmapi.cadeauegypt.com`                | `https://crm.cadeauegypt.com`                  |
+
+Both moved off `nosait.com` on 2026-09-26, frontend first, then the API. The
+old hosts still answer — same web root, same pm2 app — and stay up as a safety
+net until the new ones have been used in anger, then become redirects. Bosta is
+unaffected by the API move: we call them, they never call us (there is an
+inbound webhook route in the code, but no URL is registered on their side). The
+**storefront still posts orders to `crmapi.nosait.com`** and is the one caller
+left to repoint.
 
 SSH:
 
@@ -35,7 +43,7 @@ Three things that will bite you if you assume otherwise:
 - **The API is on port 3003, not 3000.** Port 3000 on this box belongs to an
   unrelated Next.js site. Curling `localhost:3000/v1/health` returns _that_ app's
   404 page, which looks like the API is broken when it is fine. Confirm with
-  `grep proxy_pass /etc/nginx/sites-enabled/crmapi.nosait.com`.
+  `grep proxy_pass /etc/nginx/sites-enabled/crmapi.cadeauegypt.com`.
 - **`/var/www/crm` is a plain copy of `dist/`, not a symlink.** Building in
   `~/cadeau-front` changes nothing on the live site until you copy the files over.
 - **The server has no GitHub push credentials.** It can `pull`/`fetch` but
@@ -117,7 +125,7 @@ grep -c "addressLine" apps/api/dist/modules/shipping/presentation/dto/shipping.d
 pm2 restart cadeau-api --update-env
 pm2 list                                   # status online, restart count +1 (not climbing)
 curl -s http://127.0.0.1:3003/v1/health    # {"status":"ok",...}
-curl -s https://crmapi.nosait.com/v1/health
+curl -s https://crmapi.cadeauegypt.com/v1/health
 ```
 
 Then check nothing new is erroring — and check the **timestamps**, because this
@@ -132,7 +140,7 @@ the route exists and the guard is up.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
-  https://crmapi.nosait.com/v1/shipping/shipments -H 'Content-Type: application/json' -d '{}'
+  https://crmapi.cadeauegypt.com/v1/shipping/shipments -H 'Content-Type: application/json' -d '{}'
 ```
 
 ---
@@ -255,9 +263,9 @@ contains your change — this is what proves the deploy landed, not just that th
 build succeeded:
 
 ```bash
-curl -s https://crm.nosait.com/ | grep -o 'assets/[^"]*'
-curl -s -o /dev/null -w '%{http_code}\n' https://crm.nosait.com/assets/index-<HASH>.js
-curl -s https://crm.nosait.com/assets/index-<HASH>.js | grep -c addressLine
+curl -s https://crm.cadeauegypt.com/ | grep -o 'assets/[^"]*'
+curl -s -o /dev/null -w '%{http_code}\n' https://crm.cadeauegypt.com/assets/index-<HASH>.js
+curl -s https://crm.cadeauegypt.com/assets/index-<HASH>.js | grep -c addressLine
 ```
 
 Then load the app and click through the screen you changed. A bundle containing
@@ -265,7 +273,82 @@ the right strings is strong evidence, not proof that the UI behaves.
 
 ---
 
-## 3. Windows / PowerShell notes
+## 3. Environment variables, and adding a domain
+
+### 3.1 Editing `.env.production` does nothing on its own
+
+pm2 keeps its own copy of the environment each app was launched with, and
+reuses it on every restart. `.env.production` is read at launch, not at
+restart, and `ecosystem.config.js` has only a small inline `env` block — so a
+variable you change in the file is still the old value in the running process.
+`pm2 restart cadeau-api --update-env` does not fix this either: `--update-env`
+takes the environment of _your shell_, not of the file.
+
+Load the file into the shell first, then restart, then persist:
+
+```bash
+cd ~/cadeau-backend && set -a && . ./.env.production && set +a \
+  && pm2 restart cadeau-api --update-env && sleep 8 \
+  && pm2 env 0 | grep YOUR_VARIABLE
+pm2 save   # only after the app checks out — this is what survives a reboot
+```
+
+`pm2 env 0` is the only honest check: it shows what the process actually holds.
+Because this replaces the whole environment, confirm a route that needs the
+database still answers before you call it done — `401` is the healthy answer
+here, `500` means something dropped out:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://crmapi.cadeauegypt.com/v1/orders
+```
+
+### 3.2 Adding a domain to the frontend
+
+What `crm.cadeauegypt.com` took, in order (2026-09-26):
+
+1. **DNS** — an A record to this box. If the zone is on Cloudflare, set it to
+   **DNS only** (grey cloud): proxied records answer with Cloudflare's own IPs,
+   which breaks certbot's HTTP challenge, and a proxied host on SSL mode
+   _Flexible_ redirect-loops against our HTTPS redirect. Re-proxying later needs
+   SSL mode **Full (strict)**, which the certificate below satisfies.
+   `dig +short <host>` must show the box's IP before going on.
+2. **nginx** — derive the new site from the live one rather than writing it
+   fresh, so the cache rules travel with it, but drop certbot's lines or the
+   config will not load (it points at a certificate that does not exist yet):
+
+   ```bash
+   sudo awk 'NR==1,/^}/' /etc/nginx/sites-available/crm.nosait.com \
+     | sed -e 's/crm\.nosait\.com/<new host>/g' \
+           -e '/managed by Certbot/d' \
+           -e 's/^    server_name/    listen 80;\n    server_name/' \
+     | sudo tee /etc/nginx/sites-available/<new host>
+   sudo ln -sfn /etc/nginx/sites-available/<new host> /etc/nginx/sites-enabled/<new host>
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+3. **Certificate** — `sudo certbot --nginx -d <new host>`, answering
+   _Redirect_. Certbot rewrites the port-80 block into 443 and adds the
+   redirect, keeping the locations.
+4. **CORS** — the API rejects any origin not in `CORS_ALLOWED_ORIGINS`, so
+   without this the site loads and every request inside it fails. Add the new
+   origin (comma-separated, no spaces) and restart per §3.1, then prove it:
+
+   ```bash
+   curl -s -i -H 'Origin: https://<new host>' \
+     https://crmapi.cadeauegypt.com/v1/health | grep -i access-control-allow-origin
+   ```
+
+   No header means the origin was refused. Use a plain GET — `curl -I` sends
+   HEAD, which comes back without the header even when the origin is allowed.
+
+Tell users to expect three things on a new domain, none of them faults: they
+are logged out (sessions are per-origin), push notifications must be re-enabled
+per person per device, and an installed PWA has to be reinstalled from the new
+URL.
+
+---
+
+## 4. Windows / PowerShell notes
 
 Running these over SSH from PowerShell has sharp edges that cost real time:
 
@@ -280,13 +363,13 @@ Running these over SSH from PowerShell has sharp edges that cost real time:
 
 ---
 
-## 4. Post-deploy checklist
+## 5. Post-deploy checklist
 
 - [ ] Backend rollback SHA recorded, frontend rollback SHA recorded.
 - [ ] `/var/www/crm` backed up to `~/backups/` before overwriting.
 - [ ] `git status --short` on `~/cadeau-backend` still shows the three expected
       server-local entries.
-- [ ] `https://crmapi.nosait.com/v1/health` returns `ok`.
+- [ ] `https://crmapi.cadeauegypt.com/v1/health` returns `ok`.
 - [ ] `pm2 list` shows `cadeau-api` online and the restart count is not climbing.
 - [ ] `index.html` references the new bundle hash and it returns `200`.
 - [ ] Web-root files are `-rw-r--r--`.

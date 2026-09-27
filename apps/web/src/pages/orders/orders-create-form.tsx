@@ -11,6 +11,7 @@ import {
   PackageOpen,
   Percent,
   Plus,
+  Share2,
   ShoppingCart,
   Tag,
   Trash2,
@@ -33,11 +34,14 @@ import { listWarehouses, type Warehouse } from "@/features/inventory/inventory-a
 import { listItems as listMasterDataItems } from "@/features/master-data/master-data-api";
 import {
   parseOrder,
+  STAFF_SALES_CHANNELS,
   type CreateOrderInput,
   type OrderItemInput,
   type ParsedDraft,
   type PaymentStatus,
+  type StaffSalesChannel,
 } from "@/features/orders/orders-api";
+import { SALES_CHANNEL_META } from "@/features/orders/sales-channel";
 import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
 import {
   listBostaCities,
@@ -176,6 +180,9 @@ export function OrderForm({
   const [discount, setDiscount] = useState("0");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("unpaid");
   const [paidAmount, setPaidAmount] = useState("0");
+
+  // Section — where the order came from ("" = staff did not say).
+  const [salesChannel, setSalesChannel] = useState<StaffSalesChannel | "">("");
 
   // Section — notes.
   const [notes, setNotes] = useState("");
@@ -409,6 +416,7 @@ export function OrderForm({
       discount: discountMinor,
       paymentStatus,
       collectedAmount: paidAmountMinor,
+      ...(salesChannel !== "" ? { salesChannel } : {}),
       ...(notes.trim().length > 0 ? { notes: notes.trim() } : {}),
     });
   };
@@ -482,6 +490,48 @@ export function OrderForm({
             placeholder={DASH}
             options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
           />
+        </SectionCard>
+
+        {/* Where the order came from. */}
+        <SectionCard
+          tone="info"
+          icon={Share2}
+          title={t("orders.form.salesChannel")}
+          optional
+          hint={t("orders.form.salesChannelHint")}
+        >
+          <div
+            role="radiogroup"
+            aria-label={t("orders.form.salesChannel")}
+            className="flex flex-wrap gap-2"
+          >
+            {STAFF_SALES_CHANNELS.map((key) => {
+              const { labelKey, Icon, toneClassName } = SALES_CHANNEL_META[key];
+              const active = salesChannel === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  // A second press clears it: the field is optional, and there
+                  // is no other way back to "unrecorded" once one is pressed.
+                  onClick={() => setSalesChannel(active ? "" : key)}
+                  className={cn(
+                    "pressable inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                    active
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  <span className={cn("grid h-7 w-7 place-items-center rounded-lg", toneClassName)}>
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  {t(labelKey)}
+                </button>
+              );
+            })}
+          </div>
         </SectionCard>
 
         {/* Customer. */}

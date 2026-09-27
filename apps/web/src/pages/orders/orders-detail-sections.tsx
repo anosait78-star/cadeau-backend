@@ -42,7 +42,9 @@ import {
   type OrderActivity,
   type OrderDetail,
   type OrderVendorGroup,
+  type SalesChannel,
 } from "@/features/orders/orders-api";
+import { isKnownSalesChannel, SALES_CHANNEL_META } from "@/features/orders/sales-channel";
 import { listMembers, type TeamMember } from "@/features/team/team-api";
 import { ReviewSection } from "@/features/reviews/review-section";
 import { ShipmentSection } from "@/features/shipping/shipment-section";
@@ -291,6 +293,36 @@ export function buildOrderDetailHeader({
   };
 }
 
+/**
+ * Where the order came from, as its own card with the channel's own mark.
+ * Renders nothing when nobody recorded one — an order taken before this
+ * existed should not claim a source it never had.
+ */
+function SalesChannelCard({
+  channel,
+  t,
+}: {
+  channel: SalesChannel | null | undefined;
+  t: (k: TranslationKey) => string;
+}): ReactNode {
+  if (!isKnownSalesChannel(channel)) return null;
+  const { labelKey, Icon, toneClassName } = SALES_CHANNEL_META[channel];
+  return (
+    <section>
+      <SectionHeading label={t("orders.form.salesChannel")} />
+      <div
+        className="flex items-center gap-3 rounded-xl border border-border px-4 py-3"
+        data-testid="detail-sales-channel"
+      >
+        <span className={cn("grid h-10 w-10 place-items-center rounded-xl", toneClassName)}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="text-sm font-medium text-foreground">{t(labelKey)}</span>
+      </div>
+    </section>
+  );
+}
+
 /** Small caps heading that opens each block of the summary. */
 function SectionHeading({ label, trailing }: { label: string; trailing?: ReactNode }): ReactNode {
   return (
@@ -505,6 +537,8 @@ function SummarySection({
 
   return (
     <div className="flex flex-col gap-6">
+      <SalesChannelCard channel={detail.salesChannel} t={t} />
+
       <section>
         <SectionHeading label={t("orders.form.customer")} />
         <CustomerCard customerId={detail.customerId} fallbackName={detail.customerName} t={t} />

@@ -30,6 +30,22 @@ export type FollowUpState = (typeof FOLLOW_UP_STATES)[number];
 
 export type PaymentStatus = "unpaid" | "partial" | "paid";
 
+/**
+ * Where an order came from. The first five are what staff pick when they take
+ * an order by hand; `storefront` is set by the shop integration itself and is
+ * never offered in the form.
+ */
+export const STAFF_SALES_CHANNELS = [
+  "facebook",
+  "whatsapp",
+  "tiktok",
+  "instagram",
+  "phone",
+] as const;
+export const SALES_CHANNELS = [...STAFF_SALES_CHANNELS, "storefront"] as const;
+export type SalesChannel = (typeof SALES_CHANNELS)[number];
+export type StaffSalesChannel = (typeof STAFF_SALES_CHANNELS)[number];
+
 /** The money block, all integer minor units. */
 export interface OrderMoney {
   readonly subtotal: number;
@@ -65,6 +81,8 @@ export interface OrderListItem extends OrderMoney {
   readonly reasonId: string | null;
   readonly governorateId: string | null;
   readonly warehouseId: string | null;
+  /** Where the order came from; null on orders that predate this, or unrecorded. */
+  readonly salesChannel?: SalesChannel | null;
   readonly itemCount: number;
   readonly statusChangedAt: string;
   readonly createdAt: string;
@@ -167,6 +185,7 @@ export interface CreateOrderInput {
   readonly discount?: number;
   readonly paymentStatus?: PaymentStatus;
   readonly collectedAmount?: number;
+  readonly salesChannel?: StaffSalesChannel;
   readonly notes?: string | null;
   readonly items: OrderItemInput[];
 }

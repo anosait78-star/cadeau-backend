@@ -644,6 +644,65 @@ describe("OrdersPage", () => {
     expect(body.notes).toBe("Deliver after 6pm");
   });
 
+  it("sends the order source when one is pressed, and omits it when it is pressed off", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    await pickCombobox(user, "Customer", "Sara");
+    await pickCombobox(user, "Product / variant", "Shirt — L");
+    await user.click(screen.getByRole("button", { name: "Add to order" }));
+
+    const facebook = screen.getByRole("radio", { name: "Facebook" });
+    await user.click(facebook);
+    expect(facebook).toHaveAttribute("aria-checked", "true");
+    // Pressing the same one again is the only way back to "unrecorded".
+    await user.click(facebook);
+    expect(facebook).toHaveAttribute("aria-checked", "false");
+    await user.click(screen.getByRole("radio", { name: "WhatsApp" }));
+
+    const saves = screen.getAllByRole("button", { name: "Save order" });
+    await user.click(saves[saves.length - 1]!);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/orders$/),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).match(/\/orders$/) !== null && (i as RequestInit)?.method === "POST",
+    );
+    const body = JSON.parse(String((call?.[1] as RequestInit).body)) as { salesChannel?: string };
+    expect(body.salesChannel).toBe("whatsapp");
+  });
+
+  it("leaves the order source out of the body when none is chosen", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("#1042");
+    await user.click(screen.getByRole("button", { name: "New order" }));
+    await screen.findByLabelText("Warehouse");
+
+    await pickCombobox(user, "Customer", "Sara");
+    await pickCombobox(user, "Product / variant", "Shirt — L");
+    await user.click(screen.getByRole("button", { name: "Add to order" }));
+
+    const saves = screen.getAllByRole("button", { name: "Save order" });
+    await user.click(saves[saves.length - 1]!);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/orders$/),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).match(/\/orders$/) !== null && (i as RequestInit)?.method === "POST",
+    );
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).not.toHaveProperty("salesChannel");
+  });
+
   it("creates a new customer inline from the order form", async () => {
     fetchMock.mockImplementation((input: string | URL, init?: RequestInit) => {
       const url = String(input);
