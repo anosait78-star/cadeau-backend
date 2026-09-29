@@ -13,10 +13,12 @@ import {
   stampForUpdate,
 } from "@cadeau/database";
 import type { ParsedProductListQuery } from "../domain/list-query";
+import type { ParsedVariantSearchQuery } from "../domain/variant-search-query";
 import type {
   ProductVariantView,
   ProductView,
   ProductWithVariants,
+  SellableVariantView,
   VendorProductView,
 } from "../domain/product.entity";
 import type {
@@ -35,6 +37,17 @@ import {
 import { PRODUCTS_PRISMA_CLIENT } from "./prisma-client.provider";
 
 /** A Prisma client or transaction client. */
+/** One row of the sellable-variant search, as Postgres returns it. */
+interface SellableVariantRow {
+  readonly variant_id: string;
+  readonly variant_name: string;
+  readonly sku: string | null;
+  readonly selling_price_minor: bigint;
+  readonly product_id: string;
+  readonly product_name: string;
+  readonly image_url: string | null;
+}
+
 type Tx = Prisma.TransactionClient;
 
 /** A decoded keyset cursor: primary sort value + id tie-breaker. */
@@ -268,6 +281,116 @@ export class ProductsRepository implements ProductsRepositoryPort {
   // ---- internals -----------------------------------------------------------
 
   /** Run a unit of work with the tenant RLS context bound for its duration. */
+  async searchSellableVariants(
+    companyId: string,
+    query: ParsedVariantSearchQuery,
+  ): Promise<KeysetPage<SellableVariantView>> {
+    const limit = clampLimit(query.limit);
+    const cursor = this.decodeVariantCursor(query.cursor);
+
+    const conditions: Prisma.Sql[] = [
+      Prisma.sql`v.company_id = ${companyId}::uuid`,
+      // Both halves: an archived product's variants are not sellable even if
+      // the variant row itself is still active.
+      Prisma.sql`v.is_active = true`,
+      Prisma.sql`p.is_active = true`,
+    ];
+
+    if (query.q !== undefined) {
+      // Folded on both sides, so "ازرق" matches "أزرق" — see app.search_fold.
+      // Every word must appear somewhere, in any order, which is what makes
+      // "قميص ازرق" find "قميص قطن أزرق".
+      for (const word of query.q.split(/\s+/).filter((w) => w.length > 0)) {
+        const pattern = Prisma.sql`'%' || app.search_fold(${word}) || '%'`;
+        conditions.push(
+          Prisma.sql`(
+            app.search_fold(p.name) LIKE ${pattern}
+            OR app.search_fold(v.name) LIKE ${pattern}
+            OR (v.sku IS NOT NULL AND app.search_fold(v.sku) LIKE ${pattern})
+          )`,
+        );
+      }
+    }
+
+    if (query.warehouseId !== undefined || query.hasStock) {
+      const stock: Prisma.Sql[] = [Prisma.sql`s.variant_id = v.id`];
+      if (query.warehouseId !== undefined) {
+        stock.push(Prisma.sql`s.warehouse_id = ${query.warehouseId}::uuid`);
+      }
+      if (query.hasStock) stock.push(Prisma.sql`s.available > 0`);
+      // One and the same stock row must satisfy both, so "in stock" never
+      // means "has stock somewhere else".
+      conditions.push(
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM public.inventory_stock s
+          WHERE ${Prisma.join(stock, " AND ")}
+        )`,
+      );
+    }
+
+    if (cursor !== null) {
+      // Row comparison against the same tuple the ORDER BY uses, so paging
+      // cannot skip or repeat a variant whose product shares a name.
+      conditions.push(
+        Prisma.sql`(p.name, v.name, v.id) > (${cursor.p}, ${cursor.v}, ${cursor.t}::uuid)`,
+      );
+    }
+
+    const rows = await this.tenantTx(
+      companyId,
+      (tx) =>
+        tx.$queryRaw<SellableVariantRow[]>`
+        SELECT v.id            AS variant_id,
+               v.name          AS variant_name,
+               v.sku           AS sku,
+               v.selling_price_minor AS selling_price_minor,
+               p.id            AS product_id,
+               p.name          AS product_name,
+               p.image_url     AS image_url
+        FROM public.product_variants v
+        JOIN public.products p
+          ON p.id = v.product_id AND p.company_id = v.company_id
+        WHERE ${Prisma.join(conditions, " AND ")}
+        ORDER BY p.name ASC, v.name ASC, v.id ASC
+        LIMIT ${limit + 1}`,
+    );
+
+    const views = rows.map(
+      (row): SellableVariantView => ({
+        variantId: row.variant_id,
+        variantName: row.variant_name,
+        sku: row.sku,
+        sellingPriceMinor: Number(row.selling_price_minor),
+        productId: row.product_id,
+        productName: row.product_name,
+        imageUrl: row.image_url,
+      }),
+    );
+
+    return buildKeysetPage(
+      views,
+      limit,
+      (view): CursorValues => ({
+        p: view.productName,
+        v: view.variantName,
+        t: view.variantId,
+      }),
+    );
+  }
+
+  /** The three-part cursor this list pages by: product name, variant name, id. */
+  private decodeVariantCursor(raw: string | undefined): { p: string; v: string; t: string } | null {
+    if (raw === undefined) return null;
+    const decoded = decodeCursor(raw);
+    const p = decoded["p"];
+    const v = decoded["v"];
+    const t = decoded["t"];
+    if (typeof p !== "string" || typeof v !== "string" || typeof t !== "string") {
+      throw new InvalidCursorError();
+    }
+    return { p, v, t };
+  }
+
   private tenantTx<T>(companyId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       await setTenantContext(tx, companyId);

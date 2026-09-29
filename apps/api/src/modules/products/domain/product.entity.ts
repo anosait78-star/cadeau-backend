@@ -63,3 +63,22 @@ export interface VendorProductView {
   readonly priceMinor: number;
   readonly availableQuantity: number;
 }
+
+/**
+ * One sellable variant, already joined to its product — a row of the order
+ * form's product picker.
+ *
+ * Flattened on purpose. The picker's unit of choice is a variant, not a
+ * product, and building this shape on the client meant one request per product
+ * to discover its variants; searching a catalogue of any size then raced
+ * against the requests still in flight.
+ */
+export interface SellableVariantView {
+  readonly variantId: string;
+  readonly variantName: string;
+  readonly sku: string | null;
+  readonly sellingPriceMinor: number;
+  readonly productId: string;
+  readonly productName: string;
+  readonly imageUrl: string | null;
+}

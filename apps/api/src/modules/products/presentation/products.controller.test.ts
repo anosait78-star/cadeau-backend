@@ -65,6 +65,8 @@ describe("ProductsController", () => {
       create: vi.fn(),
       update: vi.fn(),
       archive: vi.fn().mockResolvedValue(undefined),
+      listMyVendorProducts: vi.fn(),
+      searchSellableVariants: vi.fn(),
       listVariants: vi.fn(),
       createVariant: vi.fn(),
       updateVariant: vi.fn(),

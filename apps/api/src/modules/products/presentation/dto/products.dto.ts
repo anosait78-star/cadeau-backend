@@ -19,6 +19,7 @@ import type {
   ProductVariantView,
   ProductView,
   ProductWithVariants,
+  SellableVariantView,
   VendorProductView,
 } from "../../domain/product.entity";
 
@@ -354,6 +355,61 @@ export class ProductListDto {
   static from(page: KeysetPage<ProductView>): ProductListDto {
     const dto = new ProductListDto();
     dto.data = page.data.map((p) => ProductDto.from(p));
+    dto.page = {
+      limit: page.page.limit,
+      nextCursor: page.page.nextCursor,
+      hasMore: page.page.hasMore,
+    };
+    return dto;
+  }
+}
+
+/**
+ * One sellable variant with its product — a row of the order form's picker.
+ *
+ * Flattened rather than nested: the picker chooses a variant, and the product
+ * is what names it on screen.
+ */
+export class SellableVariantDto {
+  @ApiProperty({ format: "uuid" })
+  variantId!: string;
+  @ApiProperty()
+  variantName!: string;
+  @ApiProperty({ nullable: true })
+  sku!: string | null;
+  @ApiProperty({ description: "Integer minor units." })
+  sellingPriceMinor!: number;
+  @ApiProperty({ format: "uuid" })
+  productId!: string;
+  @ApiProperty()
+  productName!: string;
+  @ApiProperty({ nullable: true })
+  imageUrl!: string | null;
+
+  static from(view: SellableVariantView): SellableVariantDto {
+    const dto = new SellableVariantDto();
+    dto.variantId = view.variantId;
+    dto.variantName = view.variantName;
+    dto.sku = view.sku;
+    dto.sellingPriceMinor = view.sellingPriceMinor;
+    dto.productId = view.productId;
+    dto.productName = view.productName;
+    dto.imageUrl = view.imageUrl;
+    return dto;
+  }
+}
+
+/** Keyset-paginated sellable-variant envelope. */
+export class SellableVariantListDto {
+  @ApiProperty({ type: [SellableVariantDto] })
+  data!: SellableVariantDto[];
+
+  @ApiProperty({ type: ProductPageDto })
+  page!: ProductPageDto;
+
+  static from(page: KeysetPage<SellableVariantView>): SellableVariantListDto {
+    const dto = new SellableVariantListDto();
+    dto.data = page.data.map((v) => SellableVariantDto.from(v));
     dto.page = {
       limit: page.page.limit,
       nextCursor: page.page.nextCursor,

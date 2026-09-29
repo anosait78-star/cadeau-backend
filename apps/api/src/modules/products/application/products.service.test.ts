@@ -78,6 +78,7 @@ function makeHarness(): Harness {
     findVariantBySku: vi.fn(),
     findVendorWarehouseId: vi.fn(),
     listForWarehouse: vi.fn().mockResolvedValue([]),
+    searchSellableVariants: vi.fn(),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const events = { publish: vi.fn().mockResolvedValue(undefined), subscribe: vi.fn() };

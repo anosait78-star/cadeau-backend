@@ -1,9 +1,11 @@
 import type { KeysetPage } from "@cadeau/database";
 import type { ParsedProductListQuery } from "./list-query";
+import type { ParsedVariantSearchQuery } from "./variant-search-query";
 import type {
   ProductVariantView,
   ProductView,
   ProductWithVariants,
+  SellableVariantView,
   VendorProductView,
 } from "./product.entity";
 
@@ -110,6 +112,18 @@ export interface ProductsRepositoryPort {
    * warehouse's catalog is bounded, matching the vendor order groups read.
    */
   listForWarehouse(companyId: string, warehouseId: string): Promise<readonly VendorProductView[]>;
+
+  /**
+   * One page of sellable variants, joined to their products and searchable.
+   *
+   * Replaces the order form walking the catalogue itself: the search runs in
+   * the database over Arabic-folded text (`app.search_fold`), so a phone asks
+   * one question per keystroke instead of downloading every product first.
+   */
+  searchSellableVariants(
+    companyId: string,
+    query: ParsedVariantSearchQuery,
+  ): Promise<KeysetPage<SellableVariantView>>;
 }
 
 /** DI token for {@link ProductsRepositoryPort}. */

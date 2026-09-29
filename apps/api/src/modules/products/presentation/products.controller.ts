@@ -28,6 +28,7 @@ import { CurrentUser } from "../../../shared/auth/current-user.decorator";
 import { JwtAuthGuard } from "../../../shared/auth/jwt-auth.guard";
 import { ProductsService } from "../application/products.service";
 import type { RawProductListQuery } from "../domain/list-query";
+import type { RawVariantSearchQuery } from "../domain/variant-search-query";
 import {
   CreateProductDto,
   CreateVariantDto,
@@ -40,6 +41,7 @@ import {
   UpdateProductDto,
   UpdateVariantDto,
   VariantListDto,
+  SellableVariantListDto,
 } from "./dto/products.dto";
 
 const PRODUCTS_FEATURE = "products";
@@ -67,6 +69,27 @@ export class ProductsController {
     @Query() rawQuery: RawProductListQuery,
   ): Promise<ProductListDto> {
     return ProductListDto.from(await this.service.list(principal, rawQuery));
+  }
+
+  /*
+   * Declared before `:productId`: Nest matches routes in declaration order, so
+   * the other way round this path would be read as a product id and rejected
+   * by ParseUUIDPipe.
+   */
+  @Get("variants")
+  @RequireCapability({ feature: PRODUCTS_FEATURE, permission: "products.read" })
+  @ApiOperation({
+    summary: "Search sellable variants across the catalogue (the order form's picker)",
+    operationId: "searchSellableVariants",
+  })
+  @ApiOkResponse({ type: SellableVariantListDto })
+  async searchVariants(
+    @CurrentUser() principal: RequestPrincipal,
+    @Query() rawQuery: RawVariantSearchQuery,
+  ): Promise<SellableVariantListDto> {
+    return SellableVariantListDto.from(
+      await this.service.searchSellableVariants(principal, rawQuery),
+    );
   }
 
   @Get(":productId")

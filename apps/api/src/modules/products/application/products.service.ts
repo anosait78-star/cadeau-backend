@@ -13,11 +13,16 @@ import {
   type ImportMapping,
 } from "../domain/csv-import";
 import { parseProductListQuery, type RawProductListQuery } from "../domain/list-query";
+import {
+  parseVariantSearchQuery,
+  type RawVariantSearchQuery,
+} from "../domain/variant-search-query";
 import type {
   ProductVariantView,
   ProductView,
   ProductWithVariants,
   VendorProductView,
+  SellableVariantView,
 } from "../domain/product.entity";
 import { PRODUCTS_AUDIT, type ProductsAuditPort } from "../domain/products-audit.port";
 import {
@@ -69,6 +74,30 @@ export class ProductsService {
     }
     return withErrorMapping(
       () => this.repo.list(companyId, query),
+      (error) => this.mapError(error),
+    );
+  }
+
+  /**
+   * Sellable variants, joined to their products and searched in the database.
+   *
+   * What the order form's product picker reads. It used to assemble this list
+   * itself — every page of products, then one request per product for its
+   * variants — so a few hundred products meant a few hundred requests and the
+   * picker could be searched before the catalogue had finished arriving. One
+   * request per keystroke replaces that.
+   */
+  async searchSellableVariants(
+    principal: RequestPrincipal,
+    rawQuery: RawVariantSearchQuery,
+  ): Promise<KeysetPage<SellableVariantView>> {
+    const companyId = this.requireTenant(principal);
+    const { query, errors } = parseVariantSearchQuery(rawQuery);
+    if (query === undefined) {
+      throw AppErrors.validation("Request validation failed", errors);
+    }
+    return withErrorMapping(
+      () => this.repo.searchSellableVariants(companyId, query),
       (error) => this.mapError(error),
     );
   }
