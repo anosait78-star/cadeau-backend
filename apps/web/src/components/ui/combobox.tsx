@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
+import { matchesSearch } from "@/lib/search-text";
 
 export interface ComboboxOption {
   value: string;
@@ -121,7 +122,18 @@ export function Combobox({
         align="start"
         className="w-auto min-w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-2rem))] p-0"
       >
-        <Command className="flex flex-col">
+        {/*
+          cmdk's built-in scoring compares characters, which in Arabic means
+          "ازرق" scores zero against "أزرق" and the row is hidden outright —
+          not ranked lower, dropped. Every alternate spelling people actually
+          type (ا/أ/إ/آ, ه/ة, ي/ى, Arabic-Indic digits) hit that, which is what
+          made the order form's product list look incomplete. `filter` replaces
+          the comparison with one that folds those first.
+        */}
+        <Command
+          className="flex flex-col"
+          filter={(itemValue, search) => (matchesSearch(itemValue, search) ? 1 : 0)}
+        >
           <Command.Input
             placeholder={searchPlaceholder ?? t("combobox.search")}
             className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
