@@ -36,6 +36,44 @@ export interface ProductDetail extends Product {
   readonly variants: ProductVariant[];
 }
 
+/**
+ * One sellable variant with its product — a row of the order form's picker.
+ *
+ * The order form used to build this shape itself, one request per product; the
+ * API now returns it directly so the picker searches the catalogue instead of
+ * downloading it.
+ */
+export interface SellableVariant {
+  readonly variantId: string;
+  readonly variantName: string;
+  readonly sku: string | null;
+  readonly sellingPriceMinor: number;
+  readonly productId: string;
+  readonly productName: string;
+  readonly imageUrl: string | null;
+}
+
+/** A keyset page of sellable variants. */
+export interface SellableVariantPage {
+  readonly data: SellableVariant[];
+  readonly page: {
+    readonly limit: number;
+    readonly nextCursor: string | null;
+    readonly hasMore: boolean;
+  };
+}
+
+/** Query options for the sellable-variant search. */
+export interface VariantSearchOptions {
+  readonly q?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+  /** Only variants holding a stock row in this warehouse. */
+  readonly warehouseId?: string;
+  /** Only variants with units left to sell. */
+  readonly hasStock?: boolean;
+}
+
 /** A keyset page of products (api-conventions §5). */
 export interface ProductPage {
   readonly data: Product[];
@@ -95,6 +133,26 @@ export interface VariantInput {
 /** `GET /v1/products` — keyset-paginated products. */
 export function listProducts(options: ListOptions = {}): Promise<ProductPage> {
   return apiFetch<ProductPage>(`/products${buildQuery(options)}`);
+}
+
+/**
+ * `GET /v1/products/variants` — sellable variants across the catalogue.
+ *
+ * The search runs in the database, so this is asked once per keystroke rather
+ * than used to cache the catalogue: the results are always current, and a
+ * phone never waits on the whole list before it can search.
+ */
+export function searchSellableVariants(
+  options: VariantSearchOptions = {},
+): Promise<SellableVariantPage> {
+  const params = new URLSearchParams();
+  if (options.q !== undefined && options.q.length > 0) params.set("q", options.q);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.cursor !== undefined) params.set("cursor", options.cursor);
+  if (options.warehouseId !== undefined) params.set("warehouseId", options.warehouseId);
+  if (options.hasStock === true) params.set("hasStock", "true");
+  const qs = params.toString();
+  return apiFetch<SellableVariantPage>(`/products/variants${qs.length > 0 ? `?${qs}` : ""}`);
 }
 
 /** `GET /v1/products/{id}` — a product with its variants. */

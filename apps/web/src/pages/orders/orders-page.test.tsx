@@ -292,6 +292,25 @@ describe("OrdersPage", () => {
           json(200, { data: [{ ...ORDER_ROW, id: "c1", name: "Sara" }], page: {} }),
         );
       }
+      // The order form picks from the flattened variant search.
+      if (url.includes("/products/variants")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                variantId: "v1",
+                variantName: "L",
+                sku: null,
+                sellingPriceMinor: 0,
+                productId: "p1",
+                productName: "Shirt",
+                imageUrl: null,
+              },
+            ],
+            page: { limit: 50, nextCursor: null, hasMore: false },
+          }),
+        );
+      }
       if (url.match(/\/products\/p1$/)) {
         return Promise.resolve(
           json(200, { id: "p1", name: "Shirt", variants: [{ id: "v1", name: "L" }] }),
@@ -546,6 +565,25 @@ describe("OrdersPage", () => {
           json(200, { data: [{ ...ORDER_ROW, id: "c1", name: "Sara" }], page: {} }),
         );
       }
+      // The order form picks from the flattened variant search.
+      if (url.includes("/products/variants")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                variantId: "v1",
+                variantName: "L",
+                sku: null,
+                sellingPriceMinor: 0,
+                productId: "p1",
+                productName: "Shirt",
+                imageUrl: null,
+              },
+            ],
+            page: { limit: 50, nextCursor: null, hasMore: false },
+          }),
+        );
+      }
       if (url.match(/\/products\/p1$/)) {
         return Promise.resolve(
           json(200, { id: "p1", name: "Shirt", variants: [{ id: "v1", name: "L" }] }),
@@ -757,6 +795,25 @@ describe("OrdersPage", () => {
       if (url.includes("/customers")) {
         return Promise.resolve(
           json(200, { data: [{ ...ORDER_ROW, id: "c1", name: "Sara" }], page: {} }),
+        );
+      }
+      // The order form picks from the flattened variant search.
+      if (url.includes("/products/variants")) {
+        return Promise.resolve(
+          json(200, {
+            data: [
+              {
+                variantId: "v1",
+                variantName: "L",
+                sku: null,
+                sellingPriceMinor: 0,
+                productId: "p1",
+                productName: "Shirt",
+                imageUrl: null,
+              },
+            ],
+            page: { limit: 50, nextCursor: null, hasMore: false },
+          }),
         );
       }
       if (url.match(/\/products\/p1$/)) {

@@ -61,6 +61,9 @@ export function Combobox({
   disabled,
   className,
   id,
+  onSearch,
+  loading,
+  selectedOption,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -72,10 +75,28 @@ export function Combobox({
   disabled?: boolean;
   className?: string;
   id?: string;
+  /**
+   * Hands the typed text to the caller and turns off local filtering: the
+   * options are then whatever the caller last supplied, already filtered.
+   * For lists too large to ship to the browser — the product catalogue.
+   */
+  onSearch?: (query: string) => void;
+  /** Shows a loading line instead of "no results" while a search is in flight. */
+  loading?: boolean;
+  /**
+   * The selected option when it is not in `options`.
+   *
+   * With `onSearch`, `options` holds only the current results, so a selection
+   * made under an earlier query is no longer among them and the trigger would
+   * fall back to the placeholder — as if nothing were selected.
+   */
+  selectedOption?: ComboboxOption;
 }): ReactNode {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const selected = options.find((o) => o.value === value);
+  const [search, setSearch] = useState("");
+  const remote = onSearch !== undefined;
+  const selected = options.find((o) => o.value === value) ?? selectedOption;
   /*
    * Thumbnails are all-or-nothing for a given list: as soon as one option
    * carries a picture every row gets a tile, so the labels stay on one
@@ -132,9 +153,17 @@ export function Combobox({
         */}
         <Command
           className="flex flex-col"
-          filter={(itemValue, search) => (matchesSearch(itemValue, search) ? 1 : 0)}
+          // With `onSearch` the caller has already filtered: filtering again
+          // here would hide rows the server deliberately returned.
+          shouldFilter={!remote}
+          filter={(itemValue, query) => (matchesSearch(itemValue, query) ? 1 : 0)}
         >
           <Command.Input
+            value={search}
+            onValueChange={(next) => {
+              setSearch(next);
+              onSearch?.(next);
+            }}
             placeholder={searchPlaceholder ?? t("combobox.search")}
             className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
           />
@@ -150,9 +179,20 @@ export function Combobox({
             onWheel={(e) => e.stopPropagation()}
             onTouchMove={(e) => e.stopPropagation()}
           >
-            <Command.Empty className="px-2 py-4 text-center text-sm text-muted-foreground">
-              {emptyText ?? t("combobox.empty")}
-            </Command.Empty>
+            {/*
+              "No results" while a search is still running reads as an answer
+              rather than a wait, and on a phone that is most of the time a
+              query is in flight.
+            */}
+            {loading === true ? (
+              <p className="px-2 py-4 text-center text-sm text-muted-foreground">
+                {t("combobox.loading")}
+              </p>
+            ) : (
+              <Command.Empty className="px-2 py-4 text-center text-sm text-muted-foreground">
+                {emptyText ?? t("combobox.empty")}
+              </Command.Empty>
+            )}
             {options.map((option) => (
               <Command.Item
                 key={option.value}

@@ -42,7 +42,7 @@ import {
   type StaffSalesChannel,
 } from "@/features/orders/orders-api";
 import { SALES_CHANNEL_META } from "@/features/orders/sales-channel";
-import { getProduct, listProducts, type ProductVariant } from "@/features/products/products-api";
+import { searchSellableVariants } from "@/features/products/products-api";
 import {
   listBostaCities,
   listBostaDistricts,
@@ -83,14 +83,15 @@ interface RefOption {
   readonly name: string;
 }
 
-/** The API's own ceiling, so the catalogue is walked in as few pages as it allows. */
-const PRODUCT_PAGE_SIZE = 100;
+/**
+ * How many variants one search returns. Enough to scroll through, small enough
+ * that a phone renders it instantly — the rest is reached by typing, not
+ * scrolling.
+ */
+const VARIANT_PAGE_SIZE = 50;
 
-/** A stop on the paging loop, so a runaway cursor can never spin forever. */
-const MAX_PRODUCTS = 2000;
-
-/** How many products' variants are fetched at once. */
-const VARIANT_FETCH_BATCH = 8;
+/** Long enough that a typed word costs one request, short enough to feel live. */
+const VARIANT_SEARCH_DEBOUNCE_MS = 300;
 
 function toMinor(value: string): number {
   return Math.max(0, Math.round(Number(value) * 100));
@@ -169,7 +170,16 @@ export function OrderForm({
   const useBosta = bostaCities.length > 0;
 
   // Section — products.
+  /** The current search's results — not the catalogue. */
   const [variants, setVariants] = useState<VariantOption[]>([]);
+  const [variantQuery, setVariantQuery] = useState("");
+  const [variantsLoading, setVariantsLoading] = useState(true);
+  /**
+   * Every variant this form has seen, kept so an already-added line still
+   * shows its product name once the search has moved on and the variant is no
+   * longer among the results.
+   */
+  const [knownVariants, setKnownVariants] = useState<ReadonlyMap<string, VariantOption>>(new Map());
   const [lines, setLines] = useState<OrderItemInput[]>([]);
   const [variantId, setVariantId] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -235,67 +245,65 @@ export function OrderForm({
   }, [newBostaCityId]);
 
   /*
-   * Every active product's variants, flattened into one pickable list.
+   * The product picker's options, searched in the database.
    *
-   * This used to read one page of products and keep the first twenty of it, so
-   * a catalogue of any size showed the same twenty and the rest simply could
-   * not be ordered. It now walks every page.
+   * This used to assemble the list here: every page of products, then one
+   * request per product for its variants. A few hundred products meant a few
+   * hundred requests, so on a phone the list was still filling in long after
+   * the form opened — and searching it early found only the part that had
+   * arrived, which is what made products look missing. One request per
+   * keystroke replaces all of that, and the results are always current
+   * because nothing is cached.
    *
-   * Variants still cost a request per product — there is no endpoint that
-   * returns them across the catalogue — so the requests run a few at a time
-   * and each batch is published as it lands. The list fills in rather than
-   * waiting on the whole catalogue, and a long catalogue never opens hundreds
-   * of sockets at once.
+   * Debounced, so a typed word is one request rather than one per letter.
    */
   useEffect(() => {
     let cancelled = false;
+    setVariantsLoading(true);
 
-    void (async () => {
-      try {
-        const products: { id: string; name: string; imageUrl: string | null }[] = [];
-        let cursor: string | undefined;
-        do {
-          const page = await listProducts({
-            active: true,
-            limit: PRODUCT_PAGE_SIZE,
-            ...(cursor !== undefined ? { cursor } : {}),
-          });
+    const timer = setTimeout(() => {
+      void searchSellableVariants({
+        ...(variantQuery.length > 0 ? { q: variantQuery } : {}),
+        limit: VARIANT_PAGE_SIZE,
+      })
+        .then((page) => {
           if (cancelled) return;
-          products.push(
-            ...page.data.map((p) => ({ id: p.id, name: p.name, imageUrl: p.imageUrl })),
+          const options = page.data.map(
+            (v): VariantOption => ({
+              id: v.variantId,
+              label: `${v.productName} — ${v.variantName}`,
+              productName: v.productName,
+              variantName: v.variantName,
+              imageUrl: v.imageUrl,
+            }),
           );
-          cursor = page.page.nextCursor ?? undefined;
-        } while (cursor !== undefined && products.length < MAX_PRODUCTS);
-
-        const flat: VariantOption[] = [];
-        for (let i = 0; i < products.length; i += VARIANT_FETCH_BATCH) {
-          const batch = products.slice(i, i + VARIANT_FETCH_BATCH);
-          const details = await Promise.all(batch.map((p) => getProduct(p.id).catch(() => null)));
-          if (cancelled) return;
-          details.forEach((detail, index) => {
-            if (detail === null) return;
-            const parent = batch[index]!;
-            for (const v of detail.variants as ProductVariant[]) {
-              flat.push({
-                id: v.id,
-                label: `${parent.name} — ${v.name}`,
-                productName: parent.name,
-                variantName: v.name,
-                imageUrl: parent.imageUrl,
-              });
-            }
+          setVariants(options);
+          // Remember them, so a line added under this query keeps its name
+          // once the query changes.
+          setKnownVariants((prev) => {
+            const next = new Map(prev);
+            for (const option of options) next.set(option.id, option);
+            return next;
           });
-          setVariants([...flat]);
-        }
-      } catch {
-        if (!cancelled) setVariants([]);
-      }
-    })();
+        })
+        .catch(() => {
+          // Only this search failed. Whatever is already known stays, so a
+          // dropped request does not empty the lines the user has added.
+          if (!cancelled) setVariants([]);
+        })
+        .finally(() => {
+          if (!cancelled) setVariantsLoading(false);
+        });
+    }, VARIANT_SEARCH_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, []);
+  }, [variantQuery]);
+
+  /** The picked variant, from everything seen — not just the current results. */
+  const selectedVariant = variantId === "" ? undefined : knownVariants.get(variantId);
 
   const shippingMinor = toMinor(shipping);
   const discountMinor = toMinor(discount);
@@ -714,6 +722,18 @@ export function OrderForm({
                 hint: v.variantName,
                 imageUrl: v.imageUrl,
               }))}
+              onSearch={setVariantQuery}
+              loading={variantsLoading}
+              {...(selectedVariant !== undefined
+                ? {
+                    selectedOption: {
+                      value: selectedVariant.id,
+                      label: selectedVariant.productName,
+                      hint: selectedVariant.variantName,
+                      imageUrl: selectedVariant.imageUrl,
+                    },
+                  }
+                : {})}
             />
 
             <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
@@ -807,7 +827,7 @@ export function OrderForm({
                     </thead>
                     <tbody>
                       {lines.map((line, index) => {
-                        const v = variants.find((x) => x.id === line.variantId);
+                        const v = knownVariants.get(line.variantId);
                         return (
                           <tr key={`${line.variantId}-${index}`} className="border-t border-border">
                             <td className="px-3 py-2">
@@ -852,7 +872,7 @@ export function OrderForm({
                   {/* Phone: a card per line. */}
                   <ul className="flex flex-col sm:hidden">
                     {lines.map((line, index) => {
-                      const v = variants.find((x) => x.id === line.variantId);
+                      const v = knownVariants.get(line.variantId);
                       return (
                         <li
                           key={`${line.variantId}-${index}`}
