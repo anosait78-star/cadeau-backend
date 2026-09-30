@@ -174,6 +174,7 @@ export function OrderForm({
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [variantQuery, setVariantQuery] = useState("");
   const [variantsLoading, setVariantsLoading] = useState(true);
+  const [variantsFailed, setVariantsFailed] = useState(false);
   /**
    * Every variant this form has seen, kept so an already-added line still
    * shows its product name once the search has moved on and the variant is no
@@ -268,6 +269,7 @@ export function OrderForm({
       })
         .then((page) => {
           if (cancelled) return;
+          setVariantsFailed(false);
           const options = page.data.map(
             (v): VariantOption => ({
               id: v.variantId,
@@ -288,8 +290,12 @@ export function OrderForm({
         })
         .catch(() => {
           // Only this search failed. Whatever is already known stays, so a
-          // dropped request does not empty the lines the user has added.
-          if (!cancelled) setVariants([]);
+          // dropped request does not empty the lines the user has added — and
+          // the picker says so rather than showing an empty list, which reads
+          // as "no such product".
+          if (cancelled) return;
+          setVariants([]);
+          setVariantsFailed(true);
         })
         .finally(() => {
           if (!cancelled) setVariantsLoading(false);
@@ -724,6 +730,7 @@ export function OrderForm({
               }))}
               onSearch={setVariantQuery}
               loading={variantsLoading}
+              {...(variantsFailed ? { errorText: t("orders.form.variantSearchFailed") } : {})}
               {...(selectedVariant !== undefined
                 ? {
                     selectedOption: {

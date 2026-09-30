@@ -63,6 +63,7 @@ export function Combobox({
   id,
   onSearch,
   loading,
+  errorText,
   selectedOption,
 }: {
   value: string;
@@ -83,6 +84,13 @@ export function Combobox({
   onSearch?: (query: string) => void;
   /** Shows a loading line instead of "no results" while a search is in flight. */
   loading?: boolean;
+  /**
+   * Shown in place of "no results" when the last search failed.
+   *
+   * A dropped request and an empty catalogue look identical otherwise, and the
+   * wrong one of those makes someone go looking for a product that is there.
+   */
+  errorText?: string;
   /**
    * The selected option when it is not in `options`.
    *
@@ -187,6 +195,10 @@ export function Combobox({
             {loading === true ? (
               <p className="px-2 py-4 text-center text-sm text-muted-foreground">
                 {t("combobox.loading")}
+              </p>
+            ) : errorText !== undefined ? (
+              <p role="alert" className="px-2 py-4 text-center text-sm text-destructive">
+                {errorText}
               </p>
             ) : (
               <Command.Empty className="px-2 py-4 text-center text-sm text-muted-foreground">
