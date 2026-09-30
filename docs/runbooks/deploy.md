@@ -1,13 +1,16 @@
 # Deploy Runbook
 
-How a change actually reaches production today: commit → push → pull/build on the
-box → verify. Backend and frontend are **two separate repositories** and **two
-separate deploys**, and they are not symmetrical — read the section you need.
+How a change actually reaches production today: commit → push → pull → migrate →
+build on the box → verify. Backend and frontend are **two separate
+repositories** and **two separate deploys**, and they are not symmetrical — read
+the section you need.
 
-> **Order matters: backend first, then frontend.** New API fields ship as
-> optional, so the old bundle keeps working against the new API for the minutes
-> between the two deploys. The reverse order breaks: a new bundle sending fields
-> the live API rejects fails validation.
+> **Order matters: migrations, then backend, then frontend.** New API fields
+> ship as optional, so the old bundle keeps working against the new API for the
+> minutes between the two deploys. The reverse order breaks: a new bundle
+> sending fields the live API rejects fails validation. And a restart before the
+> migration serves code whose queries reference objects that do not exist yet —
+> §1.3.
 
 For undoing a bad deploy, see [rollback.md](./rollback.md).
 
@@ -97,7 +100,56 @@ Confirm afterwards:
 git status --short   # expect: M pnpm-workspace.yaml, ?? ecosystem.config.js, ?? pnpm-lock.yaml.server-backup
 ```
 
-### 1.3 Build
+### 1.3 Migrations — before the restart, or the new code 500s
+
+Skip only if `git diff --stat <PREVIOUS_SHA>..HEAD -- packages/database/prisma/migrations`
+is empty. Otherwise this is not optional and it is not last: the new build
+expects the new schema, so a restart before the migration serves code whose
+queries reference objects that do not exist yet.
+
+`prisma` reads `DATABASE_URL` from the environment, and the server has no
+`packages/database/prisma/.env` — load `.env.production` into the shell first
+(§3.1 explains why editing that file alone changes nothing):
+
+```bash
+cd ~/cadeau-backend && set -a && . ./.env.production && set +a \
+  && pnpm --filter @cadeau/database exec prisma migrate status
+```
+
+`migrate status` exits non-zero when anything is pending — that is the answer,
+not a failure. Read the list, then apply:
+
+```bash
+cd ~/cadeau-backend && set -a && . ./.env.production && set +a \
+  && pnpm --filter @cadeau/database exec prisma migrate deploy
+```
+
+**Then prove the objects exist**, before the restart, while the old process is
+still serving traffic happily. "Successfully applied" says the file ran, not
+that the thing your code calls is there:
+
+```bash
+# Whatever the migration added — a function, a column, an index:
+psql "$DATABASE_URL" -c "SELECT app.search_fold('أزرق') = app.search_fold('ازرق');"
+psql "$DATABASE_URL" -c "SELECT indexname FROM pg_indexes WHERE indexname LIKE '%folded%';"
+```
+
+If that fails, **stop and do not restart** — the running app is fine against
+the old schema, and a restart is what would break it.
+
+Two things worth knowing:
+
+- `psql` connects as `crmuser`, which RLS applies to. `SELECT count(*) FROM products`
+  returning `0` means no tenant context, not an empty table. Check
+  `pg_total_relation_size` instead when you want to know how big something is.
+- `CREATE INDEX` (without `CONCURRENTLY`) blocks writes to that table while it
+  runs. On these tables — a couple of MB — it is imperceptible. On a table that
+  has grown, use `CONCURRENTLY` in the migration instead, or run it off-peak.
+- A migration that only adds functions or indexes needs **no** `db:seed`. Seed
+  after `migrate:deploy` only when the migration introduces reference data the
+  seed owns (a new permission, feature or catalog row).
+
+### 1.4 Build
 
 ```bash
 cd ~/cadeau-backend
@@ -110,7 +162,7 @@ the riskiest step on a live box and most commits do not need it.
 A `[WARN] The "pnpm" field in package.json is no longer read by pnpm` line is
 normal noise on pnpm 11.
 
-### 1.4 Verify the build before restarting
+### 1.5 Verify the build before restarting
 
 Cheap and it catches a stale or partial build while the old process is still
 serving traffic. Grep the compiled output for something your change introduced:
@@ -119,7 +171,7 @@ serving traffic. Grep the compiled output for something your change introduced:
 grep -c "addressLine" apps/api/dist/modules/shipping/presentation/dto/shipping.dto.js
 ```
 
-### 1.5 Restart and verify
+### 1.6 Restart and verify
 
 ```bash
 pm2 restart cadeau-api --update-env
@@ -135,13 +187,27 @@ log keeps old entries and it is easy to panic at an error from days ago:
 pm2 logs cadeau-api --lines 30 --nostream --err
 ```
 
-A guarded route answering `401` to an unauthenticated request is a healthy sign:
-the route exists and the guard is up.
+A guarded route answering `401` to an unauthenticated request shows the guard is
+up:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   https://crmapi.cadeauegypt.com/v1/shipping/shipments -H 'Content-Type: application/json' -d '{}'
 ```
+
+**It does not show the route exists.** The guard runs before routing, so a path
+that was never defined answers `401` as well — curl a deliberate nonsense path
+once and you will see it. For a route this deploy _added_, the honest check is
+the startup log, which lists every path Nest mapped:
+
+```bash
+pm2 logs cadeau-api --lines 400 --nostream --out | grep 'Mapped.*your/new/path'
+```
+
+That also catches an ordering mistake a `401` would hide: a literal segment
+declared after a parameterised sibling never matches, because Nest tries them in
+declaration order. `GET /products/variants` has to be mapped before
+`GET /products/:productId` — the log shows which came first.
 
 ---
 
@@ -188,6 +254,30 @@ cp ~/cadeau-backend/apps/web/src/i18n/dictionaries.ts ~/cadeau-front/src/i18n/di
 # ...one cp per changed file
 cd ~/cadeau-front && git status --short -- src/   # exactly the files you meant
 ```
+
+**Then `chmod 644` anything the change _adds_.** This is the same `cp`
+pathology §2.6 warns about at the web root, and it bites here first. Copying
+onto a file that already exists keeps that file's mode, so every modified file
+is fine and the trap is invisible — but a **new** file is created fresh and
+comes out `---xrw----`, which the owner cannot read. The build then fails with
+something that looks nothing like a permissions problem:
+
+```
+[UNLOADABLE_DEPENDENCY] Could not load src/lib/search-text.ts
+  import { matchesSearch } from "@/lib/search-text";
+                                 ╰─── Permission denied (os error 13)
+```
+
+```bash
+cd ~/cadeau-front
+chmod 644 src/lib/search-text.ts     # one per file the change adds
+ls -l src/lib/search-text.ts         # expect -rw-r--r--
+```
+
+Note also that §2.2's divergence check cannot say anything about a new file —
+`git show <SHA>:apps/web/src/<new file>` does not resolve, because the file did
+not exist at that commit. Confirm it is absent from the mirror instead, which
+is the same assurance: nothing of yours is being overwritten.
 
 ### 2.4 Build
 
@@ -365,11 +455,16 @@ Running these over SSH from PowerShell has sharp edges that cost real time:
 
 ## 5. Post-deploy checklist
 
-- [ ] Backend rollback SHA recorded, frontend rollback SHA recorded.
+- [ ] Backend rollback SHA recorded, frontend rollback SHA recorded (the bundle
+      hash the live `index.html` pointed at **before** you replaced it).
 - [ ] `/var/www/crm` backed up to `~/backups/` before overwriting.
+- [ ] Pending migrations applied **before** the restart, and the objects they
+      add confirmed present in the production database.
 - [ ] `git status --short` on `~/cadeau-backend` still shows the three expected
       server-local entries.
 - [ ] `https://crmapi.cadeauegypt.com/v1/health` returns `ok`.
+- [ ] Any route this deploy added appears in the `Mapped` startup log — a `401`
+      does not prove it exists.
 - [ ] `pm2 list` shows `cadeau-api` online and the restart count is not climbing.
 - [ ] `index.html` references the new bundle hash and it returns `200`.
 - [ ] Web-root files are `-rw-r--r--`.
