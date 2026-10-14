@@ -91,6 +91,7 @@ const VARIANT_SELECT = {
   averageCost: true,
   sellingPriceMinor: true,
   isActive: true,
+  isPlaceholder: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -238,6 +239,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
             ...(data.sellingPriceMinor === undefined
               ? {}
               : { sellingPriceMinor: BigInt(data.sellingPriceMinor) }),
+            ...(data.isPlaceholder === undefined ? {} : { isPlaceholder: data.isPlaceholder }),
           }) as Prisma.ProductVariantUncheckedCreateInput,
           select: VARIANT_SELECT,
         });
@@ -261,6 +263,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
       if (data.sku !== undefined) patch["sku"] = data.sku;
       if (data.barcode !== undefined) patch["barcode"] = data.barcode;
       if (data.active !== undefined) patch["isActive"] = data.active;
+      if (data.isPlaceholder !== undefined) patch["isPlaceholder"] = data.isPlaceholder;
       if (data.sellingPriceMinor !== undefined) {
         patch["sellingPriceMinor"] = BigInt(data.sellingPriceMinor);
       }
@@ -460,6 +463,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
     averageCost: bigint;
     sellingPriceMinor: bigint;
     isActive: boolean;
+    isPlaceholder: boolean;
     createdAt: Date;
     updatedAt: Date;
   }): ProductVariantView {
@@ -472,6 +476,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
       averageCost: Number(row.averageCost),
       sellingPriceMinor: Number(row.sellingPriceMinor),
       active: row.isActive,
+      isPlaceholder: row.isPlaceholder,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

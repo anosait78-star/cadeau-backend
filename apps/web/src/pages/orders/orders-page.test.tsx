@@ -99,6 +99,7 @@ const ORDER_DETAIL = {
       quantity: 2,
       price: 15000,
       costSnapshot: 8000,
+      isPlaceholder: false,
     },
   ],
 };

@@ -42,18 +42,30 @@ const E164 = /^\+[1-9]\d{7,14}$/;
  * preserved untouched in `storefront_webhook_events.payload` for
  * audit/debugging.
  *
- * Two WooCommerce behaviors are explicitly out of scope for v1 and fail the
- * event with a clear, reprocessable reason rather than silently guessing:
- *  - **Variable products** (`type: "variable"`): the webhook payload's
- *    `variations` field is only an array of child IDs, not full variation
- *    data — mapping it would need N additional API calls this inbound-only,
- *    webhook-driven design has no way to make. Matches the design's existing
- *    v1 exclusion of multi-variant nested payloads
- *    (storefront-integration-plan.md §3).
- *  - **Unmanaged stock** (`manage_stock: false`, or a null `stock_quantity`):
- *    there is no reliable "absolute on-hand" figure to sync, and guessing
- *    (e.g. defaulting to 0) would silently corrupt real inventory through
- *    the existing adjustment path (D5) — so the event fails instead.
+ * **Nothing here rejects an event any more** (2026-10-14). Mapping used to
+ * fail the whole delivery over a field WooCommerce was never obliged to
+ * fill, and that cost real data: products published without a sku returned
+ * HTTP 500 for five consecutive deliveries on 29 Sept, WooCommerce
+ * auto-disabled both product webhooks, and 65 products were then sold on the
+ * storefront while the CRM had never heard of them — so every order touching
+ * one was rejected in turn. The four cases that used to throw now degrade
+ * instead, each in a way a human can see and correct:
+ *  - **No sku** (product or order line): one is synthesized from the
+ *    platform's own id (`WOO-<id>`) and flagged `skuSynthesized`. A poor
+ *    match key beats no row at all.
+ *  - **Variable products** (`type: "variable"`): the payload lists only
+ *    child ids, so the parent syncs as a single catalogue entry at the
+ *    `price` WooCommerce computed for it, with no stock figure. Orders for
+ *    its children arrive bearing the *variation's* own sku, which resolves
+ *    (or becomes a placeholder) on its own merits.
+ *  - **No price**: zero, rather than no product.
+ *  - **Unmanaged stock** (`manage_stock: false`, or a null
+ *    `stock_quantity`): already handled — no absolute on-hand figure is
+ *    reported, `StorefrontIngestionService` skips only the stock-sync step
+ *    and never guesses a quantity (D5).
+ *
+ * The raw payload is kept verbatim in `storefront_webhook_events.payload`
+ * either way, so a degraded mapping can always be re-read against the truth.
  */
 @Injectable()
 export class WooCommerceAdapter implements StorefrontAdapterPort {
@@ -123,22 +135,22 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     const product = this.asRecord(raw, "WooCommerce product");
     const externalId = this.requireExternalId(product, "WooCommerce product");
 
-    if (product["type"] === "variable") {
-      throw new StorefrontPayloadMappingError(
-        `WooCommerce product ${externalId}: variable products (multiple variations) are not ` +
-          "supported in this integration — the webhook payload only lists variation ids, not " +
-          "their price/stock/sku. Sync this product's simple variant(s) individually, or contact " +
-          "support if variable-product sync is required.",
-      );
-    }
+    // A variable product's payload lists only its children's ids, so there is
+    // nothing to expand into per-variation rows here. It still syncs as one
+    // catalogue entry at the price WooCommerce computed for the parent, with
+    // no stock figure of its own — orders for its children arrive with the
+    // variation's sku and resolve independently. Failing the event instead
+    // (the v1 stance) only ever meant the product was missing when an order
+    // needed it.
+    const isVariable = product["type"] === "variable";
 
-    const sku = this.requireNonEmptyString(product, "sku", `WooCommerce product ${externalId}`);
+    const sku = this.resolveProductSku(product, externalId);
     const name = this.requireNonEmptyString(product, "name", `WooCommerce product ${externalId}`);
     const description =
       this.optionalString(product, "description") ??
       this.optionalString(product, "short_description");
     const priceMinor = this.parsePrice(product, externalId);
-    const stockQuantity = this.parseStockQuantity(product, externalId);
+    const stockQuantity = isVariable ? undefined : this.parseStockQuantity(product);
     const active = product["status"] === "publish";
     const vendorExternalId = this.parseVendorExternalId(product);
     const imageUrl = this.parseImageUrl(product);
@@ -147,7 +159,8 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
       externalId,
       name,
       ...(description !== undefined && description.length > 0 ? { description } : {}),
-      sku,
+      sku: sku.value,
+      ...(sku.synthesized ? { skuSynthesized: true } : {}),
       priceMinor,
       ...(stockQuantity !== undefined ? { stockQuantity } : {}),
       active,
@@ -186,7 +199,8 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
   private parseLineItem(raw: unknown, orderExternalId: string, index: number): NormalizedOrderItem {
     const context = `WooCommerce order ${orderExternalId} line item #${index + 1}`;
     const line = this.asRecord(raw, context);
-    const sku = this.requireNonEmptyString(line, "sku", context);
+    const sku = this.resolveLineSku(line, orderExternalId, index);
+    const name = this.optionalString(line, "name");
     const quantity = line["quantity"];
     if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1) {
       throw new StorefrontPayloadMappingError(
@@ -204,11 +218,46 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
     const totalMinor = this.toMinorUnits(lineTotal, context);
     const vendorExternalId = this.parseVendorExternalId(line);
     return {
-      sku,
+      sku: sku.value,
+      ...(name !== undefined ? { name } : {}),
+      ...(sku.synthesized ? { skuSynthesized: true } : {}),
       quantity,
       unitPriceMinor: Math.round(totalMinor / quantity),
       ...(vendorExternalId !== undefined ? { vendorExternalId } : {}),
     };
+  }
+
+  /**
+   * The line's own sku, or one synthesized from the ids WooCommerce always
+   * sends — the variation's when the line is a variation, otherwise the
+   * product's, and finally the line's position, which is unique within the
+   * order even for a line carrying no ids at all.
+   *
+   * A synthesized sku will not match any catalogue variant, which is the
+   * point: ingestion then creates a placeholder from the line's name rather
+   * than rejecting the order (2026-10-14). It is derived only from fields
+   * that are stable across re-deliveries of the same order, so a re-sent
+   * `order.updated` resolves to the same placeholder, never a second one.
+   */
+  private resolveLineSku(
+    line: JsonRecord,
+    orderExternalId: string,
+    index: number,
+  ): { value: string; synthesized: boolean } {
+    const own = this.optionalString(line, "sku");
+    if (own !== undefined) return { value: own, synthesized: false };
+    const variationId = this.positiveId(line["variation_id"]);
+    if (variationId !== undefined) return { value: `WOO-${variationId}`, synthesized: true };
+    const productId = this.positiveId(line["product_id"]);
+    if (productId !== undefined) return { value: `WOO-${productId}`, synthesized: true };
+    return { value: `WOO-ORDER-${orderExternalId}-L${index + 1}`, synthesized: true };
+  }
+
+  /** A WooCommerce id as a string, or `undefined` for absent/zero/garbage. */
+  private positiveId(value: unknown): string | undefined {
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) return String(value);
+    if (typeof value === "string" && /^[1-9]\d*$/.test(value.trim())) return value.trim();
+    return undefined;
   }
 
   /**
@@ -460,6 +509,21 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
 
   // ---- product helpers ---------------------------------------------------
 
+  /**
+   * The product's own sku, or `WOO-<id>` synthesized from the WooCommerce
+   * product id. WooCommerce does not require a sku, and requiring one here is
+   * what disabled the product webhook on 29 Sept — see the class docs.
+   */
+  private resolveProductSku(
+    product: JsonRecord,
+    externalId: string,
+  ): { value: string; synthesized: boolean } {
+    const own = this.optionalString(product, "sku");
+    return own !== undefined
+      ? { value: own, synthesized: false }
+      : { value: `WOO-${externalId}`, synthesized: true };
+  }
+
   private parsePrice(product: JsonRecord, externalId: string): number {
     const price = product["price"];
     const regular = product["regular_price"];
@@ -469,11 +533,10 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
         : typeof regular === "string" && regular.length > 0
           ? regular
           : undefined;
-    if (source === undefined) {
-      throw new StorefrontPayloadMappingError(
-        `WooCommerce product ${externalId}: has no price or regular_price.`,
-      );
-    }
+    // A product with no price at all (a draft, or a "call us" listing) is
+    // still worth having in the catalogue; zero is visibly wrong and
+    // correctable, where a failed event is neither.
+    if (source === undefined) return 0;
     return this.toMinorUnits(source, `WooCommerce product ${externalId} price`);
   }
 
@@ -484,16 +547,17 @@ export class WooCommerceAdapter implements StorefrontAdapterPort {
    * price, image, ...). `StorefrontIngestionService` skips the stock-sync
    * step entirely in that case rather than guessing (D5).
    */
-  private parseStockQuantity(product: JsonRecord, externalId: string): number | undefined {
+  private parseStockQuantity(product: JsonRecord): number | undefined {
     if (product["manage_stock"] === false) {
       return undefined;
     }
     const quantity = product["stock_quantity"];
+    // Managed stock with no usable figure (null, negative from a backorder,
+    // fractional) is treated like unmanaged stock: the catalogue fields sync,
+    // the stock step is skipped. Failing the product here is the same mistake
+    // as failing it for a missing sku — see the class docs.
     if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 0) {
-      throw new StorefrontPayloadMappingError(
-        `WooCommerce product ${externalId}: expected a non-negative integer stock_quantity, got ` +
-          `${JSON.stringify(quantity)}.`,
-      );
+      return undefined;
     }
     return quantity;
   }

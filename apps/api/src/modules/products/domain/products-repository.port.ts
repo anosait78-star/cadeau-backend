@@ -43,6 +43,8 @@ export interface CreateVariantInput {
   readonly barcode?: string | null;
   /** Integer minor units. `averageCost` stays purchase-cost-only and is separate. */
   readonly sellingPriceMinor?: number;
+  /** Set only by storefront ingestion; see `ProductVariant.isPlaceholder`. */
+  readonly isPlaceholder?: boolean;
 }
 
 /** Partial update for a variant. */
@@ -53,6 +55,11 @@ export interface UpdateVariantInput {
   readonly active?: boolean;
   /** Integer minor units. `averageCost` stays purchase-cost-only and is separate. */
   readonly sellingPriceMinor?: number;
+  /**
+   * Cleared by storefront ingestion when the real product finally syncs onto
+   * a variant it had invented; see `ProductVariant.isPlaceholder`.
+   */
+  readonly isPlaceholder?: boolean;
 }
 
 /**

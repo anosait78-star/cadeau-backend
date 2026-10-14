@@ -11,11 +11,7 @@ import type { ResolvedStorefrontConnection } from "../domain/storefront-connecti
 import type { StorefrontConnectionsRepositoryPort } from "../domain/storefront-connections-repository.port";
 import type { StorefrontWebhookInboxPort } from "../domain/storefront-webhook-inbox.port";
 import type { VendorWarehouseMappingsRepositoryPort } from "../domain/vendor-warehouse-mappings-repository.port";
-import {
-  DuplicateVendorMappingError,
-  UnknownSkuError,
-  VendorNotMappedError,
-} from "../domain/storefront.errors";
+import { DuplicateVendorMappingError, VendorNotMappedError } from "../domain/storefront.errors";
 import { StorefrontIngestionService } from "./storefront-ingestion.service";
 
 const CONNECTION: ResolvedStorefrontConnection = {
@@ -367,22 +363,42 @@ describe("StorefrontIngestionService.ingestOrder", () => {
     );
   });
 
-  it("marks the event failed and rethrows when a line's sku is unknown", async () => {
+  // 2026-10-14: an order is never rejected over a product the CRM has not
+  // heard of. The unknown sku becomes a flagged placeholder variant and the
+  // order goes through against it.
+  it("accepts an order whose sku is unknown, via a placeholder variant", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },
       enqueued: true,
     });
     h.products.findVariantBySku.mockResolvedValue(null);
+    h.products.create.mockResolvedValue({ id: "product-new" });
+    h.products.createVariant.mockResolvedValue({
+      id: "variant-new",
+      productId: "product-new",
+      isPlaceholder: true,
+    });
+    h.customers.list.mockResolvedValue(emptyPage());
+    h.customers.create.mockResolvedValue({ customer: { id: "cust-1" }, replayed: false });
+    h.orders.create.mockResolvedValue({ order: { id: "order-1" }, replayed: false });
 
-    await expect(h.service.ingestOrder(CONNECTION, ORDER_PAYLOAD)).rejects.toBeInstanceOf(
-      UnknownSkuError,
+    await h.service.ingestOrder(CONNECTION, ORDER_PAYLOAD);
+
+    expect(h.products.createVariant).toHaveBeenCalledWith(
+      expect.anything(),
+      "product-new",
+      expect.objectContaining({ sku: "SKU-1", isPlaceholder: true }),
     );
-    expect(h.inbox.markFailed).toHaveBeenCalledWith(
-      "co-1",
-      "evt-1",
-      expect.stringContaining("SKU-1"),
+    expect(h.orders.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        items: [expect.objectContaining({ variantId: "variant-new" })],
+      }),
     );
-    expect(h.orders.create).not.toHaveBeenCalled();
+    expect(h.inbox.markFailed).not.toHaveBeenCalled();
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "storefront_order.placeholder_product" }),
+    );
   });
 
   it("returns duplicate without reprocessing when the event was already processed", async () => {

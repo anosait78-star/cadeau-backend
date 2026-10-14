@@ -23,6 +23,13 @@ export interface OrderItemView {
    * `warehouseId` instead.
    */
   readonly warehouseId: string | null;
+  /**
+   * The line points at a variant the CRM invented from this very order
+   * because the storefront sold a product the catalogue had never received
+   * (2026-10-14). Staff-facing only: the UI shows "not in the CRM" beside the
+   * name. Clears itself when the real product syncs.
+   */
+  readonly isPlaceholder: boolean;
 }
 
 /**

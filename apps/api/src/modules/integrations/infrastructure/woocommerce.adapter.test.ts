@@ -128,10 +128,40 @@ describe("WooCommerceAdapter.parseOrder", () => {
     expect(adapter.parseOrder(baseOrder({ status: undefined })).status).toBe("processing");
   });
 
-  it("throws a clear error when a line item has no sku", () => {
-    const order = baseOrder({ line_items: [{ quantity: 1, total: "100.00" }] });
-    expect(() => adapter.parseOrder(order)).toThrow(StorefrontPayloadMappingError);
-    expect(() => adapter.parseOrder(order)).toThrow(/sku/);
+  // 2026-10-14: a line with no sku used to reject the whole order. It now
+  // gets a synthesized sku so ingestion can invent a placeholder variant.
+  it("synthesizes a sku from the variation, then product, id when a line has none", () => {
+    const withVariation = adapter.parseOrder(
+      baseOrder({
+        line_items: [
+          { quantity: 1, total: "100.00", name: "Mug", product_id: 11, variation_id: 22 },
+        ],
+      }),
+    );
+    expect(withVariation.items[0]).toMatchObject({
+      sku: "WOO-22",
+      name: "Mug",
+      skuSynthesized: true,
+    });
+
+    const withProduct = adapter.parseOrder(
+      baseOrder({ line_items: [{ quantity: 1, total: "100.00", name: "Mug", product_id: 11 }] }),
+    );
+    expect(withProduct.items[0]?.sku).toBe("WOO-11");
+  });
+
+  it("still accepts a line that carries no ids at all, keyed by its position", () => {
+    const order = adapter.parseOrder(baseOrder({ line_items: [{ quantity: 1, total: "100.00" }] }));
+    expect(order.items[0]?.skuSynthesized).toBe(true);
+    expect(order.items[0]?.sku).toMatch(/^WOO-ORDER-.+-L1$/);
+  });
+
+  it("carries the storefront's own product name on the line, and a real sku untouched", () => {
+    const line = adapter.parseOrder(
+      baseOrder({ line_items: [{ sku: "SKU-9", name: "Lamp", quantity: 1, total: "50.00" }] }),
+    ).items[0];
+    expect(line).toMatchObject({ sku: "SKU-9", name: "Lamp" });
+    expect(line?.skuSynthesized).toBeUndefined();
   });
 
   it("throws a clear error when both billing and shipping name are missing", () => {
@@ -389,10 +419,11 @@ describe("WooCommerceAdapter.parseProduct", () => {
     });
   });
 
-  it("throws a clear error when sku is missing", () => {
-    const product = baseProduct({ sku: "" });
-    expect(() => adapter.parseProduct(product)).toThrow(StorefrontPayloadMappingError);
-    expect(() => adapter.parseProduct(product)).toThrow(/sku/);
+  // This is the failure that auto-disabled the product webhook on 29 Sept.
+  it("synthesizes WOO-<id> instead of failing when the product has no sku", () => {
+    const parsed = adapter.parseProduct(baseProduct({ sku: "" }));
+    expect(parsed.sku).toMatch(/^WOO-\d+$/);
+    expect(parsed.skuSynthesized).toBe(true);
   });
 
   it("falls back to regular_price when price is empty", () => {
@@ -400,9 +431,9 @@ describe("WooCommerceAdapter.parseProduct", () => {
     expect(adapter.parseProduct(product).priceMinor).toBe(18000);
   });
 
-  it("throws when both price and regular_price are missing", () => {
+  it("syncs a product with no price at zero rather than failing", () => {
     const product = baseProduct({ price: "", regular_price: "" });
-    expect(() => adapter.parseProduct(product)).toThrow(/price/);
+    expect(adapter.parseProduct(product).priceMinor).toBe(0);
   });
 
   it("maps stock_quantity for a managed-stock product", () => {
@@ -414,9 +445,9 @@ describe("WooCommerceAdapter.parseProduct", () => {
     expect(adapter.parseProduct(product).stockQuantity).toBeUndefined();
   });
 
-  it("throws when stock is managed but stock_quantity is null/malformed", () => {
+  it("reports no stock figure when stock is managed but stock_quantity is null", () => {
     const product = baseProduct({ manage_stock: true, stock_quantity: null });
-    expect(() => adapter.parseProduct(product)).toThrow(/stock_quantity/);
+    expect(adapter.parseProduct(product).stockQuantity).toBeUndefined();
   });
 
   it("maps status=publish to active=true and any other status to active=false", () => {
@@ -424,10 +455,12 @@ describe("WooCommerceAdapter.parseProduct", () => {
     expect(adapter.parseProduct(baseProduct({ status: "draft" })).active).toBe(false);
   });
 
-  it("rejects variable products — variation data isn't in the webhook payload", () => {
-    const product = baseProduct({ type: "variable" });
-    expect(() => adapter.parseProduct(product)).toThrow(StorefrontPayloadMappingError);
-    expect(() => adapter.parseProduct(product)).toThrow(/variable/);
+  it("syncs a variable product as one entry with no stock figure instead of failing", () => {
+    const parsed = adapter.parseProduct(
+      baseProduct({ type: "variable", manage_stock: true, stock_quantity: 5 }),
+    );
+    expect(parsed.priceMinor).toBeGreaterThanOrEqual(0);
+    expect(parsed.stockQuantity).toBeUndefined();
   });
 
   it("throws on a non-object payload", () => {

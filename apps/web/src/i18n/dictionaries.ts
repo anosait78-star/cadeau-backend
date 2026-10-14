@@ -737,6 +737,9 @@ export const en = {
   "orders.payment.partial": "Partial",
   "orders.payment.paid": "Paid",
   "orders.field.items": "Items",
+  "orders.item.notInCrm": "Not in the CRM",
+  "orders.item.notInCrmHint":
+    "The storefront sold a product the CRM has not received yet. It will complete itself when the product syncs.",
   "orders.field.total": "Total",
   "orders.field.collected": "Collected",
   "orders.field.remaining": "Remaining",
@@ -2085,6 +2088,9 @@ export const ar: Record<TranslationKey, string> = {
   "orders.payment.partial": "مدفوع جزئيًا",
   "orders.payment.paid": "مدفوع",
   "orders.field.items": "الأصناف",
+  "orders.item.notInCrm": "غير موجود في الـ CRM",
+  "orders.item.notInCrmHint":
+    "المتجر باع منتجًا لم يصل إلى الـ CRM بعد. ستكتمل بياناته تلقائيًا عند مزامنة المنتج.",
   "orders.field.total": "الإجمالي",
   "orders.field.collected": "المُحصّل",
   "orders.field.remaining": "المتبقي",

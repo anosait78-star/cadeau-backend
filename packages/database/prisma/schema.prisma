@@ -743,6 +743,16 @@ model ProductVariant {
   /// purchase-cost-only and is never touched by this column's writers.
   sellingPriceMinor BigInt @default(0) @map("selling_price_minor")
   isActive    Boolean  @default(true) @map("is_active")
+  /// True when storefront ingestion invented this variant from an order line
+  /// whose sku matched nothing in the catalogue (2026-10-14) — an order is
+  /// never rejected over a product the CRM has never heard of. Carries only
+  /// what the order line said (name, selling price) and no cost, so profit
+  /// figures including it are overstated until someone completes it. Cleared
+  /// automatically when the real product finally syncs, since the product
+  /// upsert matches on this same `sku`. A partial index
+  /// (`product_variants_placeholder_idx`, SQL-only — Prisma cannot express
+  /// a WHERE clause) backs the "needs completing" list.
+  isPlaceholder Boolean @default(false) @map("is_placeholder")
   createdBy   String?  @map("created_by") @db.Uuid
   updatedBy   String?  @map("updated_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -9,6 +9,13 @@ export interface CatalogProduct {
 export interface CatalogVariant {
   readonly id: string;
   readonly productId: string;
+  /**
+   * This variant was invented by storefront ingestion from an order line and
+   * still holds nothing but that line's name and price — see
+   * `ProductVariant.isPlaceholder`. Storefront ingestion reads it to know
+   * whether a product sync onto this variant should also clear the flag.
+   */
+  readonly isPlaceholder: boolean;
 }
 
 export interface CatalogProductInput {
@@ -23,6 +30,12 @@ export interface CatalogVariantInput {
   readonly barcode?: string | null;
   readonly sellingPriceMinor?: number;
   readonly active?: boolean;
+  /**
+   * Set when creating a variant the order line alone paid for, and set back
+   * to `false` when the real product arrives; see
+   * `ProductVariant.isPlaceholder`.
+   */
+  readonly isPlaceholder?: boolean;
 }
 
 /**

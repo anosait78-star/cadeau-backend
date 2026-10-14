@@ -471,14 +471,29 @@ function DeliveryCard({
 }
 
 /** One compact order line for the summary: image, name, quantity, line total. */
+/**
+ * Beside a line whose product the CRM never received — the storefront sold it
+ * while the product webhook was down, so the order carries it by name only.
+ * Warning rather than destructive: the order itself is fine.
+ */
+function NotInCrmBadge({ t }: { t: (k: TranslationKey) => string }): ReactNode {
+  return (
+    <span title={t("orders.item.notInCrmHint")} className="shrink-0">
+      <StatusBadge label={t("orders.item.notInCrm")} tone="warning" testId="item-not-in-crm" />
+    </span>
+  );
+}
+
 function SummaryItemRow({
   item,
   imageUrl,
   locale,
+  t,
 }: {
   item: OrderDetail["items"][number];
   imageUrl: string | null;
   locale: string;
+  t: (k: TranslationKey) => string;
 }): ReactNode {
   return (
     <li className="flex items-center gap-3 py-2.5">
@@ -498,7 +513,10 @@ function SummaryItemRow({
         </span>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-sm font-medium leading-tight">{item.nameSnapshot}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium leading-tight">{item.nameSnapshot}</span>
+          {item.isPlaceholder ? <NotInCrmBadge t={t} /> : null}
+        </span>
         <span dir="ltr" className="text-xs tabular-nums text-muted-foreground">
           {item.quantity} × {formatMoney(item.price, locale)}
         </span>
@@ -561,6 +579,7 @@ function SummarySection({
               item={item}
               imageUrl={itemImages.get(item.variantId) ?? null}
               locale={locale}
+              t={t}
             />
           ))}
         </ul>
@@ -726,7 +745,15 @@ function AssigneeSection({
   );
 }
 
-function ItemsSection({ detail, locale }: { detail: OrderDetail; locale: string }): ReactNode {
+function ItemsSection({
+  detail,
+  locale,
+  t,
+}: {
+  detail: OrderDetail;
+  locale: string;
+  t: (k: TranslationKey) => string;
+}): ReactNode {
   return (
     <ul className="flex flex-col divide-y divide-border/70 text-sm">
       {detail.items.map((item) => (
@@ -741,8 +768,11 @@ function ItemsSection({ detail, locale }: { detail: OrderDetail; locale: string 
             <Package className="h-4 w-4" />
           </span>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate font-medium leading-tight">
-              {item.nameSnapshot} × {item.quantity}
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate font-medium leading-tight">
+                {item.nameSnapshot} × {item.quantity}
+              </span>
+              {item.isPlaceholder ? <NotInCrmBadge t={t} /> : null}
             </span>
             {/* The unit price only earns a line when it differs from the line
                 total — for a quantity of one it would just repeat it. */}
@@ -1288,7 +1318,7 @@ export function buildOrderDetailSections({
     {
       key: "items",
       label: t("orders.detail.tabs.items"),
-      content: <ItemsSection detail={detail} locale={locale} />,
+      content: <ItemsSection detail={detail} locale={locale} t={t} />,
     },
     {
       key: "assignee",

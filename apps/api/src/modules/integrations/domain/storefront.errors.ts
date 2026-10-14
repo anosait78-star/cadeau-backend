@@ -14,14 +14,6 @@ export class WarehouseNotFoundError extends Error {
   }
 }
 
-/** Thrown when a webhook event's `sku` does not resolve to any variant in the tenant. */
-export class UnknownSkuError extends Error {
-  constructor(readonly sku: string) {
-    super(`No variant found for sku "${sku}".`);
-    this.name = "UnknownSkuError";
-  }
-}
-
 /** Thrown when a webhook event id is not `pending`/`failed` (already processed). */
 export class NotReprocessableError extends Error {
   constructor() {
@@ -49,11 +41,10 @@ export class UnsupportedPlatformError extends Error {
 /**
  * Thrown by a platform adapter when a raw webhook payload is missing a field
  * required to build a {@link NormalizedOrder}/{@link NormalizedProduct} (e.g.
- * a WooCommerce order with no `billing.phone`). Distinct from
- * {@link UnknownSkuError} — this is a shape/content problem in the raw
- * payload itself, not a lookup miss against existing catalog data. Always
- * carries a human-readable reason so it lands verbatim in the webhook
- * event's `error` column.
+ * a WooCommerce order with no `billing.phone`). A shape/content problem in
+ * the raw payload itself — nothing in the catalogue is consulted at mapping
+ * time. Always carries a human-readable reason so it lands verbatim in the
+ * webhook event's `error` column.
  */
 export class StorefrontPayloadMappingError extends Error {
   constructor(message: string) {

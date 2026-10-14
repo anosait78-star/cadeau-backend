@@ -62,6 +62,7 @@ function order(extra: Partial<OrderView> = {}): OrderView {
         quantity: 2,
         price: 15000,
         costSnapshot: 8000,
+        isPlaceholder: false,
       },
     ],
     ...extra,

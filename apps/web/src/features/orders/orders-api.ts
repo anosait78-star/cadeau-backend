@@ -66,6 +66,11 @@ export interface OrderItem {
   readonly quantity: number;
   readonly price: number;
   readonly costSnapshot: number;
+  /**
+   * The product is not in the CRM catalogue: it was invented from this order's
+   * line because the storefront sold something the CRM had never received.
+   */
+  readonly isPlaceholder: boolean;
 }
 
 /** An order as a list row (no items). */

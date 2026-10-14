@@ -42,6 +42,7 @@ function variant(id: string): ProductVariantView {
     averageCost: 0,
     sellingPriceMinor: 0,
     active: true,
+    isPlaceholder: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   };

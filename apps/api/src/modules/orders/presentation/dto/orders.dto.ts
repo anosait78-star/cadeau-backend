@@ -406,6 +406,11 @@ export class OrderItemDto {
   price!: number;
   @ApiProperty({ example: 8000, description: "Cost snapshot at add time (COGS)." })
   costSnapshot!: number;
+  @ApiProperty({
+    description:
+      "The product is not in the CRM catalogue — it was invented from this order's line because the storefront sold something the CRM had never received.",
+  })
+  isPlaceholder!: boolean;
 
   static from(view: OrderItemView): OrderItemDto {
     const dto = new OrderItemDto();
@@ -415,6 +420,7 @@ export class OrderItemDto {
     dto.quantity = view.quantity;
     dto.price = view.price;
     dto.costSnapshot = view.costSnapshot;
+    dto.isPlaceholder = view.isPlaceholder;
     return dto;
   }
 }

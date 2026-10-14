@@ -129,6 +129,7 @@ const ITEM_SELECT = {
   quantity: true,
   price: true,
   costSnapshot: true,
+  variant: { select: { isPlaceholder: true } },
 } as const;
 
 const ORDER_DETAIL_SELECT = {
@@ -1091,6 +1092,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
     quantity: bigint;
     price: bigint;
     costSnapshot: bigint;
+    variant: { isPlaceholder: boolean };
   }): OrderItemView {
     return {
       id: row.id,
@@ -1100,6 +1102,7 @@ export class OrdersRepository implements OrdersRepositoryPort {
       quantity: Number(row.quantity),
       price: Number(row.price),
       costSnapshot: Number(row.costSnapshot),
+      isPlaceholder: row.variant.isPlaceholder,
     };
   }
 

@@ -50,6 +50,7 @@ function detailRow(extra: Record<string, unknown> = {}) {
         quantity: 2n,
         price: 15000n,
         costSnapshot: 8000n,
+        variant: { isPlaceholder: false },
       },
     ],
     ...extra,

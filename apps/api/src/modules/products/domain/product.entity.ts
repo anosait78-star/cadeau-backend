@@ -40,6 +40,13 @@ export interface ProductVariantView {
   /** Sellable price in integer minor units; client/storefront-writable (storefront-integration §8). */
   readonly sellingPriceMinor: number;
   readonly active: boolean;
+  /**
+   * The CRM invented this variant from a storefront order line whose sku
+   * matched nothing (2026-10-14) — it holds the line's name and price and
+   * nothing else, and is shown as "not in the CRM" wherever it appears.
+   * Clears itself when the real product syncs.
+   */
+  readonly isPlaceholder: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

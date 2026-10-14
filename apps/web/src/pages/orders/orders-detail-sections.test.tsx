@@ -46,6 +46,7 @@ const ORDER_DETAIL: OrderDetail = {
       quantity: 1,
       price: 15000,
       costSnapshot: 8000,
+      isPlaceholder: false,
     },
   ],
 };
@@ -212,6 +213,58 @@ describe("buildOrderDetailSections", () => {
 
     render(<div>{build(ORDER_DETAIL)?.content}</div>);
     expect(screen.queryByTestId("detail-sales-channel")).not.toBeInTheDocument();
+  });
+
+  // 2026-10-14: the storefront sold a product the CRM never received. The
+  // order still shows it, by name, and says plainly that it is not in the CRM.
+  describe("a line whose product is not in the CRM", () => {
+    const withPlaceholder = {
+      ...ORDER_DETAIL,
+      items: [
+        { ...ORDER_DETAIL.items[0]!, id: "i-known", nameSnapshot: "Known mug" },
+        {
+          ...ORDER_DETAIL.items[0]!,
+          id: "i-ghost",
+          variantId: "v-ghost",
+          nameSnapshot: "Ghost lamp",
+          isPlaceholder: true,
+        },
+      ],
+    };
+    const build = (key: string) =>
+      buildOrderDetailSections({
+        detail: withPlaceholder,
+        activity: [],
+        vendorGroups: [],
+        t,
+        locale: "en",
+        companyId: "co1",
+        onNotify: () => {},
+        onPatch: () => {},
+      }).find((s) => s.key === key);
+
+    it.each(["summary", "items"])("is flagged in the %s section, and only that line", (key) => {
+      render(<div>{build(key)?.content}</div>);
+      expect(screen.getByText(/Ghost lamp/)).toBeInTheDocument();
+      expect(screen.getByText(/Known mug/)).toBeInTheDocument();
+      expect(screen.getAllByTestId("item-not-in-crm")).toHaveLength(1);
+      expect(screen.getByText("orders.item.notInCrm")).toBeInTheDocument();
+    });
+
+    it("shows no badge at all when every line is a real product", () => {
+      const sections = buildOrderDetailSections({
+        detail: ORDER_DETAIL,
+        activity: [],
+        vendorGroups: [],
+        t,
+        locale: "en",
+        companyId: "co1",
+        onNotify: () => {},
+        onPatch: () => {},
+      });
+      render(<div>{sections.find((s) => s.key === "items")?.content}</div>);
+      expect(screen.queryByTestId("item-not-in-crm")).not.toBeInTheDocument();
+    });
   });
 
   it("notes section shows the order's notes", () => {

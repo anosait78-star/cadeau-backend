@@ -19,6 +19,7 @@ import {
 } from "../../../shared/contracts/orders-ingestion.port";
 import {
   type CatalogProduct,
+  type CatalogVariant,
   PRODUCTS_CATALOG,
   type ProductsCatalogPort,
 } from "../../../shared/contracts/products-catalog.port";
@@ -26,6 +27,7 @@ import { AppErrors, AppException } from "../../../shared/errors/app-exception";
 import type {
   NormalizedCustomer,
   NormalizedOrder,
+  NormalizedOrderItem,
   NormalizedProduct,
 } from "../domain/storefront-adapter.port";
 import {
@@ -49,7 +51,6 @@ import { STOREFRONT_AUDIT, type StorefrontAuditPort } from "../domain/storefront
 import {
   DuplicateVendorMappingError,
   NotReprocessableError,
-  UnknownSkuError,
   VendorNotMappedError,
 } from "../domain/storefront.errors";
 
@@ -303,8 +304,7 @@ export class StorefrontIngestionService {
       (line) => line.vendorExternalId !== undefined && line.vendorExternalId.length > 0,
     );
     // Resolve EVERY line (sku → variant, and — for a multi-vendor order —
-    // vendor → warehouse) before calling `orders.create`, so an unresolvable
-    // SKU still fails the whole order atomically. A line whose vendor is
+    // vendor → warehouse) before calling `orders.create`. A line whose vendor is
     // missing or not yet mapped, though, no longer fails the order (revised
     // 2026-09-07, replacing the original D6 "atomic all-or-nothing" stance
     // after a real paid order was lost this way): it falls back to the
@@ -316,9 +316,13 @@ export class StorefrontIngestionService {
     // throw (a real configuration gap, not a per-order one).
     const items: OrdersIngestionItem[] = [];
     const unmappedVendors: string[] = [];
+    const placeholderSkus: string[] = [];
     for (const line of normalized.items) {
-      const variant = await this.products.findVariantBySku(principal, line.sku);
-      if (variant === null) throw new UnknownSkuError(line.sku);
+      const matched = await this.products.findVariantBySku(principal, line.sku);
+      // Nothing in the catalogue has this sku. Until 2026-10-14 that threw
+      // and lost the order — see {@link placeholderVariantFor}.
+      const variant = matched ?? (await this.placeholderVariantFor(principal, line));
+      if (matched === null) placeholderSkus.push(line.sku);
       let warehouseId: string | undefined;
       if (isMultiVendor) {
         const mapped =
@@ -379,6 +383,19 @@ export class StorefrontIngestionService {
         entityType: "order",
         entityId: order.id,
         changes: { customerId, externalOrderId: normalized.externalId },
+      });
+    }
+    // A product the CRM had never heard of now exists, named after the order
+    // line that paid for it. Audited per order so staff can find every order
+    // that is carrying one, not just the variants themselves.
+    if (placeholderSkus.length > 0) {
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_order.placeholder_product",
+        entityType: "order",
+        entityId: order.id,
+        changes: { skus: placeholderSkus, externalOrderId: normalized.externalId },
       });
     }
     if (unmappedVendors.length > 0) {
@@ -554,6 +571,50 @@ export class StorefrontIngestionService {
     }
   }
 
+  /**
+   * A variant invented so an order could be accepted, for a line whose sku
+   * matches nothing in the catalogue.
+   *
+   * The storefront is the catalogue's source of truth, and it runs ahead of
+   * the CRM: a product published on cadeauegypt.com is sellable the same
+   * minute, while the CRM only learns of it when a product webhook arrives.
+   * When that webhook is down — it was, from 29 Sept to today — orders arrive
+   * for products the CRM has never seen, and rejecting them threw away real,
+   * paid customer orders (3 of them, before this). So the order wins: the
+   * line's own name and price become a variant flagged
+   * `isPlaceholder`, the order is created against it like any other, and the
+   * UI shows the staff that this product is not really in the CRM yet.
+   *
+   * Deliberately minimal — a name, the price the customer actually paid, and
+   * nothing invented beyond that. No stock, no cost (so profit on this line
+   * reads as pure margin until a human fixes it, which is why the flag is
+   * surfaced rather than buried), and no vendor: there is nothing in an order
+   * line to say who supplies the product.
+   *
+   * It heals itself. `processProduct` upserts on exactly this `sku`, so when
+   * the real product finally syncs it lands on this same variant, fills in
+   * the real name/description/image/price and clears the flag — nothing has
+   * to be reconciled by hand.
+   */
+  private async placeholderVariantFor(
+    principal: RequestPrincipal,
+    line: NormalizedOrderItem,
+  ): Promise<CatalogVariant> {
+    // Without a name from the storefront there is nothing to call it but its
+    // sku, which is still better than no order.
+    const name = line.name !== undefined && line.name.length > 0 ? line.name : line.sku;
+    const { product, name: productName } = await this.createProductWithUniqueName(principal, {
+      externalId: line.sku,
+      name,
+    });
+    return this.products.createVariant(principal, product.id, {
+      name: productName,
+      sku: line.sku,
+      sellingPriceMinor: line.unitPriceMinor,
+      isPlaceholder: true,
+    });
+  }
+
   private async processProduct(
     connection: ResolvedStorefrontConnection,
     normalized: NormalizedProduct,
@@ -579,7 +640,21 @@ export class StorefrontIngestionService {
         ...(normalized.barcode === undefined ? {} : { barcode: normalized.barcode }),
         sellingPriceMinor: normalized.priceMinor,
         ...(normalized.active === undefined ? {} : { active: normalized.active }),
+        // This variant was invented from an order line (`placeholderVariantFor`)
+        // and the real product has now arrived: everything above is the
+        // storefront's own data, so the warning no longer applies.
+        ...(existing.isPlaceholder ? { isPlaceholder: false } : {}),
       });
+      if (existing.isPlaceholder) {
+        await this.audit.record({
+          companyId: connection.companyId,
+          actorId: null,
+          action: "storefront_product.placeholder_completed",
+          entityType: "product",
+          entityId: productId,
+          changes: { sku: normalized.sku, externalProductId: normalized.externalId },
+        });
+      }
     } else {
       const { product, name } = await this.createProductWithUniqueName(principal, normalized);
       productId = product.id;
@@ -650,7 +725,7 @@ export class StorefrontIngestionService {
    */
   private async createProductWithUniqueName(
     principal: RequestPrincipal,
-    normalized: NormalizedProduct,
+    normalized: Pick<NormalizedProduct, "name" | "externalId" | "description" | "imageUrl">,
   ): Promise<{ product: CatalogProduct; name: string }> {
     const input = {
       ...(normalized.description === undefined ? {} : { description: normalized.description }),
@@ -873,7 +948,6 @@ export class StorefrontIngestionService {
   }
 
   private errorMessage(error: unknown): string {
-    if (error instanceof UnknownSkuError) return error.message;
     if (error instanceof AppException) {
       const payload = error.getResponse() as { message?: string };
       return payload.message ?? "Processing failed.";

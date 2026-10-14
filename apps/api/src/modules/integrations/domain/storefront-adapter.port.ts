@@ -8,7 +8,26 @@
  */
 
 export interface NormalizedOrderItem {
+  /**
+   * The storefront's own sku for this line. Synthesized from the platform's
+   * product id when the line carries none (WooCommerce lets a product be
+   * published without one), because the CRM matches a line to a variant by
+   * sku and has nothing else stable to match on.
+   */
   readonly sku: string;
+  /**
+   * The product name as the storefront printed it on the order — the only
+   * description of the product available when the sku matches nothing in the
+   * catalogue, and what the invented placeholder variant is named after
+   * (2026-10-14). `undefined` for a platform whose line items carry no name.
+   */
+  readonly name?: string;
+  /**
+   * `true` when {@link sku} was synthesized rather than read off the line, so
+   * the caller knows the match it is about to attempt cannot succeed against
+   * a real catalogue sku and the audit trail can say why.
+   */
+  readonly skuSynthesized?: boolean;
   readonly quantity: number;
   /** Integer minor units. */
   readonly unitPriceMinor: number;
@@ -109,7 +128,17 @@ export interface NormalizedProduct {
   readonly externalId: string;
   readonly name: string;
   readonly description?: string | null;
+  /**
+   * Synthesized from the platform's product id (`WOO-<id>`) when the product
+   * carries no sku of its own (2026-10-14). WooCommerce publishes such
+   * products freely, and until today each one failed its webhook with
+   * `missing required field "sku"` — which is how the product webhook came to
+   * be auto-disabled on 29 Sept, taking 65 products' worth of catalogue with
+   * it. A synthesized sku is a worse match key than a real one, but it syncs.
+   */
   readonly sku: string;
+  /** `true` when {@link sku} was synthesized; see the note there. */
+  readonly skuSynthesized?: boolean;
   readonly barcode?: string | null;
   /** A display image URL, when the platform's payload carries one. */
   readonly imageUrl?: string | null;
