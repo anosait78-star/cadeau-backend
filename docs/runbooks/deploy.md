@@ -31,9 +31,17 @@ Both moved off `nosait.com` on 2026-09-26, frontend first, then the API. The
 old hosts still answer — same web root, same pm2 app — and stay up as a safety
 net until the new ones have been used in anger, then become redirects. Bosta is
 unaffected by the API move: we call them, they never call us (there is an
-inbound webhook route in the code, but no URL is registered on their side). The
-**storefront still posts orders to `crmapi.nosait.com`** and is the one caller
-left to repoint.
+inbound webhook route in the code, but no URL is registered on their side).
+
+The storefront was the last caller to repoint, and was repointed on
+2026-10-14: WooCommerce webhooks 21/22 (orders) and 23/25 (products) and the
+WPCode snippets 30690 (auth header + vendor id) and 31117 (vendor sync) all
+use `crmapi.cadeauegypt.com`. Snippet 30690 gates the API-key injection on the
+delivery URL starting with the **new** host only — a webhook still pointed at
+`crmapi.nosait.com` would arrive without its key and be refused with 401, so do
+not point anything back at the old host without re-adding it there. Webhooks
+23/25 were left **disabled** pending the deploy of the placeholder-variant
+change; enable them only after that API is live.
 
 SSH:
 
