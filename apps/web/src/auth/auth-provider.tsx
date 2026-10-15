@@ -29,11 +29,37 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<MeView | null>(null);
 
-  const loadMe = useCallback(async (): Promise<void> => {
+  /**
+   * `GET /v1/me`, and — when the account belongs to exactly one company and none
+   * is active yet — switch into it before returning.
+   *
+   * Every fresh sign-in is issued a token with no tenant (`companyId: null`;
+   * the user picks one, or creates/joins one). For an account with a single
+   * company there is nothing to pick, and leaving it unselected meant an empty
+   * dashboard until the user opened the switcher and chose the only option.
+   *
+   * Never blocks sign-in: if the switch fails (a network blip, a membership
+   * that went inactive) the caller is returned as they were and lands on the
+   * normal chooser, which is still a working screen. An account with several
+   * companies is deliberately left alone — that choice is the user's.
+   */
+  const fetchMe = useCallback(async (): Promise<MeView> => {
     const me = await getMe();
+    const only = me.companies.length === 1 ? me.companies[0] : undefined;
+    if (me.activeCompanyId !== null || only === undefined) return me;
+    try {
+      writeTokens(await switchCompanyRequest(only.id));
+      return await getMe();
+    } catch {
+      return me;
+    }
+  }, []);
+
+  const loadMe = useCallback(async (): Promise<void> => {
+    const me = await fetchMe();
     setUser(me);
     setStatus("authenticated");
-  }, []);
+  }, [fetchMe]);
 
   // Hydrate once: if tokens exist, confirm them; otherwise we are signed out.
   useEffect(() => {
@@ -44,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
     }
     void (async () => {
       try {
-        const me = await getMe();
+        const me = await fetchMe();
         if (active) {
           setUser(me);
           setStatus("authenticated");
@@ -60,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactNode {
     return () => {
       active = false;
     };
-  }, []);
+  }, [fetchMe]);
 
   const login = useCallback(
     async (input: LoginInput): Promise<AuthResponse> => {

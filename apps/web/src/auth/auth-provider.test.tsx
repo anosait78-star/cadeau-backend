@@ -73,6 +73,103 @@ describe("AuthProvider", () => {
     expect(screen.getByTestId("email")).toHaveTextContent("founder@acme.test");
   });
 
+  // A fresh sign-in has no active company. With exactly one there is nothing to
+  // choose, so the user should land inside it rather than on an empty shell.
+  describe("single-company accounts", () => {
+    const SWITCHED = {
+      accessToken: "a2",
+      refreshToken: "r2",
+      tokenType: "Bearer",
+      expiresIn: 300,
+    };
+
+    it("selects the only company on hydration when none is active", async () => {
+      writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+      fetchMock
+        .mockResolvedValueOnce(json(200, ME({ activeCompanyId: null })))
+        .mockResolvedValueOnce(json(200, SWITCHED))
+        .mockResolvedValueOnce(json(200, ME({ activeCompanyId: "c1" })));
+
+      renderAuth();
+
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+      expect(screen.getByTestId("active")).toHaveTextContent("c1");
+      expect(readTokens()?.accessToken).toBe("a2");
+      expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/companies/c1/switch");
+    });
+
+    it("selects the only company right after login", async () => {
+      const user = userEvent.setup();
+      renderAuth();
+      await waitFor(() =>
+        expect(screen.getByTestId("status")).toHaveTextContent("unauthenticated"),
+      );
+
+      fetchMock
+        .mockResolvedValueOnce(
+          json(200, {
+            accessToken: "a",
+            refreshToken: "r",
+            tokenType: "Bearer",
+            expiresIn: 300,
+            user: { id: "u1", email: "founder@acme.test", fullName: "Amina" },
+          }),
+        )
+        .mockResolvedValueOnce(json(200, ME({ activeCompanyId: null })))
+        .mockResolvedValueOnce(json(200, SWITCHED))
+        .mockResolvedValueOnce(json(200, ME({ activeCompanyId: "c1" })));
+
+      await user.click(screen.getByText("login"));
+
+      await waitFor(() => expect(screen.getByTestId("active")).toHaveTextContent("c1"));
+      expect(readTokens()?.accessToken).toBe("a2");
+    });
+
+    it("does not switch when a company is already active", async () => {
+      writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+      fetchMock.mockResolvedValueOnce(json(200, ME()));
+
+      renderAuth();
+
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves the choice to the user when there are several companies", async () => {
+      writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+      fetchMock.mockResolvedValueOnce(
+        json(
+          200,
+          ME({
+            activeCompanyId: null,
+            companies: [
+              { id: "c1", name: "Acme", slug: "acme", role: "owner", status: "active" },
+              { id: "c2", name: "Beta", slug: "beta", role: "member", status: "active" },
+            ],
+          }),
+        ),
+      );
+
+      renderAuth();
+
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+      expect(screen.getByTestId("active")).toHaveTextContent("-");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("still signs the user in when the automatic switch fails", async () => {
+      writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
+      fetchMock
+        .mockResolvedValueOnce(json(200, ME({ activeCompanyId: null })))
+        .mockResolvedValueOnce(json(500, { error: { code: "INTERNAL", statusCode: 500 } }));
+
+      renderAuth();
+
+      await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+      expect(screen.getByTestId("active")).toHaveTextContent("-");
+    });
+  });
+
   it("clears the session when the stored token is rejected", async () => {
     writeTokens({ accessToken: "a", refreshToken: "r", expiresIn: 300 });
     // /me → 401, then refresh → 401 (unrecoverable).
