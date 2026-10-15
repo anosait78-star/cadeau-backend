@@ -159,9 +159,25 @@ Two things worth knowing:
 
 ### 1.4 Build
 
+If the deploy added a migration, **regenerate the Prisma client first**.
+`migrate deploy` changes the database and nothing else — the generated client
+in `node_modules` still describes the old schema, so `nest build` fails with
+type errors about the new column (13 of them on 2026-10-15), or worse, emits a
+`dist/` that throws `Unknown field` at runtime. Skip this only when no
+migration was applied:
+
+```bash
+cd ~/cadeau-backend && set -a && . ./.env.production && set +a \
+  && pnpm --filter @cadeau/database exec prisma generate
+```
+
+The running process keeps the old client in memory, so this does not disturb
+live traffic. Then build — and read the exit code, because `nest build` still
+writes a `dist/` when it reports errors:
+
 ```bash
 cd ~/cadeau-backend
-pnpm --filter @cadeau/api build
+pnpm --filter @cadeau/api build; echo "build exit=$?"   # must be 0
 ```
 
 Skip `pnpm install` unless the change adds or bumps a dependency — installing is
