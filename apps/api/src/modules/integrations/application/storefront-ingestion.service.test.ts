@@ -792,6 +792,92 @@ describe("StorefrontIngestionService.ingestProduct", () => {
     );
   });
 
+  // Found live 2026-10-15: a placeholder invented from an order line is stored
+  // as `<name> (<sku>)` when its plain name is taken. When the real product
+  // arrives with the plain name, a straight rename 409s and the product stays a
+  // placeholder forever.
+  describe("when an existing product is renamed onto a name another product holds", () => {
+    const conflict = () =>
+      AppErrors.conflict("A record with this name already exists.", [
+        { field: "name", messages: ["A record with this name already exists."] },
+      ]);
+
+    beforeEach(() => {
+      h.inbox.enqueue.mockResolvedValue({
+        event: { id: "evt-1", status: "pending", internalEntityId: null },
+        enqueued: true,
+      });
+      h.products.findVariantBySku.mockResolvedValue({
+        id: "variant-1",
+        productId: "product-1",
+        isPlaceholder: true,
+      });
+      h.products.updateVariant.mockResolvedValue({ id: "variant-1", productId: "product-1" });
+      h.inventory.listStock.mockResolvedValue(emptyPage());
+    });
+
+    it("retries with the external id appended instead of failing the delivery", async () => {
+      h.products.update
+        .mockRejectedValueOnce(conflict())
+        .mockResolvedValueOnce({ id: "product-1" });
+
+      await h.service.ingestProduct(CONNECTION, PRODUCT_PAYLOAD);
+
+      expect(h.products.update).toHaveBeenCalledTimes(2);
+      expect(h.products.update).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        "product-1",
+        expect.objectContaining({ name: "Mug" }),
+      );
+      expect(h.products.update).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        "product-1",
+        expect.objectContaining({ name: "Mug (ext-product-1)" }),
+      );
+      expect(h.inbox.markFailed).not.toHaveBeenCalled();
+    });
+
+    it("gives the variant the name the product ended up with, and still clears the placeholder flag", async () => {
+      h.products.update
+        .mockRejectedValueOnce(conflict())
+        .mockResolvedValueOnce({ id: "product-1" });
+
+      await h.service.ingestProduct(CONNECTION, PRODUCT_PAYLOAD);
+
+      expect(h.products.updateVariant).toHaveBeenCalledWith(
+        expect.anything(),
+        "product-1",
+        "variant-1",
+        expect.objectContaining({ name: "Mug (ext-product-1)", isPlaceholder: false }),
+      );
+    });
+
+    it("does not rename at all when the name is free", async () => {
+      h.products.update.mockResolvedValue({ id: "product-1" });
+
+      await h.service.ingestProduct(CONNECTION, PRODUCT_PAYLOAD);
+
+      expect(h.products.update).toHaveBeenCalledTimes(1);
+      expect(h.products.updateVariant).toHaveBeenCalledWith(
+        expect.anything(),
+        "product-1",
+        "variant-1",
+        expect.objectContaining({ name: "Mug" }),
+      );
+    });
+
+    it("does not swallow an update failure that is not a name conflict", async () => {
+      h.products.update.mockRejectedValue(AppErrors.badRequest("Something else went wrong."));
+
+      await expect(h.service.ingestProduct(CONNECTION, PRODUCT_PAYLOAD)).rejects.toThrow(
+        "Something else went wrong.",
+      );
+      expect(h.products.update).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("does not retry when products.create fails for a reason other than a name conflict", async () => {
     h.inbox.enqueue.mockResolvedValue({
       event: { id: "evt-1", status: "pending", internalEntityId: null },

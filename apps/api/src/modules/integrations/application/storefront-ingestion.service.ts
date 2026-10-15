@@ -629,13 +629,9 @@ export class StorefrontIngestionService {
     if (existing !== null) {
       productId = existing.productId;
       variantId = existing.id;
-      await this.products.update(principal, productId, {
-        name: normalized.name,
-        ...(normalized.description === undefined ? {} : { description: normalized.description }),
-        ...(normalized.imageUrl === undefined ? {} : { imageUrl: normalized.imageUrl }),
-      });
+      const syncedName = await this.updateProductWithUniqueName(principal, productId, normalized);
       await this.products.updateVariant(principal, productId, variantId, {
-        name: normalized.name,
+        name: syncedName,
         sku: normalized.sku,
         ...(normalized.barcode === undefined ? {} : { barcode: normalized.barcode }),
         sellingPriceMinor: normalized.priceMinor,
@@ -739,6 +735,43 @@ export class StorefrontIngestionService {
       const name = `${normalized.name} (${normalized.externalId})`;
       const product = await this.products.create(principal, { ...input, name });
       return { product, name };
+    }
+  }
+
+  /**
+   * The update-side twin of {@link createProductWithUniqueName}, returning the
+   * name the product ended up with.
+   *
+   * `Product.name` is unique per company, and renaming an existing product to
+   * the storefront's name can collide with a *different* product that already
+   * holds it. That is the normal case for a placeholder: it was invented from
+   * an order line and, when its name was taken, was stored as
+   * `<name> (<sku>)`. When the real product arrives bearing the plain name, a
+   * straight rename 409s — the product stays a placeholder and every later
+   * edit on the storefront 409s again (found live, 2026-10-15, on the first
+   * sync after the placeholder change shipped).
+   *
+   * So: try the storefront's name, and on a name conflict fall back to the same
+   * `<name> (<externalId>)` the create path uses. Renaming a product to the
+   * name it already has is not a conflict, so a re-delivery is idempotent.
+   */
+  private async updateProductWithUniqueName(
+    principal: RequestPrincipal,
+    productId: string,
+    normalized: NormalizedProduct,
+  ): Promise<string> {
+    const input = {
+      ...(normalized.description === undefined ? {} : { description: normalized.description }),
+      ...(normalized.imageUrl === undefined ? {} : { imageUrl: normalized.imageUrl }),
+    };
+    try {
+      await this.products.update(principal, productId, { ...input, name: normalized.name });
+      return normalized.name;
+    } catch (error) {
+      if (!this.isNameConflict(error)) throw error;
+      const name = `${normalized.name} (${normalized.externalId})`;
+      await this.products.update(principal, productId, { ...input, name });
+      return name;
     }
   }
 
