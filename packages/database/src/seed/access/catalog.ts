@@ -218,7 +218,14 @@ export const TEMPLATES: readonly TemplateDef[] = [
     key: "call_center",
     name: "Call Center",
     description: "Handles orders and customer contact.",
-    permissions: perms(["orders", "customers"], ["read", "manage"]),
+    permissions: [
+      ...perms(["orders", "customers"], ["read", "manage"]),
+      // Taking an order means picking a product and telling the customer
+      // whether it is in stock, so the order-taking role reads both
+      // (2026-10-18). Without products.read the order form's picker returns
+      // 403 and looks empty, as if the catalogue had no products at all.
+      ...perms(["products", "inventory"], ["read"]),
+    ],
   },
   {
     key: "warehouse",
