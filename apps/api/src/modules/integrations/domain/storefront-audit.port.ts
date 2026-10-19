@@ -17,6 +17,12 @@ export interface StorefrontAuditRecord {
     | "storefront_vendor_warehouse_mapping.created"
     | "storefront_vendor_warehouse_mapping.auto_created"
     | "storefront_vendor_warehouse_mapping.deleted"
+    /** Exactly what the storefront sent for a vendor, kept as evidence (2026-10-19). */
+    | "storefront_vendor.received"
+    /** A re-send carried a new name and the warehouse had not been renamed by hand. */
+    | "storefront_vendor.renamed"
+    /** A re-send carried a new name but a person had renamed the warehouse; theirs stands. */
+    | "storefront_vendor.rename_skipped"
     | "storefront_order.resync_failed"
     | "storefront_order.vendor_fallback_warehouse"
     /** The CRM refused a storefront-reported cancellation (2026-09-12). */
@@ -32,6 +38,7 @@ export interface StorefrontAuditRecord {
     | "storefront_customer.name_sync_failed";
   readonly entityType:
     | "storefront_connection"
+    | "warehouse"
     | "storefront_webhook_event"
     | "storefront_vendor_warehouse_mapping"
     | "order"

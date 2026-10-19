@@ -10,10 +10,12 @@ import {
   type PrismaClient,
   setTenantContext,
   stampForCreate,
+  stampForUpdate,
 } from "@cadeau/database";
 import type { VendorWarehouseMappingView } from "../domain/vendor-warehouse-mapping.entity";
 import type {
   CreateVendorWarehouseMappingInput,
+  VendorMappingNameState,
   VendorWarehouseMappingsRepositoryPort,
 } from "../domain/vendor-warehouse-mappings-repository.port";
 import type { WriteActor } from "../domain/storefront-connections-repository.port";
@@ -65,6 +67,36 @@ export class VendorWarehouseMappingsRepository implements VendorWarehouseMapping
     });
   }
 
+  async findNameState(
+    companyId: string,
+    connectionId: string,
+    externalVendorId: string,
+  ): Promise<VendorMappingNameState | null> {
+    return this.tenantTx(companyId, async (tx) => {
+      const row = await tx.storefrontConnectionVendorWarehouse.findFirst({
+        where: { companyId, connectionId, externalVendorId },
+        select: { warehouseId: true, lastVendorName: true },
+      });
+      return row === null
+        ? null
+        : { warehouseId: row.warehouseId, lastVendorName: row.lastVendorName };
+    });
+  }
+
+  async setLastVendorName(
+    actor: WriteActor,
+    connectionId: string,
+    externalVendorId: string,
+    name: string,
+  ): Promise<void> {
+    await this.tenantTx(actor.companyId, async (tx) => {
+      await tx.storefrontConnectionVendorWarehouse.updateMany({
+        where: { companyId: actor.companyId, connectionId, externalVendorId },
+        data: stampForUpdate(actor, { lastVendorName: name }),
+      });
+    });
+  }
+
   async list(
     companyId: string,
     connectionId: string,
@@ -110,6 +142,7 @@ export class VendorWarehouseMappingsRepository implements VendorWarehouseMapping
             connectionId: data.connectionId,
             externalVendorId: data.externalVendorId,
             warehouseId: data.warehouseId,
+            ...(data.lastVendorName === undefined ? {} : { lastVendorName: data.lastVendorName }),
           }) as Prisma.StorefrontConnectionVendorWarehouseUncheckedCreateInput,
           select: MAPPING_SELECT,
         });

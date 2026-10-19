@@ -75,6 +75,14 @@ export interface InventoryAdjustmentPort {
     principal: RequestPrincipal,
     data: CreateWarehouseCommand,
   ): Promise<CreatedWarehouse>;
+  /** Reads one warehouse, so a caller can see whether its name still matches what it set. */
+  getWarehouse(principal: RequestPrincipal, id: string): Promise<CreatedWarehouse>;
+  /** Renames a warehouse. @throws on a duplicate `name` within the tenant. */
+  updateWarehouse(
+    principal: RequestPrincipal,
+    id: string,
+    data: { readonly name: string },
+  ): Promise<CreatedWarehouse>;
 }
 
 /** DI token for {@link InventoryAdjustmentPort}. */

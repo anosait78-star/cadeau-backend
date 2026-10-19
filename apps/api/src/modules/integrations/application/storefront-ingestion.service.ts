@@ -46,6 +46,7 @@ import {
 import {
   VENDOR_WAREHOUSE_MAPPINGS_REPOSITORY,
   type VendorWarehouseMappingsRepositoryPort,
+  type VendorMappingNameState,
 } from "../domain/vendor-warehouse-mappings-repository.port";
 import { STOREFRONT_AUDIT, type StorefrontAuditPort } from "../domain/storefront-audit.port";
 import {
@@ -152,15 +153,17 @@ export class StorefrontIngestionService {
     data: IngestVendorInput,
   ): Promise<VendorSyncResult> {
     const principal = this.systemPrincipal(connection);
-    const existingWarehouseId = await this.vendorWarehouses.findWarehouseId(
+    const existing = await this.vendorWarehouses.findNameState(
       connection.companyId,
       connection.connectionId,
       data.externalVendorId,
     );
-    if (existingWarehouseId !== null) {
+    if (existing !== null) {
+      await this.resyncVendorName(connection, principal, data, existing);
+      await this.recordVendorReceived(connection, data, existing.warehouseId);
       return {
         externalVendorId: data.externalVendorId,
-        warehouseId: existingWarehouseId,
+        warehouseId: existing.warehouseId,
         status: "existing",
       };
     }
@@ -170,13 +173,97 @@ export class StorefrontIngestionService {
       principal,
       data.externalVendorId,
       warehouse.id,
+      data.vendorName,
     );
+    await this.recordVendorReceived(connection, data, warehouseId);
     await this.connections.touchLastEventAt(connection.companyId, connection.connectionId);
     return {
       externalVendorId: data.externalVendorId,
       warehouseId,
       status: warehouseId === warehouse.id ? "created" : "existing",
     };
+  }
+
+  /**
+   * What the storefront actually sent, kept whether or not we acted on it.
+   *
+   * Vendors arrived under other registrations' names for weeks (2026-10-19)
+   * and nothing recorded the payload, so the only way to see what had been
+   * sent was to read the warehouse name — which staff had since corrected.
+   * The name is business data the CRM already stores as that warehouse's name,
+   * so writing it here reveals nothing an audit reader cannot already see.
+   */
+  private async recordVendorReceived(
+    connection: ResolvedStorefrontConnection,
+    data: IngestVendorInput,
+    warehouseId: string,
+  ): Promise<void> {
+    await this.audit.record({
+      companyId: connection.companyId,
+      actorId: null,
+      action: "storefront_vendor.received",
+      entityType: "warehouse",
+      entityId: warehouseId,
+      changes: { externalVendorId: data.externalVendorId, vendorName: data.vendorName },
+    });
+  }
+
+  /**
+   * A vendor we already know, sent again under a different name.
+   *
+   * The storefront is the authority on a vendor's name right up until someone
+   * here decides otherwise — and they have had to: when the warehouse no
+   * longer carries the name we were last sent, a person fixed it, and their
+   * correction outranks whatever arrives afterwards. That disagreement is
+   * recorded rather than resolved silently in either direction.
+   *
+   * A mapping from before `lastVendorName` existed carries null, so its first
+   * re-send renames nothing: an untouched name cannot be told from a corrected
+   * one, and guessing would risk undoing the correction.
+   */
+  private async resyncVendorName(
+    connection: ResolvedStorefrontConnection,
+    principal: RequestPrincipal,
+    data: IngestVendorInput,
+    existing: VendorMappingNameState,
+  ): Promise<void> {
+    if (existing.lastVendorName === null || data.vendorName === existing.lastVendorName) return;
+
+    const current = await this.inventory.getWarehouse(principal, existing.warehouseId);
+    if (existing.lastVendorName !== current.name) {
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_vendor.rename_skipped",
+        entityType: "warehouse",
+        entityId: existing.warehouseId,
+        changes: { kept: current.name, offered: data.vendorName },
+      });
+    } else {
+      try {
+        await this.inventory.updateWarehouse(principal, existing.warehouseId, {
+          name: data.vendorName,
+        });
+      } catch {
+        // Most likely a name another warehouse already holds. Keeping the old
+        // name is harmless; failing the vendor's sync over it is not.
+        return;
+      }
+      await this.audit.record({
+        companyId: connection.companyId,
+        actorId: null,
+        action: "storefront_vendor.renamed",
+        entityType: "warehouse",
+        entityId: existing.warehouseId,
+        changes: { from: current.name, to: data.vendorName },
+      });
+    }
+    await this.vendorWarehouses.setLastVendorName(
+      { companyId: connection.companyId, actorId: principal.userId },
+      connection.connectionId,
+      data.externalVendorId,
+      data.vendorName,
+    );
   }
 
   /** Re-run one `failed` event on demand (management §6.1 reprocess route). */
@@ -830,11 +917,17 @@ export class StorefrontIngestionService {
     principal: RequestPrincipal,
     externalVendorId: string,
     warehouseId: string,
+    vendorName: string,
   ): Promise<string> {
     try {
       const mapping = await this.vendorWarehouses.create(
         { companyId: connection.companyId, actorId: principal.userId },
-        { connectionId: connection.connectionId, externalVendorId, warehouseId },
+        {
+          connectionId: connection.connectionId,
+          externalVendorId,
+          warehouseId,
+          lastVendorName: vendorName,
+        },
       );
       await this.audit.record({
         companyId: connection.companyId,

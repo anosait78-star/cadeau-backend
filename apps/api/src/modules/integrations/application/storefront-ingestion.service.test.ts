@@ -69,6 +69,8 @@ function makeHarness() {
     adjust: vi.fn(),
     setVariantWarehouse: vi.fn(),
     createWarehouse: vi.fn(),
+    getWarehouse: vi.fn(),
+    updateWarehouse: vi.fn(),
   };
   const customers = {
     list: vi.fn(),
@@ -78,6 +80,8 @@ function makeHarness() {
   };
   const vendorWarehouses = {
     findWarehouseId: vi.fn(),
+    findNameState: vi.fn().mockResolvedValue(null),
+    setLastVendorName: vi.fn().mockResolvedValue(undefined),
     list: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
@@ -1099,7 +1103,7 @@ describe("StorefrontIngestionService.ingestVendor", () => {
   });
 
   it("creates a warehouse and mapping for a brand-new vendor", async () => {
-    h.vendorWarehouses.findWarehouseId.mockResolvedValue(null);
+    h.vendorWarehouses.findNameState.mockResolvedValue(null);
     h.inventory.createWarehouse.mockResolvedValue({ id: "wh-new", name: "Ahmed Store" });
     h.vendorWarehouses.create.mockResolvedValue({
       id: "map-1",
@@ -1123,7 +1127,12 @@ describe("StorefrontIngestionService.ingestVendor", () => {
     });
     expect(h.vendorWarehouses.create).toHaveBeenCalledWith(
       { companyId: "co-1", actorId: "user-1" },
-      { connectionId: "conn-1", externalVendorId: "vendor-A", warehouseId: "wh-new" },
+      {
+        connectionId: "conn-1",
+        externalVendorId: "vendor-A",
+        warehouseId: "wh-new",
+        lastVendorName: "Ahmed Store",
+      },
     );
     expect(h.audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: "storefront_vendor_warehouse_mapping.auto_created" }),
@@ -1132,7 +1141,10 @@ describe("StorefrontIngestionService.ingestVendor", () => {
   });
 
   it("is idempotent: an already-mapped vendor returns the existing warehouse without creating anything", async () => {
-    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-existing");
+    h.vendorWarehouses.findNameState.mockResolvedValue({
+      warehouseId: "wh-existing",
+      lastVendorName: "Ahmed Store",
+    });
 
     const result = await h.service.ingestVendor(CONNECTION, {
       externalVendorId: "vendor-A",
@@ -1149,7 +1161,7 @@ describe("StorefrontIngestionService.ingestVendor", () => {
   });
 
   it("retries with a disambiguated name when the vendor's store name collides with an existing warehouse", async () => {
-    h.vendorWarehouses.findWarehouseId.mockResolvedValue(null);
+    h.vendorWarehouses.findNameState.mockResolvedValue(null);
     h.inventory.createWarehouse
       .mockRejectedValueOnce(
         AppErrors.conflict("A warehouse with this name already exists.", [
@@ -1176,9 +1188,8 @@ describe("StorefrontIngestionService.ingestVendor", () => {
   });
 
   it("recovers from a create-race by returning the winner's mapping instead of failing", async () => {
-    h.vendorWarehouses.findWarehouseId
-      .mockResolvedValueOnce(null) // pre-check: no mapping yet
-      .mockResolvedValueOnce("wh-winner"); // recovery lookup after the race
+    h.vendorWarehouses.findNameState.mockResolvedValue(null); // pre-check: no mapping yet
+    h.vendorWarehouses.findWarehouseId.mockResolvedValue("wh-winner"); // recovery after the race
     h.inventory.createWarehouse.mockResolvedValue({ id: "wh-mine", name: "Ahmed Store" });
     h.vendorWarehouses.create.mockRejectedValue(new DuplicateVendorMappingError());
 
@@ -1192,7 +1203,125 @@ describe("StorefrontIngestionService.ingestVendor", () => {
       warehouseId: "wh-winner",
       status: "existing",
     });
-    expect(h.audit.record).not.toHaveBeenCalled();
+    expect(h.audit.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: "storefront_vendor_warehouse_mapping.auto_created" }),
+    );
+  });
+
+  it("records exactly what the storefront sent, whether or not it was acted on", async () => {
+    // Vendors arrived under other registrations' names for weeks with nothing
+    // recording the payload, so the only account of it was a warehouse name
+    // staff had since corrected.
+    h.vendorWarehouses.findNameState.mockResolvedValue({
+      warehouseId: "wh-existing",
+      lastVendorName: "Ahmed Store",
+    });
+
+    await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "Ahmed Store",
+    });
+
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "storefront_vendor.received",
+        entityId: "wh-existing",
+        changes: { externalVendorId: "vendor-A", vendorName: "Ahmed Store" },
+      }),
+    );
+  });
+
+  it("renames the warehouse when the storefront sends a new name and nobody had touched it", async () => {
+    h.vendorWarehouses.findNameState.mockResolvedValue({
+      warehouseId: "wh-1",
+      lastVendorName: "shouaagancy@gmail.com",
+    });
+    h.inventory.getWarehouse.mockResolvedValue({ id: "wh-1", name: "shouaagancy@gmail.com" });
+    h.inventory.updateWarehouse.mockResolvedValue({ id: "wh-1", name: "Top Max" });
+
+    await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "Top Max",
+    });
+
+    expect(h.inventory.updateWarehouse).toHaveBeenCalledWith(expect.anything(), "wh-1", {
+      name: "Top Max",
+    });
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "storefront_vendor.renamed",
+        changes: { from: "shouaagancy@gmail.com", to: "Top Max" },
+      }),
+    );
+    expect(h.vendorWarehouses.setLastVendorName).toHaveBeenCalledWith(
+      { companyId: "co-1", actorId: "user-1" },
+      "conn-1",
+      "vendor-A",
+      "Top Max",
+    );
+  });
+
+  it("leaves a name a person corrected alone, and records that it did", async () => {
+    // Staff renamed "shouaagancy@gmail.com" to the real store. A later send
+    // must not undo that, however confident the storefront sounds.
+    h.vendorWarehouses.findNameState.mockResolvedValue({
+      warehouseId: "wh-1",
+      lastVendorName: "shouaagancy@gmail.com",
+    });
+    h.inventory.getWarehouse.mockResolvedValue({ id: "wh-1", name: "Top Max" });
+
+    await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "donna",
+    });
+
+    expect(h.inventory.updateWarehouse).not.toHaveBeenCalled();
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "storefront_vendor.rename_skipped",
+        changes: { kept: "Top Max", offered: "donna" },
+      }),
+    );
+    // Still remembered, so the next send compares against what we last heard.
+    expect(h.vendorWarehouses.setLastVendorName).toHaveBeenCalled();
+  });
+
+  it("renames nothing for a mapping made before the last-sent name was recorded", async () => {
+    // Null means we never knew what we were told, so an untouched name cannot
+    // be told from a corrected one — and the corrections are what matter.
+    h.vendorWarehouses.findNameState.mockResolvedValue({
+      warehouseId: "wh-old",
+      lastVendorName: null,
+    });
+
+    await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "Anything At All",
+    });
+
+    expect(h.inventory.getWarehouse).not.toHaveBeenCalled();
+    expect(h.inventory.updateWarehouse).not.toHaveBeenCalled();
+  });
+
+  it("keeps the vendor's sync successful when the new name is already taken", async () => {
+    h.vendorWarehouses.findNameState.mockResolvedValue({
+      warehouseId: "wh-1",
+      lastVendorName: "old",
+    });
+    h.inventory.getWarehouse.mockResolvedValue({ id: "wh-1", name: "old" });
+    h.inventory.updateWarehouse.mockRejectedValue(
+      AppErrors.conflict("A warehouse with this name already exists."),
+    );
+
+    const result = await h.service.ingestVendor(CONNECTION, {
+      externalVendorId: "vendor-A",
+      vendorName: "taken",
+    });
+
+    expect(result.status).toBe("existing");
+    expect(h.audit.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: "storefront_vendor.renamed" }),
+    );
   });
 });
 

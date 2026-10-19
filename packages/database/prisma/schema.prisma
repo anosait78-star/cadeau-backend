@@ -1437,6 +1437,11 @@ model StorefrontConnectionVendorWarehouse {
   /// (WooCommerce/WCFM: the vendor's WordPress user id, as a string).
   externalVendorId  String   @map("external_vendor_id")
   warehouseId       String   @map("warehouse_id") @db.Uuid
+  /// The vendor name the storefront last sent. A warehouse still carrying
+  /// it has not been renamed by staff, so a later send may replace it; once
+  /// they differ, the human name stands. Null for mappings made before this
+  /// column existed (2026-10-19).
+  lastVendorName    String?  @map("last_vendor_name")
   createdBy         String?  @map("created_by") @db.Uuid
   updatedBy         String?  @map("updated_by") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

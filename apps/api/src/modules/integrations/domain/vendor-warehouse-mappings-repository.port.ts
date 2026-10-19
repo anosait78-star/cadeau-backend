@@ -7,6 +7,15 @@ export interface CreateVendorWarehouseMappingInput {
   readonly connectionId: string;
   readonly externalVendorId: string;
   readonly warehouseId: string;
+  /** The name the storefront sent, when this mapping came from one. */
+  readonly lastVendorName?: string;
+}
+
+/** A mapping plus the name the storefront last sent for it. */
+export interface VendorMappingNameState {
+  readonly warehouseId: string;
+  /** `null` for a mapping made before this was recorded. */
+  readonly lastVendorName: string | null;
 }
 
 /**
@@ -23,6 +32,25 @@ export interface VendorWarehouseMappingsRepositoryPort {
     connectionId: string,
     externalVendorId: string,
   ): Promise<string | null>;
+
+  /**
+   * The same lookup plus the last name the storefront sent, for deciding
+   * whether a re-send may rename the warehouse or would be overwriting a
+   * correction someone made by hand.
+   */
+  findNameState(
+    companyId: string,
+    connectionId: string,
+    externalVendorId: string,
+  ): Promise<VendorMappingNameState | null>;
+
+  /** Records the name the storefront just sent. Silent when the mapping is gone. */
+  setLastVendorName(
+    actor: WriteActor,
+    connectionId: string,
+    externalVendorId: string,
+    name: string,
+  ): Promise<void>;
 
   list(
     companyId: string,
