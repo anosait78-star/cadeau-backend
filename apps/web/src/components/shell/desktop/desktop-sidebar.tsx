@@ -1,8 +1,9 @@
-import { ChevronsLeft, ChevronsRight, LogOut, ShoppingBag, UserRound } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, LogOut, UserRound } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { useAuth } from "@/auth/use-auth";
+import { BrandLogo } from "@/components/shell/brand-logo";
 import { useNavItems } from "@/features/access/use-nav-items";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
@@ -98,9 +99,7 @@ export function DesktopSidebar(): ReactNode {
       )}
     >
       <div className="flex h-16 items-center gap-3 border-b border-border/70 px-4">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/30">
-          <ShoppingBag className="h-[18px] w-[18px]" aria-hidden="true" />
-        </span>
+        <BrandLogo className="h-9 w-9 shrink-0" />
         <div className={cn("min-w-0 flex-1", collapsed && "sr-only")}>
           <p className="truncate text-h3 leading-tight text-foreground">{t("app.name")}</p>
           <p className="truncate text-caption text-muted-foreground">{t("app.tagline")}</p>

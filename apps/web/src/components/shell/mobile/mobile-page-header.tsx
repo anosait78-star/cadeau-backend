@@ -2,6 +2,7 @@ import { ChevronLeft, Search } from "lucide-react";
 import type { ReactNode } from "react";
 import { FeatureGate } from "@/components/access/feature-gate";
 import { CompanySwitcher } from "@/components/shell/company-switcher";
+import { BrandLogo } from "@/components/shell/brand-logo";
 import { NotificationBell } from "@/components/shell/notification-bell";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
@@ -39,18 +40,17 @@ export function MobilePageHeader({
   return (
     <header className="mobile-header chrome-blur sticky top-0 z-20 flex items-center gap-1 border-b border-border">
       {isRoot ? (
-        <span
+        <BrandLogo
+          variant="lockup"
           className={cn(
             // Collapsing must free the space, not just hide the ink: faded out
             // but still laid out, the brand went on squeezing the title it had
             // just handed over to.
-            "shrink-0 overflow-hidden whitespace-nowrap text-lg font-semibold text-primary",
+            "h-7 shrink-0 overflow-hidden",
             "transition-all duration-200",
-            collapsed ? "w-0 opacity-0" : "opacity-100",
+            collapsed ? "w-0 opacity-0" : "w-auto opacity-100",
           )}
-        >
-          {t("app.name")}
-        </span>
+        />
       ) : (
         <button
           type="button"

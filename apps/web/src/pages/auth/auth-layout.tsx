@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { AppActions } from "@/components/shell/app-actions";
+import { BrandLogo } from "@/components/shell/brand-logo";
 import { Card, CardContent } from "@/components/ui/card";
-import { useI18n } from "@/i18n/i18n-provider";
 
 /**
  * Centered layout for the public auth screens. A single responsive layout (not a
@@ -20,12 +20,10 @@ export function AuthLayout({
   children: ReactNode;
   footer?: ReactNode;
 }): ReactNode {
-  const { t } = useI18n();
-
   return (
     <div className="flex min-h-full flex-col bg-muted/30">
       <header className="flex h-14 shrink-0 items-center justify-between px-4">
-        <span className="text-lg font-semibold text-primary">{t("app.name")}</span>
+        <BrandLogo variant="lockup" className="h-9 w-auto" />
         <AppActions />
       </header>
 
