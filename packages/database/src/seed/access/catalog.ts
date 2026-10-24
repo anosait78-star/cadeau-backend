@@ -225,6 +225,12 @@ export const TEMPLATES: readonly TemplateDef[] = [
       // (2026-10-18). Without products.read the order form's picker returns
       // 403 and looks empty, as if the catalogue had no products at all.
       ...perms(["products", "inventory"], ["read"]),
+      // The same form asks for a governorate (master data) and, for a new
+      // customer, the carrier's own city list (shipping). Each one missing
+      // empties a dropdown the order cannot be completed without, and
+      // shipping.read also lets them answer "where is my order?" without
+      // handing the question to someone else (2026-10-24).
+      ...perms(["master-data", "shipping"], ["read"]),
     ],
   },
   {
