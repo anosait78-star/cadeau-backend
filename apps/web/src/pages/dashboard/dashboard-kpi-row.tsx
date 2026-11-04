@@ -28,9 +28,14 @@ type State =
  * money KPIs sample a capped page of rows, which is fine for "today" and
  * meaningless for "this year".
  */
-export function DashboardKpiRow(): ReactNode {
+export function DashboardKpiRow({
+  period,
+  onPeriodChange: setPeriod,
+}: {
+  period: KpiPeriod;
+  onPeriodChange: (next: KpiPeriod) => void;
+}): ReactNode {
   const { t, locale } = useI18n();
-  const [period, setPeriod] = useState<KpiPeriod>("today");
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {

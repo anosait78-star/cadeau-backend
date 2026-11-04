@@ -10,6 +10,7 @@ import { PageTitle } from "@/components/layout/page-title";
 import { DashboardKpiRow } from "./dashboard-kpi-row";
 import { useCapabilities } from "@/features/access/use-capabilities";
 import { getBusinessAnalytics, type BusinessSummary } from "@/features/analytics/analytics-api";
+import { resolvePeriodWindow, type KpiPeriod } from "@/features/analytics/period-kpis";
 import { listStock, type StockLevel } from "@/features/inventory/inventory-api";
 import {
   listNotifications,
@@ -63,11 +64,34 @@ export function DashboardPage(): ReactNode {
   const canAnalytics = has({ feature: "analytics", permission: "analytics.read" });
   const canNotifications = has({ feature: "notifications" });
 
+  // One period drives both the KPI row and the status chart. Without the KPI
+  // row there is no picker, so the chart keeps its all-time view.
+  const showKpiRow = canAnalytics && canOrders;
+  const [period, setPeriod] = useState<KpiPeriod>("today");
+  const statusPeriod: KpiPeriod = showKpiRow ? period : "all";
+
   useEffect(() => {
     if (!canOrders) return;
-    void orderStatusCounts({})
-      .then((res) => setStatusCounts({ kind: "ready", data: res.counts }))
-      .catch(() => setStatusCounts({ kind: "error" }));
+    let active = true;
+    setStatusCounts({ kind: "loading" });
+    const window = resolvePeriodWindow(statusPeriod);
+    void orderStatusCounts({
+      ...(window.from !== undefined ? { createdAtFrom: window.from } : {}),
+      ...(window.to !== undefined ? { createdAtTo: window.to } : {}),
+    })
+      .then((res) => {
+        if (active) setStatusCounts({ kind: "ready", data: res.counts });
+      })
+      .catch(() => {
+        if (active) setStatusCounts({ kind: "error" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [canOrders, statusPeriod]);
+
+  useEffect(() => {
+    if (!canOrders) return;
     void listOrders({ sort: "-createdAt" })
       .then((page) => setRecentOrders({ kind: "ready", data: page.data }))
       .catch(() => setRecentOrders({ kind: "error" }));
@@ -108,7 +132,7 @@ export function DashboardPage(): ReactNode {
       {/* Period-scoped headline figures. Behind the same gates as their sources:
           the money and order counts come from analytics, the per-status figures
           from the orders aggregate, and the API re-checks both (ADR-003). */}
-      {canAnalytics && canOrders ? <DashboardKpiRow /> : null}
+      {showKpiRow ? <DashboardKpiRow period={period} onPeriodChange={setPeriod} /> : null}
 
       <QuickActions t={t} />
 

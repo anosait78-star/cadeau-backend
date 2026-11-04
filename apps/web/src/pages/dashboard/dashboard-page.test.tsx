@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -191,6 +192,31 @@ describe("DashboardPage", () => {
 
     // Quick actions render as navigable links
     expect(screen.getByRole("link", { name: "New order" })).toHaveAttribute("href", "/orders");
+  });
+
+  it("scopes the status chart to the picked period (today by default)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("dashboard-kpi-row");
+
+    const statusUrls = (): URL[] =>
+      fetchMock.mock.calls
+        .map(([input]) => new URL(String(input), "http://x"))
+        .filter((u) => u.pathname.endsWith("/orders/status-counts"));
+
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    // Both the KPI row and the chart ask for today only — none asks unfiltered.
+    expect(statusUrls().length).toBeGreaterThanOrEqual(2);
+    for (const u of statusUrls()) {
+      expect(u.searchParams.get("createdAtFrom")).toBe(midnight.toISOString());
+    }
+
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("tab", { name: "All time" }));
+    await screen.findByTestId("dashboard-kpi-row");
+    expect(statusUrls().length).toBeGreaterThanOrEqual(2);
+    for (const u of statusUrls()) expect(u.searchParams.has("createdAtFrom")).toBe(false);
   });
 
   it("omits gated widgets when their feature is unavailable", async () => {
