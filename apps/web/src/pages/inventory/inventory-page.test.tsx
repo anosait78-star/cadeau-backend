@@ -327,36 +327,4 @@ describe("InventoryPage", () => {
       });
     });
   });
-
-  it("lists and creates warehouses on the warehouses tab", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Warehouses" }));
-    expect(await screen.findByText("Depot")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "New warehouse" }));
-    await userEvent.type(screen.getByLabelText("Name"), "Annex");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        (c) => String(c[0]).includes("/warehouses") && (c[1] as RequestInit)?.method === "POST",
-      );
-      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ name: "Annex" });
-    });
-  });
-
-  it("archives a warehouse", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Warehouses" }));
-    await screen.findByText("Depot");
-    const archiveButtons = screen.getAllByRole("button", { name: "Archive" });
-    await userEvent.click(archiveButtons[0] as HTMLElement);
-    await waitFor(() => {
-      expect(
-        fetchMock.mock.calls.some(
-          (c) =>
-            String(c[0]).includes(`/warehouses/${WAREHOUSE}`) &&
-            (c[1] as RequestInit)?.method === "DELETE",
-        ),
-      ).toBe(true);
-    });
-  });
 });

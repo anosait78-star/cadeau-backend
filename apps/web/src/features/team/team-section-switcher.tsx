@@ -34,7 +34,7 @@ export function TeamSectionSwitcher({
   return (
     <TabsList
       aria-label={label}
-      className="grid grid-cols-2 gap-2 overflow-visible border-0 lg:gap-4"
+      className="grid grid-cols-3 gap-2 overflow-visible border-0 lg:gap-4"
     >
       {options.map(({ value, icon: Icon, title, description, meta }) => (
         <TabsTrigger

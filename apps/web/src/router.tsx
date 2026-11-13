@@ -8,6 +8,7 @@ import { CustomersPage } from "@/pages/customers/customers-page";
 import { DashboardPage } from "@/pages/dashboard/dashboard-page";
 import { FinancePage } from "@/pages/finance/finance-page";
 import { InventoryPage } from "@/pages/inventory/inventory-page";
+import { VendorWarehousesPage } from "@/pages/warehouses/vendor-warehouses-page";
 import { MasterDataPage } from "@/pages/master-data/master-data-page";
 import { MessagingPage } from "@/pages/messaging/messaging-page";
 import { OrdersPage } from "@/pages/orders/orders-page";
@@ -55,6 +56,7 @@ export const router = createBrowserRouter([
           { path: "customers", element: <CustomersPage /> },
           { path: "products", element: <ProductsPage /> },
           { path: "inventory", element: <InventoryPage /> },
+          { path: "vendor-warehouses", element: <VendorWarehousesPage /> },
           { path: "finance", element: <FinancePage /> },
           { path: "analytics", element: <AnalyticsPage /> },
           { path: "master-data", element: <MasterDataPage /> },

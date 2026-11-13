@@ -206,6 +206,7 @@ function renderPage(permissions = ["access.read", "access.manage"], search = "")
 }
 
 const MEMBERS_SECTION = "?section=members";
+const VENDORS_SECTION = "?section=vendors";
 
 describe("TeamPage", () => {
   it("renders role cards in Arabic, never the seed's English or raw keys", async () => {
@@ -316,8 +317,10 @@ describe("TeamPage", () => {
     await waitFor(() => expect(within(roles).getByText("2 roles")).toBeInTheDocument());
     const team = screen.getByRole("tab", { name: /^Team/ });
     await waitFor(() =>
-      expect(within(team).getByText("4 members · 1 pending")).toBeInTheDocument(),
+      expect(within(team).getByText("3 members · 1 pending")).toBeInTheDocument(),
     );
+    const vendors = screen.getByRole("tab", { name: /^Vendor accounts/ });
+    await waitFor(() => expect(within(vendors).getByText("1 accounts")).toBeInTheDocument());
   });
 
   it("searches members by name, email or role in the team section, and resets on switch", async () => {
@@ -331,8 +334,7 @@ describe("TeamPage", () => {
 
     await user.clear(search);
     await user.type(search, "zzz");
-    // Both the team and the vendor block say so.
-    expect(screen.getAllByText("No members match your search.")).toHaveLength(2);
+    expect(screen.getAllByText("No members match your search.")).toHaveLength(1);
 
     await user.click(screen.getByRole("tab", { name: /^Roles & permissions/ }));
     expect(await screen.findByRole("searchbox", { name: "Search roles…" })).toHaveValue("");
@@ -351,17 +353,31 @@ describe("TeamPage", () => {
     expect(screen.queryByRole("button", { name: "Add new role" })).not.toBeInTheDocument();
   });
 
-  it("lists vendor accounts in their own block, between the team and the invitations", async () => {
+  it("keeps vendor accounts out of the team section", async () => {
     renderPage(undefined, MEMBERS_SECTION);
-    const vendors = await screen.findByRole("region", { name: "Vendor accounts" });
-    expect(within(vendors).getByTestId("member-card-m4")).toBeInTheDocument();
-    expect(within(vendors).queryByTestId("member-card-m1")).not.toBeInTheDocument();
+    await screen.findByTestId("member-card-m1");
+    expect(screen.queryByTestId("member-card-m4")).not.toBeInTheDocument();
+  });
 
-    const heading = within(vendors).getByRole("heading", { name: "Vendor accounts" });
-    const invitations = await screen.findByRole("heading", { name: "Pending invitations" });
-    const follows = (a: Node, b: Node): boolean =>
-      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    expect(follows(screen.getByTestId("member-card-m1"), heading)).toBe(true);
-    expect(follows(heading, invitations)).toBe(true);
+  it("lists vendor accounts on their own card, recorded in the URL, without invitations", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("role-card-owner");
+    await user.click(screen.getByRole("tab", { name: /^Vendor accounts/ }));
+    expect(await screen.findByTestId("member-card-m4")).toBeInTheDocument();
+    expect(screen.queryByTestId("member-card-m1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("section=vendors");
+    expect(screen.queryByText("Pending invitations")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Invite member" })).not.toBeInTheDocument();
+  });
+
+  it("searches vendor accounts on the vendors card", async () => {
+    const user = userEvent.setup();
+    renderPage(undefined, VENDORS_SECTION);
+    await screen.findByTestId("member-card-m4");
+    const search = screen.getByRole("searchbox", { name: "Search vendor accounts…" });
+    await user.type(search, "zzz");
+    expect(screen.queryByTestId("member-card-m4")).not.toBeInTheDocument();
+    expect(screen.getByText("No vendor accounts match your search.")).toBeInTheDocument();
   });
 });

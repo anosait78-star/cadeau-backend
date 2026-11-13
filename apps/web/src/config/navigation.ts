@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   MessageCircle,
   Package,
+  Store,
   Settings,
   ShieldAlert,
   ShoppingBag,
@@ -45,6 +46,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/customers", labelKey: "nav.customers", icon: Users, feature: "customers" },
   { to: "/products", labelKey: "nav.products", icon: Package, feature: "products" },
   { to: "/inventory", labelKey: "nav.inventory", icon: Warehouse, feature: "inventory" },
+  {
+    to: "/vendor-warehouses",
+    labelKey: "nav.vendorWarehouses",
+    icon: Store,
+    feature: "inventory",
+    permission: "inventory.read",
+  },
   {
     to: "/messages",
     labelKey: "nav.messages",

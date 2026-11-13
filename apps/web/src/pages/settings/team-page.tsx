@@ -1,4 +1,4 @@
-import { Lock, Plus, Search, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { Lock, Plus, Search, ShieldCheck, Store, UserPlus, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
@@ -52,14 +52,21 @@ type RoleDialogState =
   | { readonly kind: "add" }
   | { readonly kind: "edit"; readonly role: PermissionTemplateView };
 
-/** The two halves of the page; kept in `?section=` so a refresh or a shared link reopens it. */
-type Section = "roles" | "members";
+/** The page's sections; kept in `?section=` so a refresh or a shared link reopens it. */
+type Section = "roles" | "members" | "vendors";
 
 /** Vendor accounts join through a warehouse code and are listed apart from the staff. */
 const VENDOR_ROLE = "vendor";
 
+/** Each section searches its own list. */
+const SEARCH_KEY = {
+  roles: "team.roles.search",
+  members: "team.members.search",
+  vendors: "team.vendors.search",
+} as const satisfies Record<Section, string>;
+
 function parseSection(value: string | null): Section {
-  return value === "members" ? "members" : "roles";
+  return value === "members" || value === "vendors" ? value : "roles";
 }
 
 /**
@@ -70,7 +77,7 @@ const saveRole = (): Promise<boolean> => Promise.resolve(false);
 
 /**
  * Team (settings): roles and the people who hold them, on one page, split
- * into two sections picked from a pair of cards (tabs) under the toolbar.
+ * into three sections picked from cards (tabs) under the toolbar.
  *
  * - **Roles** — the permission templates as cards: what each grants, how many
  *   members hold it, and (for `access.manage`) add/edit, which is UI-only until
@@ -78,8 +85,8 @@ const saveRole = (): Promise<boolean> => Promise.resolve(false);
  * - **Team** — every active member as a card with their *effective*
  *   permissions (`GET /access/members/permissions`), so a custom member shows
  *   exactly what they hold rather than just "Custom".
- * - **Vendor accounts** — members holding the `vendor` role, in their own
- *   block under the team, since they are outside partners rather than staff.
+ * - **Vendor accounts** — members holding the `vendor` role, on their own
+ *   card, since they are outside partners rather than staff.
  * - **Invitations** — `access.manage` only, as before.
  *
  * Viewing requires `access.read`; every mutation requires `access.manage`.
@@ -216,7 +223,9 @@ export function TeamPage(): ReactNode {
 
   const membersMeta = (): string | null => {
     if (members.kind !== "ready") return null;
-    const count = t("team.sections.membersCount", { count: members.items.length });
+    const count = t("team.sections.membersCount", {
+      count: members.items.filter((member) => member.role !== VENDOR_ROLE).length,
+    });
     return canManage && pendingInvitations > 0
       ? `${count} · ${t("team.sections.pendingCount", { count: pendingInvitations })}`
       : count;
@@ -293,8 +302,8 @@ export function TeamPage(): ReactNode {
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={t(section === "roles" ? "team.roles.search" : "team.members.search")}
-              aria-label={t(section === "roles" ? "team.roles.search" : "team.members.search")}
+              placeholder={t(SEARCH_KEY[section])}
+              aria-label={t(SEARCH_KEY[section])}
               className="h-11 bg-card ps-9 lg:h-10"
             />
           </div>
@@ -331,6 +340,16 @@ export function TeamPage(): ReactNode {
               title: t("team.members.section"),
               description: t("team.sections.membersDesc"),
               meta: membersMeta(),
+            },
+            {
+              value: "vendors",
+              icon: Store,
+              title: t("team.vendors.title"),
+              description: t("team.sections.vendorsDesc"),
+              meta:
+                members.kind === "ready"
+                  ? t("team.sections.vendorsCount", { count: vendorMembers.length })
+                  : null,
             },
           ]}
         />
@@ -377,22 +396,6 @@ export function TeamPage(): ReactNode {
             {visibleTeam.length > 0 ? memberGrid(visibleTeam) : null}
           </div>
 
-          {members.kind === "ready" ? (
-            <section aria-labelledby="team-vendors-heading" className="flex flex-col gap-3">
-              <h2
-                id="team-vendors-heading"
-                className="text-base font-semibold text-foreground lg:text-lg"
-              >
-                {t("team.vendors.title")}
-              </h2>
-              {vendorMembers.length === 0 ? <EmptyState title={t("team.vendors.empty")} /> : null}
-              {vendorMembers.length > 0 && visibleVendors.length === 0 ? (
-                <EmptyState title={t("team.members.noMatch")} />
-              ) : null}
-              {visibleVendors.length > 0 ? memberGrid(visibleVendors) : null}
-            </section>
-          ) : null}
-
           {canManage ? (
             <section aria-labelledby="team-invitations-heading" className="flex flex-col gap-3">
               <h2
@@ -422,6 +425,18 @@ export function TeamPage(): ReactNode {
               ) : null}
             </section>
           ) : null}
+        </TabsContent>
+
+        <TabsContent value="vendors" className="flex flex-col gap-3 overflow-visible py-0">
+          {members.kind === "loading" ? <LoadingState /> : null}
+          {members.kind === "error" ? <ErrorState onRetry={() => loadMembers(companyId)} /> : null}
+          {members.kind === "ready" && vendorMembers.length === 0 ? (
+            <EmptyState title={t("team.vendors.empty")} />
+          ) : null}
+          {vendorMembers.length > 0 && visibleVendors.length === 0 ? (
+            <EmptyState title={t("team.vendors.noMatch")} />
+          ) : null}
+          {visibleVendors.length > 0 ? memberGrid(visibleVendors) : null}
         </TabsContent>
       </Tabs>
 
