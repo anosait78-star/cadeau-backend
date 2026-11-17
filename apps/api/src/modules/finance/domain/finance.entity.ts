@@ -267,6 +267,8 @@ export interface CashCenterReportView {
   readonly collectedMinor: number;
   readonly expensesMinor: number;
   readonly purchaseOrderPaymentsMinor: number;
+  /** Vendor payouts confirmed in the range (by confirmation date). */
+  readonly vendorPayoutsMinor: number;
   readonly refundsMinor: number;
   readonly shippingFeesMinor: number;
   readonly netCashMinor: number;

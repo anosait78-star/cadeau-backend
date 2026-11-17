@@ -821,6 +821,7 @@ describe("FinanceService — cash center + P&L (M13.5, D6)", () => {
       collectedMinor: 500000,
       expensesMinor: 80000,
       purchaseOrderPaymentsMinor: 120000,
+      vendorPayoutsMinor: 0,
       refundsMinor: 10000,
       shippingFeesMinor: 30000,
       netCashMinor: 260000,

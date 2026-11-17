@@ -49,10 +49,32 @@ export class MessagingFactsAdapter implements MessagingFactsPort {
     companyId: string,
     excludeProfileId: string | null,
   ): Promise<readonly string[]> {
+    return this.listPermissionHolders(companyId, MESSAGING_MANAGE_PERMISSION, excludeProfileId);
+  }
+
+  async listWarehouseVendorUsers(
+    companyId: string,
+    warehouseId: string,
+  ): Promise<readonly string[]> {
+    const members = await this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+      return tx.companyMember.findMany({
+        where: { companyId, warehouseId, status: "active" },
+        select: { userId: true },
+      });
+    });
+    return members.map((member) => member.userId);
+  }
+
+  async listPermissionHolders(
+    companyId: string,
+    permission: string,
+    excludeProfileId: string | null,
+  ): Promise<readonly string[]> {
     const members = await this.access.resolveCompanyMembers(companyId);
     const recipients = new Set<string>();
     for (const member of members) {
-      if (member.permissions.includes(MESSAGING_MANAGE_PERMISSION)) recipients.add(member.userId);
+      if (member.permissions.includes(permission)) recipients.add(member.userId);
     }
     if (excludeProfileId !== null) recipients.delete(excludeProfileId);
     return [...recipients];

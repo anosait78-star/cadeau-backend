@@ -50,6 +50,7 @@ import {
   InsufficientStockError,
   InvalidAmountError,
   InvalidListCursorError,
+  OrderItemsLockedError,
   PaymentStatusMismatchError,
   ReasonRequiredError,
   ReferenceNotFoundError,
@@ -815,7 +816,8 @@ export class OrdersService {
       error instanceof ReasonRequiredError ||
       error instanceof EmptyOrderError ||
       error instanceof InvalidAmountError ||
-      error instanceof PaymentStatusMismatchError
+      error instanceof PaymentStatusMismatchError ||
+      error instanceof OrderItemsLockedError
     ) {
       const field = "field" in error && typeof error.field === "string" ? error.field : "status";
       return new AppException(

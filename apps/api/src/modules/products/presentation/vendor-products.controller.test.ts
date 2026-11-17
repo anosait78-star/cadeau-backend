@@ -16,6 +16,7 @@ function product(extra: Partial<VendorProductView> = {}): VendorProductView {
     name: "Classic Mug",
     imageUrl: null,
     priceMinor: 15000,
+    wholesaleCostMinor: 9000,
     availableQuantity: 12,
     ...extra,
   };

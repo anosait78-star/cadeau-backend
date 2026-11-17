@@ -26,6 +26,8 @@ export interface ProductVariant {
   readonly sku: string | null;
   readonly barcode: string | null;
   readonly averageCost: number;
+  /** What the company pays the vendor per unit, integer minor units; null = not priced. */
+  readonly wholesaleCostMinor: number | null;
   readonly active: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -128,6 +130,8 @@ export interface VariantInput {
   readonly sku?: string | null;
   readonly barcode?: string | null;
   readonly active?: boolean;
+  /** Integer minor units paid to the vendor per unit; `null` clears it. */
+  readonly wholesaleCostMinor?: number | null;
 }
 
 /** `GET /v1/products` — keyset-paginated products. */

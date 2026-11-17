@@ -4,6 +4,7 @@ import { encodeCursor, Prisma, type PrismaClient } from "@cadeau/database";
 import {
   IllegalTransitionError,
   InsufficientStockError,
+  OrderItemsLockedError,
   PaymentStatusMismatchError,
   ReasonRequiredError,
 } from "../domain/orders.errors";
@@ -132,6 +133,10 @@ function makeRepo() {
         .fn()
         .mockResolvedValue([{ id: "res1", warehouseId: "w1", variantId: "v1", quantity: 2n }]),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    vendorLedgerEntry: {
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn().mockResolvedValue([]),
     },
   };
   const queryRaw = vi.fn((strings: TemplateStringsArray) => {
@@ -352,6 +357,161 @@ describe("OrdersRepository — transition", () => {
       applyStock: false,
     });
     expect(change).toBeNull();
+  });
+
+  describe("vendor payouts — accruals and reversals", () => {
+    function deliveredLines() {
+      return [
+        {
+          id: "i-vendor",
+          variantId: "v1",
+          nameSnapshot: "Mug — Red",
+          quantity: 2n,
+          warehouseId: "w-vendor",
+          variant: { wholesaleCostMinor: 9000n },
+        },
+        {
+          id: "i-unpriced",
+          variantId: "v2",
+          nameSnapshot: "Plate",
+          quantity: 1n,
+          warehouseId: "w-vendor",
+          variant: { wholesaleCostMinor: null },
+        },
+        {
+          id: "i-own",
+          variantId: "v3",
+          nameSnapshot: "House item",
+          quantity: 1n,
+          warehouseId: "w-own",
+          variant: { wholesaleCostMinor: 100n },
+        },
+      ];
+    }
+
+    it("accrues each vendor line when the order enters delivered", async () => {
+      const { repo, models, lock } = makeRepo();
+      lock.status = "shipped";
+      models.orderItem.findMany.mockResolvedValueOnce(deliveredLines());
+      models.warehouse.findMany.mockResolvedValueOnce([{ id: "w-vendor" }]);
+      await repo.transition(actor, "o1", { toStatus: "delivered", applyStock: false });
+
+      const where = models.warehouse.findMany.mock.calls[0]![0].where as Record<string, unknown>;
+      expect(where["id"]).toEqual({ in: ["w-vendor", "w-own"] });
+      expect(where["OR"]).toEqual([
+        { vendorMappings: { some: {} } },
+        { vendorMembers: { some: {} } },
+      ]);
+
+      const call = models.vendorLedgerEntry.createMany.mock.calls[0]![0];
+      expect(call.skipDuplicates).toBe(true);
+      expect(call.data).toEqual([
+        expect.objectContaining({
+          companyId: COMPANY,
+          warehouseId: "w-vendor",
+          kind: "accrual",
+          orderId: "o1",
+          orderItemId: "i-vendor",
+          quantity: 2n,
+          unitCostMinor: 9000n,
+          amountMinor: 18000n,
+          needsPricing: false,
+          createdBy: ACTOR,
+        }),
+        expect.objectContaining({
+          orderItemId: "i-unpriced",
+          unitCostMinor: 0n,
+          amountMinor: 0n,
+          needsPricing: true,
+        }),
+      ]);
+    });
+
+    it("falls back to the order's warehouse for unrouted lines", async () => {
+      const { repo, models, lock } = makeRepo();
+      lock.status = "shipped";
+      lock.warehouseId = "w-vendor";
+      models.orderItem.findMany.mockResolvedValueOnce([
+        { ...deliveredLines()[0]!, warehouseId: null },
+      ]);
+      models.warehouse.findMany.mockResolvedValueOnce([{ id: "w-vendor" }]);
+      await repo.transition(actor, "o1", { toStatus: "delivered", applyStock: false });
+      const data = models.vendorLedgerEntry.createMany.mock.calls[0]![0].data as Record<
+        string,
+        unknown
+      >[];
+      expect(data.map((d) => d["warehouseId"])).toEqual(["w-vendor"]);
+    });
+
+    it("writes nothing when no line comes from a vendor warehouse", async () => {
+      const { repo, models, lock } = makeRepo();
+      lock.status = "shipped";
+      models.orderItem.findMany.mockResolvedValueOnce([deliveredLines()[2]!]);
+      models.warehouse.findMany.mockResolvedValueOnce([]);
+      await repo.transition(actor, "o1", { toStatus: "delivered", applyStock: false });
+      expect(models.vendorLedgerEntry.createMany).not.toHaveBeenCalled();
+    });
+
+    it("skips the vendor lookup when no line has a warehouse at all", async () => {
+      const { repo, models, lock } = makeRepo();
+      lock.status = "shipped";
+      models.orderItem.findMany.mockResolvedValueOnce([
+        { ...deliveredLines()[0]!, warehouseId: null },
+      ]);
+      await repo.transition(actor, "o1", { toStatus: "delivered", applyStock: false });
+      expect(models.warehouse.findMany).not.toHaveBeenCalled();
+      expect(models.vendorLedgerEntry.createMany).not.toHaveBeenCalled();
+    });
+
+    it("mirrors every accrual with a reversal on a return after delivery", async () => {
+      const { repo, models, lock } = makeRepo();
+      lock.status = "delivered";
+      models.vendorLedgerEntry.findMany.mockResolvedValueOnce([
+        {
+          warehouseId: "w-vendor",
+          orderItemId: "i-vendor",
+          variantId: "v1",
+          nameSnapshot: "Mug — Red",
+          quantity: 2n,
+          unitCostMinor: 9000n,
+          amountMinor: 18000n,
+          needsPricing: false,
+        },
+      ]);
+      await repo.transition(actor, "o1", { toStatus: "returned", applyStock: false });
+      expect(models.vendorLedgerEntry.findMany.mock.calls[0]![0].where).toEqual({
+        orderId: "o1",
+        companyId: COMPANY,
+        kind: "accrual",
+      });
+      const call = models.vendorLedgerEntry.createMany.mock.calls[0]![0];
+      expect(call.skipDuplicates).toBe(true);
+      expect(call.data).toEqual([
+        expect.objectContaining({
+          kind: "return_reversal",
+          orderItemId: "i-vendor",
+          quantity: 2n,
+          unitCostMinor: 9000n,
+          amountMinor: -18000n,
+          needsPricing: false,
+        }),
+      ]);
+    });
+
+    it("writes no reversal for an order that never accrued", async () => {
+      const { repo, models, lock } = makeRepo();
+      lock.status = "completed";
+      await repo.transition(actor, "o1", { toStatus: "returned", applyStock: false });
+      expect(models.vendorLedgerEntry.createMany).not.toHaveBeenCalled();
+    });
+
+    it("leaves the ledger alone on a return before delivery", async () => {
+      const { repo, models, lock } = makeRepo();
+      lock.status = "shipped";
+      await repo.transition(actor, "o1", { toStatus: "returned", applyStock: false });
+      expect(models.vendorLedgerEntry.findMany).not.toHaveBeenCalled();
+      expect(models.vendorLedgerEntry.createMany).not.toHaveBeenCalled();
+    });
   });
 
   describe("vendor group activation (Vendor Accounts, Phase 3)", () => {
@@ -640,6 +800,25 @@ describe("OrdersRepository — update", () => {
     expect(models.orderItem.deleteMany).toHaveBeenCalled();
     const data = models.order.updateMany.mock.calls[0]![0].data as Record<string, unknown>;
     expect(data["subtotal"]).toBe(30000n); // 3 × 10000
+  });
+
+  it.each(["delivered", "completed", "returned", "exchanged"])(
+    "refuses to replace the lines of a %s order",
+    async (status) => {
+      const { repo, models } = makeRepo();
+      models.order.findFirst.mockResolvedValueOnce({ ...current, status });
+      await expect(
+        repo.update(actor, "o1", { items: [{ variantId: "v1", quantity: 1, price: 1 }] }),
+      ).rejects.toBeInstanceOf(OrderItemsLockedError);
+      expect(models.orderItem.deleteMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still allows non-line edits on a delivered order", async () => {
+    const { repo, models } = makeRepo();
+    models.order.findFirst.mockResolvedValueOnce({ ...current, status: "delivered" });
+    await repo.update(actor, "o1", { notes: "left at the door" });
+    expect(models.order.updateMany).toHaveBeenCalled();
   });
 
   it("rejects an empty item replacement", async () => {

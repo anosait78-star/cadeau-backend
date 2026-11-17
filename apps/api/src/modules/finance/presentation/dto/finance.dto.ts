@@ -1088,6 +1088,12 @@ export class CashCenterReportDto {
   @ApiProperty({ example: 120000, description: "Integer minor units." })
   purchaseOrderPaymentsMinor!: number;
 
+  @ApiProperty({
+    example: 90000,
+    description: "Vendor payouts confirmed in the range, integer minor units.",
+  })
+  vendorPayoutsMinor!: number;
+
   @ApiProperty({ example: 10000, description: "Integer minor units." })
   refundsMinor!: number;
 
@@ -1102,6 +1108,7 @@ export class CashCenterReportDto {
     dto.collectedMinor = view.collectedMinor;
     dto.expensesMinor = view.expensesMinor;
     dto.purchaseOrderPaymentsMinor = view.purchaseOrderPaymentsMinor;
+    dto.vendorPayoutsMinor = view.vendorPayoutsMinor;
     dto.refundsMinor = view.refundsMinor;
     dto.shippingFeesMinor = view.shippingFeesMinor;
     dto.netCashMinor = view.netCashMinor;

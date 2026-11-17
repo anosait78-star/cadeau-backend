@@ -88,6 +88,8 @@ interface Harness {
   messagingFacts: {
     findThreadVendor: ReturnType<typeof vi.fn>;
     listMessagingManageRecipients: ReturnType<typeof vi.fn>;
+    listWarehouseVendorUsers: ReturnType<typeof vi.fn>;
+    listPermissionHolders: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -142,6 +144,8 @@ function makeHarness(assigneeId: string | null = ASSIGNEE): Harness {
   const messagingFacts = {
     findThreadVendor: vi.fn().mockResolvedValue({ vendorUserId: VENDOR }),
     listMessagingManageRecipients: vi.fn().mockResolvedValue([OWNER]),
+    listWarehouseVendorUsers: vi.fn().mockResolvedValue([VENDOR]),
+    listPermissionHolders: vi.fn().mockResolvedValue([OWNER]),
   };
   const clock: Clock = { now: () => 1_700_000_000_000 };
 
@@ -506,6 +510,91 @@ describe("NotificationDispatchService", () => {
       h.messagingFacts.findThreadVendor.mockResolvedValueOnce({ vendorUserId: ACTOR });
       await h.handlers.get("message.created")?.(messageCreatedEvent("staff", ACTOR));
       expect(h.repo.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("vendor payouts", () => {
+    const PAYOUT = "77777777-7777-7777-7777-777777777777";
+    const base = { companyId: COMPANY, actorId: ACTOR, occurredAt: 1_700_000_000_000 };
+
+    it("tells the vendor's accounts a payout is waiting for them", async () => {
+      h.messagingFacts.listWarehouseVendorUsers.mockResolvedValueOnce([VENDOR, "vendor2"]);
+      await h.handlers.get("vendor_payout.requested")?.({
+        ...base,
+        type: "vendor_payout.requested",
+        payload: { payoutId: PAYOUT, warehouseId: "w1", amountMinor: 18000 },
+      });
+      expect(h.messagingFacts.listWarehouseVendorUsers).toHaveBeenCalledWith(COMPANY, "w1");
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        VENDOR,
+        expect.objectContaining({
+          type: "vendor_payout.requested",
+          payload: { payoutId: PAYOUT, amountMinor: 18000 },
+        }),
+      );
+      expect(h.repo.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("tells the company side when the vendor confirmed", async () => {
+      h.messagingFacts.listPermissionHolders.mockResolvedValueOnce([OWNER, "finance1"]);
+      await h.handlers.get("vendor_payout.confirmed")?.({
+        ...base,
+        actorId: VENDOR,
+        type: "vendor_payout.confirmed",
+        payload: {
+          payoutId: PAYOUT,
+          warehouseId: "w1",
+          amountMinor: 18000,
+          confirmationKind: "vendor",
+        },
+      });
+      expect(h.messagingFacts.listPermissionHolders).toHaveBeenCalledWith(
+        COMPANY,
+        "vendor_payouts.manage",
+        VENDOR,
+      );
+      expect(h.messagingFacts.listWarehouseVendorUsers).not.toHaveBeenCalled();
+      expect(h.repo.create).toHaveBeenCalledTimes(2);
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        "finance1",
+        expect.objectContaining({ type: "vendor_payout.confirmed" }),
+      );
+    });
+
+    it("tells the vendor when a manager confirmed on their behalf", async () => {
+      await h.handlers.get("vendor_payout.confirmed")?.({
+        ...base,
+        type: "vendor_payout.confirmed",
+        payload: {
+          payoutId: PAYOUT,
+          warehouseId: "w1",
+          amountMinor: 18000,
+          confirmationKind: "forced",
+        },
+      });
+      expect(h.messagingFacts.listPermissionHolders).not.toHaveBeenCalled();
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        VENDOR,
+        expect.objectContaining({ type: "vendor_payout.confirmed" }),
+      );
+    });
+
+    it("tells the vendor a payout was withdrawn, never the actor", async () => {
+      h.messagingFacts.listWarehouseVendorUsers.mockResolvedValueOnce([VENDOR, ACTOR]);
+      await h.handlers.get("vendor_payout.cancelled")?.({
+        ...base,
+        type: "vendor_payout.cancelled",
+        payload: { payoutId: PAYOUT, warehouseId: "w1" },
+      });
+      expect(h.repo.create).toHaveBeenCalledTimes(1);
+      expect(h.repo.create).toHaveBeenCalledWith(
+        COMPANY,
+        VENDOR,
+        expect.objectContaining({ type: "vendor_payout.cancelled", payload: { payoutId: PAYOUT } }),
+      );
     });
   });
 });

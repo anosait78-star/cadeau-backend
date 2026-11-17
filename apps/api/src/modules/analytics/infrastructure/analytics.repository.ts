@@ -289,24 +289,44 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
     window: Window,
   ): Promise<ProfitabilityPeriodFacts> {
     return this.tenantTx(companyId, async (tx) => {
-      const [collected, cogsItems, expenses] = await Promise.all([
+      const [collected, cogsItems, expenses, vendorCost] = await Promise.all([
         tx.order.aggregate({
           where: { companyId, createdAt: { gte: window.from, lte: window.to } },
           _sum: { collectedAmount: true },
         }),
         tx.orderItem.findMany({
           where: { companyId, order: { createdAt: { gte: window.from, lte: window.to } } },
-          select: { costSnapshot: true, quantity: true },
+          select: { id: true, costSnapshot: true, quantity: true },
         }),
         tx.expense.aggregate({
           where: { companyId, incurredAt: { gte: window.from, lte: window.to } },
           _sum: { amountMinor: true },
         }),
+        // Vendor payouts: a vendor line costs its wholesale price, as the
+        // vendor ledger froze it (net of returns/adjustments), by ledger date.
+        tx.vendorLedgerEntry.aggregate({
+          where: { companyId, createdAt: { gte: window.from, lte: window.to } },
+          _sum: { amountMinor: true },
+        }),
       ]);
 
-      const cogsMinor = Number(
-        cogsItems.reduce((sum, item) => sum + item.costSnapshot * item.quantity, 0n),
-      );
+      // Lines the vendor ledger already costs must not be costed twice.
+      const accrued =
+        cogsItems.length === 0
+          ? []
+          : await tx.vendorLedgerEntry.findMany({
+              where: {
+                companyId,
+                kind: "accrual",
+                orderItemId: { in: cogsItems.map((item) => item.id) },
+              },
+              select: { orderItemId: true },
+            });
+      const vendorCosted = new Set(accrued.map((row) => row.orderItemId));
+      const ownCogs = cogsItems
+        .filter((item) => !vendorCosted.has(item.id))
+        .reduce((sum, item) => sum + item.costSnapshot * item.quantity, 0n);
+      const cogsMinor = Number(ownCogs + (vendorCost._sum.amountMinor ?? 0n));
 
       return {
         collectedMinor: Number(collected._sum.collectedAmount ?? 0n),
@@ -353,6 +373,20 @@ export class AnalyticsRepository implements AnalyticsRepositoryPort {
               JOIN public.orders o ON o.id = oi.order_id
              WHERE oi.company_id = ${companyId}::uuid
                AND o.created_at BETWEEN ${window.from} AND ${window.to}
+               -- A vendor line is costed by the vendor ledger part below.
+               AND NOT EXISTS (
+                 SELECT 1 FROM public.vendor_ledger_entries v
+                  WHERE v.order_item_id = oi.id AND v.kind = 'accrual'
+               )
+             GROUP BY bucket
+            UNION ALL
+            SELECT date_trunc(${TRUNC_UNIT[granularity]}, v.created_at) AS bucket,
+                   0::bigint AS collected_minor,
+                   sum(v.amount_minor) AS cogs_minor,
+                   0::bigint AS expenses_minor
+              FROM public.vendor_ledger_entries v
+             WHERE v.company_id = ${companyId}::uuid
+               AND v.created_at BETWEEN ${window.from} AND ${window.to}
              GROUP BY bucket
             UNION ALL
             SELECT date_trunc(${TRUNC_UNIT[granularity]}, e.incurred_at) AS bucket,

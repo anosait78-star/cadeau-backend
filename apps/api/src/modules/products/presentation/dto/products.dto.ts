@@ -128,6 +128,17 @@ export class CreateVariantDto {
   @IsInt()
   @Min(0)
   sellingPriceMinor?: number;
+
+  @ApiPropertyOptional({
+    example: 9000,
+    nullable: true,
+    description:
+      "Paid to the vendor per unit, integer minor units; null = not priced. Setting it completes this variant's vendor ledger rows still waiting for a price.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  wholesaleCostMinor?: number | null;
 }
 
 /** Update-variant payload (partial). */
@@ -159,6 +170,17 @@ export class UpdateVariantDto {
   @IsInt()
   @Min(0)
   sellingPriceMinor?: number;
+
+  @ApiPropertyOptional({
+    example: 9000,
+    nullable: true,
+    description:
+      "Paid to the vendor per unit, integer minor units; null = not priced. Setting it completes this variant's vendor ledger rows still waiting for a price.",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  wholesaleCostMinor?: number | null;
 }
 
 /** The column mapping for a CSV import (values are header column names). */
@@ -284,6 +306,13 @@ export class ProductVariantDto {
   @ApiProperty({ example: 15000, description: "Sellable price, integer minor units." })
   sellingPriceMinor!: number;
 
+  @ApiProperty({
+    example: 9000,
+    nullable: true,
+    description: "Paid to the vendor per unit, integer minor units; null = not priced.",
+  })
+  wholesaleCostMinor!: number | null;
+
   @ApiProperty()
   active!: boolean;
 
@@ -302,6 +331,7 @@ export class ProductVariantDto {
     dto.barcode = view.barcode;
     dto.averageCost = view.averageCost;
     dto.sellingPriceMinor = view.sellingPriceMinor;
+    dto.wholesaleCostMinor = view.wholesaleCostMinor;
     dto.active = view.active;
     dto.createdAt = view.createdAt;
     dto.updatedAt = view.updatedAt;
@@ -481,6 +511,13 @@ export class VendorProductDto {
   })
   priceMinor!: number;
 
+  @ApiProperty({
+    example: 9000,
+    nullable: true,
+    description: "Lowest wholesale cost (paid to the vendor per unit), or null when unpriced.",
+  })
+  wholesaleCostMinor!: number | null;
+
   @ApiProperty({ example: 12, description: "Available stock in the vendor's own warehouse." })
   availableQuantity!: number;
 
@@ -490,6 +527,7 @@ export class VendorProductDto {
     dto.name = view.name;
     dto.imageUrl = view.imageUrl;
     dto.priceMinor = view.priceMinor;
+    dto.wholesaleCostMinor = view.wholesaleCostMinor;
     dto.availableQuantity = view.availableQuantity;
     return dto;
   }

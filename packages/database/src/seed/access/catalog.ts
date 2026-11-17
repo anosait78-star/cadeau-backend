@@ -47,6 +47,7 @@ export const FEATURES: readonly FeatureDef[] = [
   { key: "analytics", name: "Analytics", category: "insights", active: true },
   { key: "notifications", name: "Notifications", category: "operations", active: true },
   { key: "messaging", name: "Vendor Messaging", category: "operations", active: true },
+  { key: "vendor_payouts", name: "Vendor Payouts", category: "finance", active: true },
   {
     key: "storefront_integration",
     name: "Storefront Integration",
@@ -68,6 +69,11 @@ const PERMISSIONED_FEATURES: readonly string[] = [
   "analytics",
   "notifications",
   "messaging",
+  // Vendor payouts (2026-11-17): `read` is warehouse-scoped like
+  // `messaging.read` — a vendor reaches only their own ledger and payouts —
+  // while `manage` (requesting a payout, cancelling it, forcing its
+  // confirmation, manual adjustments) is a company-side power only.
+  "vendor_payouts",
 ];
 
 /** A catalog permission: its key, a human description, and its gating feature (if any). */
@@ -155,7 +161,8 @@ export const PLANS: readonly PlanDef[] = [
   {
     code: "standard",
     name: "Standard",
-    description: "Growing stores: inventory, shipping, notifications, and vendor messaging.",
+    description:
+      "Growing stores: inventory, shipping, notifications, vendor messaging, and vendor payouts.",
     features: [
       "master-data",
       "products",
@@ -165,6 +172,7 @@ export const PLANS: readonly PlanDef[] = [
       "shipping",
       "notifications",
       "messaging",
+      "vendor_payouts",
     ],
   },
   {
@@ -180,6 +188,7 @@ export const PLANS: readonly PlanDef[] = [
       "shipping",
       "notifications",
       "messaging",
+      "vendor_payouts",
       "finance",
       "analytics",
       "storefront_integration",
@@ -209,7 +218,7 @@ export const TEMPLATES: readonly TemplateDef[] = [
       "access.read",
       "integrations.manage",
       ...perms(["orders", "products", "inventory", "customers", "shipping"], ["read", "manage"]),
-      ...perms(["analytics", "finance"], ["read"]),
+      ...perms(["analytics", "finance", "vendor_payouts"], ["read"]),
       ...perms(["messaging"], ["read", "manage"]),
       "messaging.send",
     ],
@@ -248,7 +257,7 @@ export const TEMPLATES: readonly TemplateDef[] = [
     description: "Owns finance, invoicing, and reconciliation.",
     permissions: [
       "access.read",
-      ...perms(["finance"], ["read", "manage"]),
+      ...perms(["finance", "vendor_payouts"], ["read", "manage"]),
       ...perms(["analytics", "orders"], ["read"]),
     ],
   },
@@ -274,11 +283,16 @@ export const TEMPLATES: readonly TemplateDef[] = [
   // `inventory.read`, so they reach exactly one thread — the vendor's own. The
   // company-wide half of messaging lives in `messaging.manage`, which a vendor
   // never gets.
+  //
+  // Vendor payouts add `vendor_payouts.read`: the vendor's own balance,
+  // statement and payouts — warehouse-scoped in the service and in RLS. The
+  // vendor confirms receipt of their own payout through the same scope;
+  // everything else about payouts is `vendor_payouts.manage`, never theirs.
   {
     key: "vendor",
     name: "Vendor",
     description:
       "Manages their own warehouse only — scoped automatically to the warehouse they joined.",
-    permissions: ["inventory.read", "messaging.read", "messaging.send"],
+    permissions: ["inventory.read", "messaging.read", "messaging.send", "vendor_payouts.read"],
   },
 ];

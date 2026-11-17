@@ -66,6 +66,16 @@ describe("access catalog integrity", () => {
     expect(holders.sort()).toEqual(["manager", "owner"]);
   });
 
+  it("keeps vendor payouts management away from the vendor template", () => {
+    const vendor = TEMPLATES.find((t) => t.key === "vendor");
+    expect(vendor?.permissions).toContain("vendor_payouts.read");
+    expect(vendor?.permissions).not.toContain("vendor_payouts.manage");
+    const managers = TEMPLATES.filter((t) => t.permissions.includes("vendor_payouts.manage")).map(
+      (t) => t.key,
+    );
+    expect(managers.sort()).toEqual(["finance", "manager", "owner"]);
+  });
+
   it("ships the AI feature inactive (ADR-004)", () => {
     expect(FEATURES.find((f) => f.key === "ai")?.active).toBe(false);
   });

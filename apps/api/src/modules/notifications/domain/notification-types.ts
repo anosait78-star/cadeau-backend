@@ -25,6 +25,15 @@ export const NOTIFICATION_TYPES = [
    * when staff wrote. The sender is always excluded.
    */
   "message.received",
+  /**
+   * Vendor payouts (2026-11-17). `requested` and `cancelled` go to the
+   * vendor's own account(s); `confirmed` goes to the `vendor_payouts.manage`
+   * holders when the vendor confirmed, or to the vendor when a manager
+   * confirmed on their behalf.
+   */
+  "vendor_payout.requested",
+  "vendor_payout.confirmed",
+  "vendor_payout.cancelled",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

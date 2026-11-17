@@ -47,6 +47,7 @@ function variant(id: string, extra: Partial<ProductVariantView> = {}): ProductVa
     barcode: null,
     averageCost: 0,
     sellingPriceMinor: 0,
+    wholesaleCostMinor: null,
     active: true,
     isPlaceholder: false,
     createdAt: "2026-01-01T00:00:00.000Z",

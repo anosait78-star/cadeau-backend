@@ -26,6 +26,7 @@ function makeRepo() {
     product: delegate(),
     inventoryStock: delegate(),
     expense: delegate(),
+    vendorLedgerEntry: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -291,6 +292,22 @@ describe("AnalyticsRepository — profitability", () => {
 
     const facts = await repo.getProfitabilityFacts(COMPANY, WINDOW);
     expect(facts).toEqual({ collectedMinor: 100000, cogsMinor: 6000, expensesMinor: 20000 });
+  });
+
+  it("costs vendor lines from the vendor ledger instead of their snapshot", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    queryRaw.mockResolvedValueOnce([]); // setTenantContext
+    models.order.aggregate.mockResolvedValueOnce({ _sum: { collectedAmount: 100000n } });
+    models.orderItem.findMany.mockResolvedValueOnce([
+      { id: "own", costSnapshot: 1000n, quantity: 5n },
+      { id: "vendor", costSnapshot: 400n, quantity: 2n },
+    ]);
+    models.expense.aggregate.mockResolvedValueOnce({ _sum: { amountMinor: 0n } });
+    models.vendorLedgerEntry.aggregate.mockResolvedValueOnce({ _sum: { amountMinor: 18000n } });
+    models.vendorLedgerEntry.findMany.mockResolvedValueOnce([{ orderItemId: "vendor" }]);
+
+    const facts = await repo.getProfitabilityFacts(COMPANY, WINDOW);
+    expect(facts.cogsMinor).toBe(5000 + 18000);
   });
 
   it("keys collected money and COGS on the order's creation, not its last touch", async () => {

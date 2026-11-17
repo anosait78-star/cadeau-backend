@@ -41,6 +41,7 @@ export function VendorProductsPage(): ReactNode {
               product={product}
               locale={locale}
               available={t("vendor.products.available")}
+              wholesaleLabel={t("vendor.products.wholesale")}
             />
           ))}
         </div>
@@ -53,10 +54,12 @@ function ProductCard({
   product,
   locale,
   available,
+  wholesaleLabel,
 }: {
   product: VendorProduct;
   locale: string;
   available: string;
+  wholesaleLabel: string;
 }): ReactNode {
   return (
     <Card>
@@ -65,6 +68,14 @@ function ProductCard({
         <p className="line-clamp-2 text-sm font-medium text-foreground">{product.name}</p>
         <p className="text-sm font-semibold tabular-nums" dir="ltr">
           {formatMoney(product.priceMinor, locale)}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {wholesaleLabel}:{" "}
+          <span className="tabular-nums" dir="ltr">
+            {product.wholesaleCostMinor === null
+              ? "—"
+              : formatMoney(product.wholesaleCostMinor, locale)}
+          </span>
         </p>
         <p className="text-xs text-muted-foreground">
           {available}: <span className="tabular-nums">{product.availableQuantity}</span>

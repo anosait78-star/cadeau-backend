@@ -36,6 +36,7 @@ function variantRow(extra: Record<string, unknown> = {}) {
     barcode: null,
     averageCost: 1500n,
     sellingPriceMinor: 2500n,
+    wholesaleCostMinor: null,
     isActive: true,
     createdAt: CREATED,
     updatedAt: UPDATED,
@@ -61,12 +62,13 @@ function makeRepo() {
     companyMember: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
-  const txHost = { $queryRaw: queryRaw, ...models };
+  const executeRaw = vi.fn().mockResolvedValue(0);
+  const txHost = { $queryRaw: queryRaw, $executeRaw: executeRaw, ...models };
   const prisma = {
     $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(txHost)),
   };
   const repo = new ProductsRepository(prisma as unknown as PrismaClient);
-  return { repo, models, queryRaw };
+  return { repo, models, queryRaw, executeRaw };
 }
 
 describe("ProductsRepository — reads", () => {
@@ -320,6 +322,66 @@ describe("ProductsRepository — update, archive, variants", () => {
     expect(data).toMatchObject({ name: "Blue", sku: "S2", barcode: null, isActive: false });
   });
 
+  it("updateVariant stores a wholesale cost and completes the vendor rows waiting for it", async () => {
+    const { repo, models, executeRaw } = makeRepo();
+    models.productVariant.updateMany.mockResolvedValueOnce({ count: 1 });
+    models.productVariant.findFirst.mockResolvedValueOnce(
+      variantRow({ wholesaleCostMinor: 9000n }),
+    );
+    const view = await repo.updateVariant({ companyId: COMPANY, actorId: ACTOR }, "p1", "v1", {
+      wholesaleCostMinor: 9000,
+    });
+    expect(view?.wholesaleCostMinor).toBe(9000);
+    expect(models.productVariant.updateMany.mock.calls[0]?.[0].data).toMatchObject({
+      wholesaleCostMinor: 9000n,
+    });
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    const sql = (executeRaw.mock.calls[0]?.[0] as readonly string[]).join("?");
+    expect(sql).toContain("vendor_ledger_entries");
+    expect(sql).toContain("needs_pricing");
+    expect(sql).toContain("payout_id IS NULL");
+    expect(executeRaw.mock.calls[0]).toEqual(expect.arrayContaining([9000n, ACTOR, COMPANY, "v1"]));
+  });
+
+  it("updateVariant clears a wholesale cost without touching the vendor ledger", async () => {
+    const { repo, models, executeRaw } = makeRepo();
+    models.productVariant.updateMany.mockResolvedValueOnce({ count: 1 });
+    models.productVariant.findFirst.mockResolvedValueOnce(variantRow());
+    const view = await repo.updateVariant({ companyId: COMPANY, actorId: ACTOR }, "p1", "v1", {
+      wholesaleCostMinor: null,
+    });
+    expect(view?.wholesaleCostMinor).toBeNull();
+    expect(models.productVariant.updateMany.mock.calls[0]?.[0].data).toMatchObject({
+      wholesaleCostMinor: null,
+    });
+    expect(executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("updateVariant never reprices the ledger when the variant is absent", async () => {
+    const { repo, models, executeRaw } = makeRepo();
+    models.productVariant.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect(
+      await repo.updateVariant({ companyId: COMPANY, actorId: ACTOR }, "p1", "v9", {
+        wholesaleCostMinor: 100,
+      }),
+    ).toBeNull();
+    expect(executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("createVariant stores a wholesale cost when one is given", async () => {
+    const { repo, models } = makeRepo();
+    models.product.findFirst.mockResolvedValueOnce({ id: "p1" });
+    models.productVariant.create.mockResolvedValueOnce(variantRow({ wholesaleCostMinor: 700n }));
+    const view = await repo.createVariant({ companyId: COMPANY, actorId: ACTOR }, "p1", {
+      name: "Red",
+      wholesaleCostMinor: 700,
+    });
+    expect(view?.wholesaleCostMinor).toBe(700);
+    expect(models.productVariant.create.mock.calls[0]?.[0].data).toMatchObject({
+      wholesaleCostMinor: 700n,
+    });
+  });
+
   it("updateVariant returns null when absent", async () => {
     const { repo, models } = makeRepo();
     models.productVariant.updateMany.mockResolvedValueOnce({ count: 0 });
@@ -419,14 +481,36 @@ describe("ProductsRepository — listForWarehouse", () => {
         name: "Mug",
         imageUrl: null,
         variants: [
-          { sellingPriceMinor: 2500n, stock: [{ available: 5n }] },
-          { sellingPriceMinor: 1800n, stock: [{ available: 3n }] },
+          { sellingPriceMinor: 2500n, wholesaleCostMinor: 1200n, stock: [{ available: 5n }] },
+          { sellingPriceMinor: 1800n, wholesaleCostMinor: 900n, stock: [{ available: 3n }] },
+          { sellingPriceMinor: 3000n, wholesaleCostMinor: null, stock: [] },
         ],
+      },
+      {
+        id: "p2",
+        name: "Plate",
+        imageUrl: null,
+        variants: [{ sellingPriceMinor: 500n, wholesaleCostMinor: null, stock: [] }],
       },
     ]);
     const products = await repo.listForWarehouse(COMPANY, "w1");
     expect(products).toEqual([
-      { id: "p1", name: "Mug", imageUrl: null, priceMinor: 1800, availableQuantity: 8 },
+      {
+        id: "p1",
+        name: "Mug",
+        imageUrl: null,
+        priceMinor: 1800,
+        wholesaleCostMinor: 900,
+        availableQuantity: 8,
+      },
+      {
+        id: "p2",
+        name: "Plate",
+        imageUrl: null,
+        priceMinor: 500,
+        wholesaleCostMinor: null,
+        availableQuantity: 0,
+      },
     ]);
     expect(models.product.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -85,6 +85,23 @@ export class InvalidAmountError extends Error {
   }
 }
 
+/**
+ * The order is past delivery, so its lines are locked (vendor payouts): the
+ * vendor's accruals were frozen from them, and any correction now belongs on
+ * the vendor's account as a manual adjustment, not on the order.
+ */
+export class OrderItemsLockedError extends Error {
+  constructor(
+    readonly status: string,
+    readonly field: "items" = "items",
+  ) {
+    super(
+      `لا يمكن تعديل أصناف طلب في حالة "${status}" — أي تصحيح بعد التسليم يكون تسوية على حساب التاجر.`,
+    );
+    this.name = "OrderItemsLockedError";
+  }
+}
+
 /** The supplied `paymentStatus` is inconsistent with `collectedAmount` vs the order total. */
 export class PaymentStatusMismatchError extends Error {
   constructor(readonly field: "paymentStatus" = "paymentStatus") {

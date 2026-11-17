@@ -11,6 +11,7 @@ import { IntegrationsModule } from "./modules/integrations/integrations.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MasterDataModule } from "./modules/master-data/master-data.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
+import { VendorPayoutsModule } from "./modules/vendor-payouts/vendor-payouts.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { ProductsModule } from "./modules/products/products.module";
@@ -49,6 +50,7 @@ import { LoggingModule } from "./shared/logging/logging.module";
     AnalyticsModule,
     NotificationsModule,
     MessagingModule,
+    VendorPayoutsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

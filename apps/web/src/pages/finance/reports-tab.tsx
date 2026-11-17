@@ -139,6 +139,11 @@ export function ReportsTab({ onNotify }: { onNotify: (text: string) => void }): 
                   locale={locale}
                 />
                 <Stat
+                  label={t("finance.reports.cashCenter.vendorPayouts")}
+                  value={state.cashCenter.vendorPayoutsMinor}
+                  locale={locale}
+                />
+                <Stat
                   label={t("finance.reports.cashCenter.refunds")}
                   value={state.cashCenter.refundsMinor}
                   locale={locale}

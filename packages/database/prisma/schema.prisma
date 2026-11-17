@@ -165,6 +165,8 @@ model Company {
   messageAttachments            MessageAttachment[]
   messageOrderRefs              MessageOrderRef[]
   messageReads                  MessageRead[]
+  vendorLedgerEntries           VendorLedgerEntry[]
+  vendorPayouts                 VendorPayout[]
 
   @@map("companies")
 }
@@ -742,6 +744,11 @@ model ProductVariant {
   /// Client- and storefront-writable — unlike `averageCost`, which stays
   /// purchase-cost-only and is never touched by this column's writers.
   sellingPriceMinor BigInt @default(0) @map("selling_price_minor")
+  /// What the company pays the vendor per unit, integer minor units (vendor
+  /// payouts, 2026-11-17). NULL = not priced yet — a vendor line delivered
+  /// while NULL accrues at zero flagged `needsPricing`. Staff-entered and
+  /// unrelated to `averageCost`, which stays purchase-receipt-derived.
+  wholesaleCostMinor BigInt? @map("wholesale_cost_minor")
   isActive    Boolean  @default(true) @map("is_active")
   /// True when storefront ingestion invented this variant from an order line
   /// whose sku matched nothing in the catalogue (2026-10-14) — an order is
@@ -767,6 +774,7 @@ model ProductVariant {
   adjustments        StockAdjustment[]
   orderItems         OrderItem[]
   purchaseOrderLines PurchaseOrderLine[]
+  vendorLedgerEntries VendorLedgerEntry[]
 
   @@unique([productId, name], map: "product_variants_product_name_key")
   @@index([productId, name, id], map: "product_variants_product_idx")
@@ -808,6 +816,8 @@ model Warehouse {
   joinCode              WarehouseJoinCode?
   orderVendorGroups     OrderVendorGroup[]
   messageThread         MessageThread?
+  vendorLedgerEntries   VendorLedgerEntry[]
+  vendorPayouts         VendorPayout[]
 
   @@unique([companyId, name], map: "warehouses_company_name_key")
   @@index([companyId, name, id], map: "warehouses_keyset_idx")
@@ -1128,6 +1138,7 @@ model Order {
   vendorGroups OrderVendorGroup[]
   review       OrderReview?
   messageRefs  MessageOrderRef[]
+  vendorLedgerEntries VendorLedgerEntry[]
 
   @@unique([companyId, orderNumber], map: "orders_company_number_key")
   @@unique([companyId, idempotencyKey], map: "orders_idempotency_key")
@@ -2094,4 +2105,89 @@ model MessageRead {
 
   @@unique([threadId, profileId], map: "message_reads_thread_profile_key")
   @@map("message_reads")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor payouts (2026-11-17). What the company owes each vendor warehouse for
+// the vendor lines it delivered, and the payouts that settle it. Both tables
+// are warehouse-scoped in RLS exactly like `message_threads` (staff see every
+// row of the company, a vendor only their own warehouse's). Money is integer
+// minor units (bigint), never a float. Migration:
+// 20261117000000_vendor_payouts.
+// ---------------------------------------------------------------------------
+
+/// One line of a vendor's ledger. `accrual` is written in the same transaction
+/// that moves an order into `delivered` (one per vendor line, frozen copy of
+/// the line); `return_reversal` mirrors it when that order is returned;
+/// `adjustment` is a manager's manual correction with a mandatory `note`.
+/// `amountMinor` is signed. Open while `payoutId` is null; settled once its
+/// payout is `confirmed`. Only rows still flagged `needsPricing` (and held by
+/// no payout) are ever updated — when their variant finally gets a price.
+model VendorLedgerEntry {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  warehouseId   String   @map("warehouse_id") @db.Uuid
+  kind          String
+  orderId       String?  @map("order_id") @db.Uuid
+  /// Not a foreign key: order lines are re-inserted on edit; this row keeps
+  /// its own copy of the line instead.
+  orderItemId   String?  @map("order_item_id") @db.Uuid
+  variantId     String?  @map("variant_id") @db.Uuid
+  nameSnapshot  String?  @map("name_snapshot")
+  quantity      BigInt?
+  unitCostMinor BigInt?  @map("unit_cost_minor")
+  amountMinor   BigInt   @map("amount_minor")
+  needsPricing  Boolean  @default(false) @map("needs_pricing")
+  payoutId      String?  @map("payout_id") @db.Uuid
+  note          String?
+  createdBy     String?  @map("created_by") @db.Uuid
+  updatedBy     String?  @map("updated_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  order     Order?          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  payout    VendorPayout?   @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+
+  @@index([warehouseId, createdAt(sort: Desc), id(sort: Desc)], map: "vendor_ledger_entries_warehouse_keyset_idx")
+  @@map("vendor_ledger_entries")
+}
+
+/// A request to pay one vendor warehouse everything it was owed when the
+/// request was created (no partial payouts in v1). `pending` → `confirmed`
+/// (by the vendor, or `forced` by a manager with `forceReason`) or
+/// `cancelled` (which releases its ledger rows). At most one `pending` per
+/// warehouse (partial unique index, SQL-only). `idempotencyKey` is mandatory —
+/// a money-moving action.
+model VendorPayout {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  warehouseId      String    @map("warehouse_id") @db.Uuid
+  amountMinor      BigInt    @map("amount_minor")
+  method           String
+  reference        String?
+  notes            String?
+  status           String    @default("pending")
+  confirmationKind String?   @map("confirmation_kind")
+  forceReason      String?   @map("force_reason")
+  confirmedBy      String?   @map("confirmed_by") @db.Uuid
+  confirmedAt      DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  cancelledBy      String?   @map("cancelled_by") @db.Uuid
+  cancelledAt      DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  idempotencyKey   String    @map("idempotency_key")
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  company   Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  entries   VendorLedgerEntry[]
+
+  @@unique([companyId, idempotencyKey], map: "vendor_payouts_idempotency_key")
+  @@index([warehouseId, createdAt(sort: Desc), id(sort: Desc)], map: "vendor_payouts_warehouse_keyset_idx")
+  @@index([companyId, createdAt(sort: Desc), id(sort: Desc)], map: "vendor_payouts_company_keyset_idx")
+  @@map("vendor_payouts")
 }

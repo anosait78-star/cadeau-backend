@@ -163,6 +163,8 @@ function makeRepo() {
     shippingReconciliation: delegate(),
     shippingReconciliationLine: delegate(),
     accountingPeriod: delegate(),
+    vendorPayout: delegate(),
+    vendorLedgerEntry: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };

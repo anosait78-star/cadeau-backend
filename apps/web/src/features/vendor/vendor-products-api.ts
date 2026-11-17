@@ -7,6 +7,8 @@ export interface VendorProduct {
   readonly imageUrl: string | null;
   /** Lowest sellable price among this product's variants, integer minor units. */
   readonly priceMinor: number;
+  /** Lowest wholesale cost — what I am paid per unit. Null when not priced yet. */
+  readonly wholesaleCostMinor: number | null;
   readonly availableQuantity: number;
 }
 

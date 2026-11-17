@@ -28,6 +28,23 @@ export interface MessagingFactsPort {
     companyId: string,
     excludeProfileId: string | null,
   ): Promise<readonly string[]>;
+
+  /**
+   * The user ids of every active vendor account scoped to `warehouseId`
+   * (vendor payouts) — the audience for "the company sent you a payout".
+   */
+  listWarehouseVendorUsers(companyId: string, warehouseId: string): Promise<readonly string[]>;
+
+  /**
+   * Every active member who effectively holds `permission`, through the same
+   * three-layer resolver as {@link listMessagingManageRecipients}, minus
+   * `excludeProfileId` (vendor payouts: who hears that a vendor confirmed).
+   */
+  listPermissionHolders(
+    companyId: string,
+    permission: string,
+    excludeProfileId: string | null,
+  ): Promise<readonly string[]>;
 }
 
 /** DI token for {@link MessagingFactsPort}. */

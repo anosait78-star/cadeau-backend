@@ -1466,35 +1466,45 @@ export class FinanceRepository implements FinanceRepositoryPort {
     return this.tenantTx(companyId, async (tx) => {
       const range = { gte: new Date(dateFrom), lte: new Date(dateTo) };
 
-      const [collected, expenses, poPayments, refunds, shipping] = await Promise.all([
-        tx.order.aggregate({
-          where: { companyId, updatedAt: range },
-          _sum: { collectedAmount: true },
-        }),
-        tx.expense.aggregate({
-          where: { companyId, incurredAt: range },
-          _sum: { amountMinor: true },
-        }),
-        tx.purchaseOrderPayment.aggregate({
-          where: { companyId, paidAt: range },
-          _sum: { amountMinor: true },
-        }),
-        tx.refund.aggregate({
-          where: { companyId, createdAt: range },
-          _sum: { amountMinor: true },
-        }),
-        tx.shipment.aggregate({ where: { companyId, deliveredAt: range }, _sum: { fee: true } }),
-      ]);
+      const [collected, expenses, poPayments, refunds, shipping, vendorPayouts] = await Promise.all(
+        [
+          tx.order.aggregate({
+            where: { companyId, updatedAt: range },
+            _sum: { collectedAmount: true },
+          }),
+          tx.expense.aggregate({
+            where: { companyId, incurredAt: range },
+            _sum: { amountMinor: true },
+          }),
+          tx.purchaseOrderPayment.aggregate({
+            where: { companyId, paidAt: range },
+            _sum: { amountMinor: true },
+          }),
+          tx.refund.aggregate({
+            where: { companyId, createdAt: range },
+            _sum: { amountMinor: true },
+          }),
+          tx.shipment.aggregate({ where: { companyId, deliveredAt: range }, _sum: { fee: true } }),
+          // Vendor payouts leave the company when the vendor confirms receipt
+          // (or a manager confirms for them) — a pending one is not cash out yet.
+          tx.vendorPayout.aggregate({
+            where: { companyId, status: "confirmed", confirmedAt: range },
+            _sum: { amountMinor: true },
+          }),
+        ],
+      );
 
       const collectedMinor = Number(collected._sum.collectedAmount ?? 0n);
       const expensesMinor = Number(expenses._sum.amountMinor ?? 0n);
       const purchaseOrderPaymentsMinor = Number(poPayments._sum.amountMinor ?? 0n);
       const refundsMinor = Number(refunds._sum.amountMinor ?? 0n);
       const shippingFeesMinor = Number(shipping._sum.fee ?? 0n);
+      const vendorPayoutsMinor = Number(vendorPayouts._sum.amountMinor ?? 0n);
       const netCashMinor =
         collectedMinor -
         expensesMinor -
         purchaseOrderPaymentsMinor -
+        vendorPayoutsMinor -
         refundsMinor -
         shippingFeesMinor;
 
@@ -1502,6 +1512,7 @@ export class FinanceRepository implements FinanceRepositoryPort {
         collectedMinor,
         expensesMinor,
         purchaseOrderPaymentsMinor,
+        vendorPayoutsMinor,
         refundsMinor,
         shippingFeesMinor,
         netCashMinor,
@@ -1542,29 +1553,58 @@ export class FinanceRepository implements FinanceRepositoryPort {
   ): Promise<PnlPeriodView> {
     const range = { gte: new Date(dateFrom), lte: new Date(dateTo) };
 
-    const [revenue, cogsItems, expenses] = await Promise.all([
+    const [revenue, cogsItems, expenses, vendorCost] = await Promise.all([
       tx.invoice.aggregate({
         where: { companyId, createdAt: range },
         _sum: { subtotalMinor: true },
       }),
       tx.orderItem.findMany({
         where: { companyId, order: { createdAt: range } },
-        select: { costSnapshot: true, quantity: true },
+        select: { id: true, costSnapshot: true, quantity: true },
       }),
       tx.expense.aggregate({
         where: { companyId, incurredAt: range },
         _sum: { amountMinor: true },
       }),
+      // Vendor payouts decision 15: a vendor line costs the company its
+      // wholesale price, as frozen in the vendor ledger when it was delivered
+      // (net of returns and manual adjustments), dated by the ledger row.
+      tx.vendorLedgerEntry.aggregate({
+        where: { companyId, createdAt: range },
+        _sum: { amountMinor: true },
+      }),
     ]);
 
-    const revenueMinor = Number(revenue._sum.subtotalMinor ?? 0n);
-    const cogsMinor = Number(
-      cogsItems.reduce((sum, item) => sum + item.costSnapshot * item.quantity, 0n),
+    // A line the vendor ledger already costs must not be costed twice through
+    // its (usually zero, but not always) moving-average snapshot.
+    const vendorCosted = await this.vendorCostedItemIds(
+      tx,
+      companyId,
+      cogsItems.map((item) => item.id),
     );
+    const revenueMinor = Number(revenue._sum.subtotalMinor ?? 0n);
+    const ownCogs = cogsItems
+      .filter((item) => !vendorCosted.has(item.id))
+      .reduce((sum, item) => sum + item.costSnapshot * item.quantity, 0n);
+    const cogsMinor = Number(ownCogs + (vendorCost._sum.amountMinor ?? 0n));
     const expensesMinor = Number(expenses._sum.amountMinor ?? 0n);
     const netIncomeMinor = revenueMinor - cogsMinor - expensesMinor;
 
     return { revenueMinor, cogsMinor, expensesMinor, netIncomeMinor };
+  }
+
+  /** Which of these order lines accrued to a vendor (and so are costed by the vendor ledger). */
+  private async vendorCostedItemIds(
+    tx: Tx,
+    companyId: string,
+    itemIds: readonly string[],
+  ): Promise<ReadonlySet<string>> {
+    if (itemIds.length === 0) return new Set();
+    const rows = await tx.vendorLedgerEntry.findMany({
+      where: { companyId, kind: "accrual", orderItemId: { in: [...itemIds] } },
+      select: { orderItemId: true },
+    });
+    return new Set(rows.flatMap((row) => (row.orderItemId === null ? [] : [row.orderItemId])));
   }
 
   // ---- internals: period-close guard (D4) -------------------------------------

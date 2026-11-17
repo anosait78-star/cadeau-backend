@@ -12,6 +12,9 @@ import {
   type Unsubscribe,
 } from "../../../shared/events/event-bus.port";
 import { CLOCK, type Clock } from "../../../shared/time/clock";
+
+/** Who hears that a vendor confirmed a payout (mirrors the payouts controller's gate). */
+const VENDOR_PAYOUTS_MANAGE_PERMISSION = "vendor_payouts.manage";
 import { CUSTOMER_MESSAGING, type CustomerMessagingPort } from "../domain/customer-messaging.port";
 import { DELIVERY_QUEUE, type DeliveryQueuePort } from "../domain/delivery-queue.port";
 import { MESSAGING_FACTS, type MessagingFactsPort } from "../domain/messaging-facts.port";
@@ -97,7 +100,75 @@ export class NotificationDispatchService implements OnModuleInit, OnModuleDestro
       this.events.subscribe("order.status_changed", (event) => this.onOrderStatusChanged(event)),
       this.events.subscribe("payment.collected", (event) => this.onPaymentCollected(event)),
       this.events.subscribe("message.created", (event) => this.onMessageCreated(event)),
+      this.events.subscribe("vendor_payout.requested", (event) => this.onPayoutRequested(event)),
+      this.events.subscribe("vendor_payout.confirmed", (event) => this.onPayoutConfirmed(event)),
+      this.events.subscribe("vendor_payout.cancelled", (event) => this.onPayoutCancelled(event)),
     ];
+  }
+
+  /** Vendor payouts: the company sent this vendor a payout to confirm. */
+  private async onPayoutRequested(event: DomainEvent<"vendor_payout.requested">): Promise<void> {
+    await this.notifyVendor(event.companyId, event.payload.warehouseId, event.actorId, {
+      type: "vendor_payout.requested",
+      title: "دفعة جديدة لحسابك",
+      body: "سجّلت الشركة دفعة لمستحقاتك — أكّد الاستلام بعد ما يوصلك المبلغ.",
+      payload: { payoutId: event.payload.payoutId, amountMinor: event.payload.amountMinor },
+    });
+  }
+
+  /**
+   * A payout was settled. When the vendor confirmed, the company side
+   * (`vendor_payouts.manage` holders) hears about it; when a manager forced
+   * it, the vendor does — they should never find out from their statement.
+   */
+  private async onPayoutConfirmed(event: DomainEvent<"vendor_payout.confirmed">): Promise<void> {
+    const payload = { payoutId: event.payload.payoutId, amountMinor: event.payload.amountMinor };
+    if (event.payload.confirmationKind === "forced") {
+      await this.notifyVendor(event.companyId, event.payload.warehouseId, event.actorId, {
+        type: "vendor_payout.confirmed",
+        title: "تم تأكيد دفعة",
+        body: "أكّدت الشركة استلامك لدفعة نيابةً عنك — راجع كشف حسابك.",
+        payload,
+      });
+      return;
+    }
+    const recipients = await this.messagingFacts.listPermissionHolders(
+      event.companyId,
+      VENDOR_PAYOUTS_MANAGE_PERMISSION,
+      event.actorId,
+    );
+    for (const recipient of recipients) {
+      await this.dispatch(event.companyId, recipient, {
+        type: "vendor_payout.confirmed",
+        title: "تاجر أكّد استلام دفعة",
+        body: "أكّد أحد التجار استلام دفعته، وتمت تصفية المبلغ من حسابه.",
+        payload,
+      });
+    }
+  }
+
+  /** Vendor payouts: a pending payout this vendor was told about was withdrawn. */
+  private async onPayoutCancelled(event: DomainEvent<"vendor_payout.cancelled">): Promise<void> {
+    await this.notifyVendor(event.companyId, event.payload.warehouseId, event.actorId, {
+      type: "vendor_payout.cancelled",
+      title: "إلغاء طلب دفع",
+      body: "ألغت الشركة طلب الدفع، ورجع المبلغ لمستحقاتك.",
+      payload: { payoutId: event.payload.payoutId },
+    });
+  }
+
+  /** Every active account of one vendor warehouse, minus the actor. */
+  private async notifyVendor(
+    companyId: string,
+    warehouseId: string,
+    actorId: string | null,
+    input: { type: NotificationType; title: string; body: string; payload: unknown },
+  ): Promise<void> {
+    const vendors = await this.messagingFacts.listWarehouseVendorUsers(companyId, warehouseId);
+    for (const vendorUserId of vendors) {
+      if (vendorUserId === actorId) continue;
+      await this.dispatch(companyId, vendorUserId, input);
+    }
   }
 
   onModuleDestroy(): void {

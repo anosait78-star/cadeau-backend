@@ -1,4 +1,5 @@
 import {
+  Banknote,
   BarChart3,
   Database,
   Home,
@@ -60,6 +61,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     feature: "messaging",
     permission: "messaging.read",
   },
+  {
+    to: "/vendor-payouts",
+    labelKey: "nav.vendorPayouts",
+    icon: Banknote,
+    feature: "vendor_payouts",
+    permission: "vendor_payouts.read",
+  },
   { to: "/finance", labelKey: "nav.finance", icon: Wallet, feature: "finance" },
   {
     to: "/analytics",
@@ -93,4 +101,13 @@ export const VENDOR_NAV_ITEMS: readonly NavItem[] = [
   { to: "/vendor/orders", labelKey: "vendor.nav.orders", icon: ShoppingBag },
   { to: "/vendor/products", labelKey: "vendor.nav.products", icon: Package },
   { to: "/vendor/messages", labelKey: "vendor.nav.messages", icon: MessageCircle },
+  // Vendor payouts: gated like the company items (ADR-003), so a company
+  // without the feature never shows its vendors a dead link.
+  {
+    to: "/vendor/account",
+    labelKey: "vendor.nav.account",
+    icon: Banknote,
+    feature: "vendor_payouts",
+    permission: "vendor_payouts.read",
+  },
 ];

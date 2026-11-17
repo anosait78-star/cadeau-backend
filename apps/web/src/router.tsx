@@ -24,6 +24,9 @@ import { VendorMessagesPage } from "@/pages/vendor/vendor-messages-page";
 import { VendorOrderDetailPage } from "@/pages/vendor/vendor-order-detail-page";
 import { VendorOrdersPage } from "@/pages/vendor/vendor-orders-page";
 import { VendorProductsPage } from "@/pages/vendor/vendor-products-page";
+import { VendorAccountPage } from "@/pages/vendor/vendor-account-page";
+import { VendorPayoutDetailPage } from "@/pages/vendor-payouts/vendor-payout-detail-page";
+import { VendorPayoutsPage } from "@/pages/vendor-payouts/vendor-payouts-page";
 import { NotificationsPage } from "@/pages/settings/notifications-page";
 import { SettingsPage } from "@/pages/settings/settings-page";
 import { TeamPage } from "@/pages/settings/team-page";
@@ -51,6 +54,9 @@ export const router = createBrowserRouter([
           { path: "vendor/orders/:groupId", element: <VendorOrderDetailPage /> },
           { path: "vendor/products", element: <VendorProductsPage /> },
           { path: "vendor/messages", element: <VendorMessagesPage /> },
+          { path: "vendor/account", element: <VendorAccountPage /> },
+          { path: "vendor-payouts", element: <VendorPayoutsPage /> },
+          { path: "vendor-payouts/:warehouseId", element: <VendorPayoutDetailPage /> },
           { path: "orders", element: <OrdersPage /> },
           { path: "messages", element: <MessagingPage /> },
           { path: "customers", element: <CustomersPage /> },

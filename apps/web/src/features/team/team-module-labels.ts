@@ -19,6 +19,7 @@ export const MODULE_LABEL_KEYS: Readonly<Record<string, TranslationKey>> = {
   notifications: "team.module.notifications",
   messaging: "team.module.messaging",
   storefront_integration: "team.module.storefrontIntegration",
+  vendor_payouts: "team.module.vendorPayouts",
 };
 
 /** Group key for the two feature-independent core permissions (`access.*`). */

@@ -90,6 +90,7 @@ const VARIANT_SELECT = {
   barcode: true,
   averageCost: true,
   sellingPriceMinor: true,
+  wholesaleCostMinor: true,
   isActive: true,
   isPlaceholder: true,
   createdAt: true,
@@ -239,6 +240,9 @@ export class ProductsRepository implements ProductsRepositoryPort {
             ...(data.sellingPriceMinor === undefined
               ? {}
               : { sellingPriceMinor: BigInt(data.sellingPriceMinor) }),
+            ...(data.wholesaleCostMinor === undefined || data.wholesaleCostMinor === null
+              ? {}
+              : { wholesaleCostMinor: BigInt(data.wholesaleCostMinor) }),
             ...(data.isPlaceholder === undefined ? {} : { isPlaceholder: data.isPlaceholder }),
           }) as Prisma.ProductVariantUncheckedCreateInput,
           select: VARIANT_SELECT,
@@ -267,6 +271,10 @@ export class ProductsRepository implements ProductsRepositoryPort {
       if (data.sellingPriceMinor !== undefined) {
         patch["sellingPriceMinor"] = BigInt(data.sellingPriceMinor);
       }
+      if (data.wholesaleCostMinor !== undefined) {
+        patch["wholesaleCostMinor"] =
+          data.wholesaleCostMinor === null ? null : BigInt(data.wholesaleCostMinor);
+      }
       try {
         const { count } = await tx.productVariant.updateMany({
           where,
@@ -276,12 +284,44 @@ export class ProductsRepository implements ProductsRepositoryPort {
       } catch (error) {
         throw this.mapWriteError(error);
       }
+      if (data.wholesaleCostMinor !== undefined && data.wholesaleCostMinor !== null) {
+        await this.completePendingVendorPricing(tx, actor, variantId, data.wholesaleCostMinor);
+      }
       const row = await tx.productVariant.findFirst({ where, select: VARIANT_SELECT });
       return row === null ? null : this.toVariantView(row);
     });
   }
 
   // ---- internals -----------------------------------------------------------
+
+  /**
+   * Vendor payouts decision 8: a vendor line delivered before its variant had
+   * a wholesale price was accrued at zero and flagged `needs_pricing`. Once
+   * the price exists, those rows take it — but only while no payout holds
+   * them, so a payout's amount never changes under it. An accrual becomes
+   * `quantity × cost`, its return reversal the negative of that. Same
+   * transaction as the price write: either both land or neither does.
+   */
+  private async completePendingVendorPricing(
+    tx: Tx,
+    actor: WriteActor,
+    variantId: string,
+    unitCostMinor: number,
+  ): Promise<void> {
+    const cost = BigInt(unitCostMinor);
+    await tx.$executeRaw`
+      UPDATE public.vendor_ledger_entries
+         SET unit_cost_minor = ${cost},
+             amount_minor = CASE WHEN kind = 'return_reversal'
+                                 THEN -(quantity * ${cost})
+                                 ELSE quantity * ${cost} END,
+             needs_pricing = false,
+             updated_by = ${actor.actorId}::uuid
+       WHERE company_id = ${actor.companyId}::uuid
+         AND variant_id = ${variantId}::uuid
+         AND needs_pricing
+         AND payout_id IS NULL`;
+  }
 
   /** Run a unit of work with the tenant RLS context bound for its duration. */
   async searchSellableVariants(
@@ -462,6 +502,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
     barcode: string | null;
     averageCost: bigint;
     sellingPriceMinor: bigint;
+    wholesaleCostMinor: bigint | null;
     isActive: boolean;
     isPlaceholder: boolean;
     createdAt: Date;
@@ -475,6 +516,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
       barcode: row.barcode,
       averageCost: Number(row.averageCost),
       sellingPriceMinor: Number(row.sellingPriceMinor),
+      wholesaleCostMinor: row.wholesaleCostMinor === null ? null : Number(row.wholesaleCostMinor),
       active: row.isActive,
       isPlaceholder: row.isPlaceholder,
       createdAt: row.createdAt.toISOString(),
@@ -522,6 +564,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
             where: { stock: { some: { warehouseId } } },
             select: {
               sellingPriceMinor: true,
+              wholesaleCostMinor: true,
               stock: { where: { warehouseId }, select: { available: true } },
             },
           },
@@ -529,10 +572,15 @@ export class ProductsRepository implements ProductsRepositoryPort {
       });
       return products.map((product) => {
         let priceMinor = 0;
+        let wholesaleCostMinor: number | null = null;
         let availableQuantity = 0;
         for (const variant of product.variants) {
           const price = Number(variant.sellingPriceMinor);
           if (priceMinor === 0 || price < priceMinor) priceMinor = price;
+          if (variant.wholesaleCostMinor !== null) {
+            const cost = Number(variant.wholesaleCostMinor);
+            if (wholesaleCostMinor === null || cost < wholesaleCostMinor) wholesaleCostMinor = cost;
+          }
           for (const stock of variant.stock) availableQuantity += Number(stock.available);
         }
         return {
@@ -540,6 +588,7 @@ export class ProductsRepository implements ProductsRepositoryPort {
           name: product.name,
           imageUrl: product.imageUrl,
           priceMinor,
+          wholesaleCostMinor,
           availableQuantity,
         };
       });

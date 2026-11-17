@@ -9,7 +9,11 @@ export type NotificationType =
   /** Vendor Accounts, Phase 5 — sent to a vendor when their group is assigned. */
   | "order_vendor_group.assigned"
   /** EPIC-17 M17.5 — a message landed in a vendor conversation. */
-  | "message.received";
+  | "message.received"
+  /** Vendor payouts — a payout was sent to, confirmed by (or for), or withdrawn from a vendor. */
+  | "vendor_payout.requested"
+  | "vendor_payout.confirmed"
+  | "vendor_payout.cancelled";
 
 export interface NotificationItem {
   readonly id: string;

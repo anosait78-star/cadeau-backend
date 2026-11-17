@@ -39,10 +39,17 @@ import {
   InsufficientStockError,
   InvalidAmountError,
   InvalidListCursorError,
+  OrderItemsLockedError,
   PaymentStatusMismatchError,
   ReasonRequiredError,
   ReferenceNotFoundError,
 } from "../domain/orders.errors";
+import {
+  buildVendorAccruals,
+  canEditOrderItems,
+  effectiveWarehouseOf,
+  vendorLedgerEffectOf,
+} from "../domain/vendor-ledger";
 import type {
   CreateOrderInput,
   CreateOrderItemInput,
@@ -368,6 +375,9 @@ export class OrdersRepository implements OrdersRepositoryPort {
       // Recompute the money block when items or any amount changed.
       let subtotal = Number(current.subtotal);
       if (data.items !== undefined) {
+        if (!canEditOrderItems(current.status as OrderStatus)) {
+          throw new OrderItemsLockedError(current.status);
+        }
         if (data.items.length === 0) throw new EmptyOrderError();
         const lines = await this.resolveItems(tx, actor.companyId, data.items);
         subtotal = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
@@ -493,6 +503,18 @@ export class OrdersRepository implements OrdersRepositoryPort {
 
       if (data.applyStock) {
         await this.applyStockEffect(tx, actor, id, from, to, row.warehouse_id);
+      }
+
+      // Vendor payouts: the order entering `delivered` owes each vendor for
+      // their lines; a return after delivery mirrors that. Same transaction as
+      // the status write, so a delivered order can never exist without its
+      // accruals (or a returned one keep a debt it no longer owes). Not gated
+      // by `applyStock`: what is owed does not depend on stock tracking.
+      const ledgerEffect = vendorLedgerEffectOf(from, to);
+      if (ledgerEffect === "accrue") {
+        await this.accrueVendorLines(tx, actor, id, row.warehouse_id);
+      } else if (ledgerEffect === "reverse") {
+        await this.reverseVendorAccruals(tx, actor, id);
       }
 
       // Vendor Accounts, Phase 3: entering `processing` guarantees this
@@ -775,6 +797,127 @@ export class OrdersRepository implements OrdersRepositoryPort {
           imageUrl: imageByVariant.get(item.variantId) ?? null,
         })),
       };
+    });
+  }
+
+  // ---- Vendor payouts — accruals and reversals ------------------------------
+
+  /**
+   * Write one `accrual` per vendor line of an order entering `delivered`, at
+   * each variant's wholesale cost right now. A warehouse counts as a vendor's
+   * when a storefront vendor is mapped to it or a vendor account was ever
+   * scoped to it — not only when that account is active today, so a vendor
+   * who has not joined yet (or was suspended) is still owed. Idempotent on
+   * the `(order_item_id, kind)` unique index: a retried transition writes
+   * nothing twice.
+   */
+  private async accrueVendorLines(
+    tx: Tx,
+    actor: WriteActor,
+    orderId: string,
+    orderWarehouseId: string | null,
+  ): Promise<void> {
+    const items = await tx.orderItem.findMany({
+      where: { orderId, companyId: actor.companyId },
+      select: {
+        id: true,
+        variantId: true,
+        nameSnapshot: true,
+        quantity: true,
+        warehouseId: true,
+        variant: { select: { wholesaleCostMinor: true } },
+      },
+    });
+    const candidates = [
+      ...new Set(
+        items
+          .map((item) => effectiveWarehouseOf(item, orderWarehouseId))
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    if (candidates.length === 0) return;
+    const vendorWarehouses = await tx.warehouse.findMany({
+      where: {
+        id: { in: candidates },
+        companyId: actor.companyId,
+        OR: [{ vendorMappings: { some: {} } }, { vendorMembers: { some: {} } }],
+      },
+      select: { id: true },
+    });
+    const accruals = buildVendorAccruals(
+      items.map((item) => ({
+        id: item.id,
+        variantId: item.variantId,
+        nameSnapshot: item.nameSnapshot,
+        quantity: Number(item.quantity),
+        warehouseId: item.warehouseId,
+        wholesaleCostMinor:
+          item.variant.wholesaleCostMinor === null ? null : Number(item.variant.wholesaleCostMinor),
+      })),
+      orderWarehouseId,
+      new Set(vendorWarehouses.map((w) => w.id)),
+    );
+    if (accruals.length === 0) return;
+    await tx.vendorLedgerEntry.createMany({
+      data: accruals.map((a) =>
+        stampForCreate(actor, {
+          companyId: actor.companyId,
+          warehouseId: a.warehouseId,
+          kind: "accrual",
+          orderId,
+          orderItemId: a.orderItemId,
+          variantId: a.variantId,
+          nameSnapshot: a.nameSnapshot,
+          quantity: BigInt(a.quantity),
+          unitCostMinor: BigInt(a.unitCostMinor),
+          amountMinor: BigInt(a.amountMinor),
+          needsPricing: a.needsPricing,
+        }),
+      ) as Prisma.VendorLedgerEntryCreateManyInput[],
+      skipDuplicates: true,
+    });
+  }
+
+  /**
+   * Mirror every accrual of a returned order with a `return_reversal` of the
+   * opposite sign — even one already paid out: the reversal is a new open
+   * row, so it comes off the vendor's next payout (decision 4). Copies the
+   * accrual's frozen line and its `needsPricing` flag, so a still-unpriced
+   * pair is completed together when the price arrives. Idempotent like
+   * {@link accrueVendorLines}.
+   */
+  private async reverseVendorAccruals(tx: Tx, actor: WriteActor, orderId: string): Promise<void> {
+    const accruals = await tx.vendorLedgerEntry.findMany({
+      where: { orderId, companyId: actor.companyId, kind: "accrual" },
+      select: {
+        warehouseId: true,
+        orderItemId: true,
+        variantId: true,
+        nameSnapshot: true,
+        quantity: true,
+        unitCostMinor: true,
+        amountMinor: true,
+        needsPricing: true,
+      },
+    });
+    if (accruals.length === 0) return;
+    await tx.vendorLedgerEntry.createMany({
+      data: accruals.map((a) =>
+        stampForCreate(actor, {
+          companyId: actor.companyId,
+          warehouseId: a.warehouseId,
+          kind: "return_reversal",
+          orderId,
+          orderItemId: a.orderItemId,
+          variantId: a.variantId,
+          nameSnapshot: a.nameSnapshot,
+          quantity: a.quantity,
+          unitCostMinor: a.unitCostMinor,
+          amountMinor: -a.amountMinor,
+          needsPricing: a.needsPricing,
+        }),
+      ) as Prisma.VendorLedgerEntryCreateManyInput[],
+      skipDuplicates: true,
     });
   }
 

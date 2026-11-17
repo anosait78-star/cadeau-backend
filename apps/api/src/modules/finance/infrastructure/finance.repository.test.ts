@@ -219,6 +219,8 @@ function makeRepo() {
     shippingReconciliation: delegate(),
     shippingReconciliationLine: delegate(),
     accountingPeriod: delegate(),
+    vendorPayout: delegate(),
+    vendorLedgerEntry: delegate(),
   };
   const queryRaw = vi.fn().mockResolvedValue([]);
   const txHost = { $queryRaw: queryRaw, ...models };
@@ -1080,9 +1082,31 @@ describe("FinanceRepository — cash center + P&L (M13.5, D6)", () => {
       collectedMinor: 500000,
       expensesMinor: 80000,
       purchaseOrderPaymentsMinor: 120000,
+      vendorPayoutsMinor: 0,
       refundsMinor: 10000,
       shippingFeesMinor: 30000,
       netCashMinor: 500000 - 80000 - 120000 - 10000 - 30000,
+    });
+  });
+
+  it("subtracts vendor payouts confirmed in the range from net cash", async () => {
+    const { repo, models } = makeRepo();
+    models.order.aggregate.mockResolvedValue({ _sum: { collectedAmount: 500000n } });
+    models.vendorPayout.aggregate.mockResolvedValue({ _sum: { amountMinor: 90000n } });
+
+    const report = await repo.getCashCenterReport(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+    );
+
+    expect(report.vendorPayoutsMinor).toBe(90000);
+    expect(report.netCashMinor).toBe(500000 - 90000);
+    const where = models.vendorPayout.aggregate.mock.calls[0]![0].where as Record<string, unknown>;
+    expect(where["status"]).toBe("confirmed");
+    expect(where["confirmedAt"]).toEqual({
+      gte: new Date("2026-01-01T00:00:00.000Z"),
+      lte: new Date("2026-01-31T23:59:59.000Z"),
     });
   });
 
@@ -1125,6 +1149,32 @@ describe("FinanceRepository — cash center + P&L (M13.5, D6)", () => {
       netIncomeMinor: 100000 - 20000 - 10000,
     });
     expect(report.previous).toBeUndefined();
+  });
+
+  it("costs vendor lines from the vendor ledger, never twice through their snapshot", async () => {
+    const { repo, models } = makeRepo();
+    models.invoice.aggregate.mockResolvedValue({ _sum: { subtotalMinor: 100000n } });
+    models.orderItem.findMany.mockResolvedValue([
+      { id: "own", costSnapshot: 2000n, quantity: 5n },
+      { id: "vendor", costSnapshot: 700n, quantity: 2n },
+    ]);
+    models.vendorLedgerEntry.findMany.mockResolvedValue([{ orderItemId: "vendor" }]);
+    // Accrual 18000, a 9000 reversal and a 500 adjustment inside the range.
+    models.vendorLedgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinor: 9500n } });
+
+    const report = await repo.getPnlReport(
+      COMPANY,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-31T23:59:59.000Z",
+    );
+
+    // own line 2000*5 = 10000; the vendor line's snapshot is skipped; + 9500 ledger.
+    expect(report.current.cogsMinor).toBe(19500);
+    expect(models.vendorLedgerEntry.findMany.mock.calls[0]![0].where).toEqual({
+      companyId: COMPANY,
+      kind: "accrual",
+      orderItemId: { in: ["own", "vendor"] },
+    });
   });
 
   it("computes P&L with a comparison period", async () => {

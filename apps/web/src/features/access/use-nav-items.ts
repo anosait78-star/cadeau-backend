@@ -18,12 +18,14 @@ import { CapabilitiesContext } from "./capabilities-context";
  */
 export function useNavItems(): readonly NavItem[] {
   const { user } = useAuth();
-  const activeRole = user?.companies.find((c) => c.id === user.activeCompanyId)?.role ?? null;
-  if (activeRole === "vendor") return VENDOR_NAV_ITEMS;
-
   const caps = useContext(CapabilitiesContext);
-  if (caps === undefined || caps.status !== "ready") return NAV_ITEMS;
-  return NAV_ITEMS.filter((item) => {
+  const activeRole = user?.companies.find((c) => c.id === user.activeCompanyId)?.role ?? null;
+  // The vendor list is filtered by the same rules: its ungated items always
+  // pass, and a gated one (vendor payouts) shows only when the company has it.
+  const items = activeRole === "vendor" ? VENDOR_NAV_ITEMS : NAV_ITEMS;
+
+  if (caps === undefined || caps.status !== "ready") return items;
+  return items.filter((item) => {
     if (item.superAdmin === true && !caps.isSuperAdmin) return false;
     if (item.feature === undefined && item.permission === undefined) return true;
     return caps.has({

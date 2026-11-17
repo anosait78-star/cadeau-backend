@@ -289,6 +289,27 @@ export interface EventPayloads {
     readonly preview: string | null;
   };
   /**
+   * Vendor payouts (2026-11-17): the company asked to pay a vendor everything
+   * owed (`requested`), the vendor confirmed receipt or a manager forced it
+   * (`confirmed`), or the request was withdrawn (`cancelled`). Emitted after
+   * the payout row commits. Ids and amounts only — never the payout's notes.
+   */
+  "vendor_payout.requested": {
+    readonly payoutId: string;
+    readonly warehouseId: string;
+    readonly amountMinor: number;
+  };
+  "vendor_payout.confirmed": {
+    readonly payoutId: string;
+    readonly warehouseId: string;
+    readonly amountMinor: number;
+    readonly confirmationKind: "vendor" | "forced";
+  };
+  "vendor_payout.cancelled": {
+    readonly payoutId: string;
+    readonly warehouseId: string;
+  };
+  /**
    * An in-app notification was created for one recipient (EPIC-15). Emitted
    * alongside the durable audit write, after the `Notification` row commits.
    * Ids only — the title/body may echo domain facts but never raw PII.

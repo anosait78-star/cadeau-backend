@@ -138,6 +138,9 @@ describe("NotificationsRepository — preferences", () => {
       { type: "payment.collected", inAppEnabled: true, webPushEnabled: true },
       { type: "order_vendor_group.assigned", inAppEnabled: true, webPushEnabled: true },
       { type: "message.received", inAppEnabled: true, webPushEnabled: true },
+      { type: "vendor_payout.requested", inAppEnabled: true, webPushEnabled: true },
+      { type: "vendor_payout.confirmed", inAppEnabled: true, webPushEnabled: true },
+      { type: "vendor_payout.cancelled", inAppEnabled: true, webPushEnabled: true },
     ]);
   });
 

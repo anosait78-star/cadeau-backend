@@ -39,6 +39,11 @@ export interface ProductVariantView {
   readonly averageCost: number;
   /** Sellable price in integer minor units; client/storefront-writable (storefront-integration §8). */
   readonly sellingPriceMinor: number;
+  /**
+   * What the company pays the vendor per unit, integer minor units (vendor
+   * payouts). `null` = not priced yet. Staff-entered; unrelated to `averageCost`.
+   */
+  readonly wholesaleCostMinor: number | null;
   readonly active: boolean;
   /**
    * The CRM invented this variant from a storefront order line whose sku
@@ -68,6 +73,11 @@ export interface VendorProductView {
   readonly imageUrl: string | null;
   /** Lowest `sellingPriceMinor` among this product's variants stocked in the warehouse. */
   readonly priceMinor: number;
+  /**
+   * Lowest wholesale cost among those same variants — what the vendor is paid
+   * per unit. `null` when none of them is priced yet.
+   */
+  readonly wholesaleCostMinor: number | null;
   readonly availableQuantity: number;
 }
 

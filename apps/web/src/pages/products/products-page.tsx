@@ -42,6 +42,7 @@ import {
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useI18n } from "@/i18n/i18n-provider";
 import { cn } from "@/lib/cn";
+import { formatMoney } from "@/lib/format-money";
 import { buildProductColumns } from "./products-columns";
 
 /** A `{ id → name }` lookup for a reference collection (categories, units). */
@@ -512,7 +513,7 @@ function VariantsPanel({
   productId: string;
   onNotify: (text: string) => void;
 }): ReactNode {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [variants, setVariants] = useState<ProductVariant[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -601,7 +602,13 @@ function VariantsPanel({
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {t("products.variant.field.sku")}: {variant.sku ?? "—"} ·{" "}
-                      {t("products.variant.field.barcode")}: {variant.barcode ?? "—"}
+                      {t("products.variant.field.barcode")}: {variant.barcode ?? "—"} ·{" "}
+                      {t("products.variant.field.wholesaleCost")}:{" "}
+                      <span dir="ltr" className="tabular-nums">
+                        {variant.wholesaleCostMinor === null
+                          ? t("products.variant.wholesaleUnpriced")
+                          : formatMoney(variant.wholesaleCostMinor, locale)}
+                      </span>
                     </span>
                   </div>
                   <PermissionGate permission="products.manage">
@@ -891,11 +898,29 @@ function VariantForm({
   const [sku, setSku] = useState(variant?.sku ?? "");
   const [barcode, setBarcode] = useState(variant?.barcode ?? "");
   const [active, setActive] = useState(variant?.active ?? true);
+  const [wholesale, setWholesale] = useState(
+    variant?.wholesaleCostMinor === null || variant?.wholesaleCostMinor === undefined
+      ? ""
+      : (variant.wholesaleCostMinor / 100).toFixed(2),
+  );
   const [submitting, setSubmitting] = useState(false);
   const editing = variant !== undefined;
+  const wholesaleTrimmed = wholesale.trim();
+  const wholesaleValid =
+    wholesaleTrimmed.length === 0 ||
+    (Number.isFinite(Number(wholesaleTrimmed)) && Number(wholesaleTrimmed) >= 0);
 
   const submit = async (): Promise<void> => {
+    // Pounds on screen, minor units on the wire (like every money field here).
+    // Empty means "not priced": cleared on edit, omitted on create.
+    const wholesaleCostMinor =
+      wholesaleTrimmed.length === 0 ? null : Math.round(Number(wholesaleTrimmed) * 100);
     const body: VariantInput = {
+      ...(wholesaleCostMinor !== null
+        ? { wholesaleCostMinor }
+        : editing
+          ? { wholesaleCostMinor: null }
+          : {}),
       name: name.trim(),
       ...(sku.trim().length > 0 ? { sku: sku.trim() } : editing ? { sku: null } : {}),
       ...(barcode.trim().length > 0
@@ -938,6 +963,22 @@ function VariantForm({
             aria-label={t("products.variant.field.barcode")}
           />
         </FormField>
+        <FormField
+          label={t("products.variant.field.wholesaleCost")}
+          htmlFor="variant-wholesale"
+          optional
+          hint={t("products.variant.field.wholesaleCostHint")}
+          {...(wholesaleValid ? {} : { error: t("products.variant.field.wholesaleCostInvalid") })}
+        >
+          <Input
+            id="variant-wholesale"
+            inputMode="decimal"
+            dir="ltr"
+            value={wholesale}
+            onChange={(e) => setWholesale(e.target.value)}
+            aria-label={t("products.variant.field.wholesaleCost")}
+          />
+        </FormField>
       </div>
       {editing ? (
         <label className="flex items-center gap-2 text-sm">
@@ -948,7 +989,7 @@ function VariantForm({
       <div className="flex gap-2">
         <Button
           size="sm"
-          disabled={submitting || name.trim().length === 0}
+          disabled={submitting || name.trim().length === 0 || !wholesaleValid}
           onClick={() => void submit()}
         >
           {t("products.actions.save")}

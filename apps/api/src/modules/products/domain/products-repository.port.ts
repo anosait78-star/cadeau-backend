@@ -43,6 +43,8 @@ export interface CreateVariantInput {
   readonly barcode?: string | null;
   /** Integer minor units. `averageCost` stays purchase-cost-only and is separate. */
   readonly sellingPriceMinor?: number;
+  /** Integer minor units paid to the vendor per unit; `null` = not priced. */
+  readonly wholesaleCostMinor?: number | null;
   /** Set only by storefront ingestion; see `ProductVariant.isPlaceholder`. */
   readonly isPlaceholder?: boolean;
 }
@@ -55,6 +57,12 @@ export interface UpdateVariantInput {
   readonly active?: boolean;
   /** Integer minor units. `averageCost` stays purchase-cost-only and is separate. */
   readonly sellingPriceMinor?: number;
+  /**
+   * Integer minor units paid to the vendor per unit; `null` clears it. Setting
+   * a price also completes every vendor ledger row of this variant that was
+   * still waiting for one (`needsPricing`) and is not yet held by a payout.
+   */
+  readonly wholesaleCostMinor?: number | null;
   /**
    * Cleared by storefront ingestion when the real product finally syncs onto
    * a variant it had invented; see `ProductVariant.isPlaceholder`.
