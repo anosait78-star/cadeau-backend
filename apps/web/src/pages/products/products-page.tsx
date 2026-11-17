@@ -444,7 +444,11 @@ function ProductCard({
   onNotify: (text: string) => void;
 }): ReactNode {
   const { t } = useI18n();
-  const [showVariants, setShowVariants] = useState(false);
+  // One expandable section at a time: the variants list, or the quick
+  // wholesale-cost editor (the shortcut next to "Edit").
+  const [section, setSection] = useState<"none" | "variants" | "wholesale">("none");
+  const toggle = (next: "variants" | "wholesale"): void =>
+    setSection((current) => (current === next ? "none" : next));
   const dash = "—";
   return (
     <Card>
@@ -484,12 +488,19 @@ function ProductCard({
         </dl>
 
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowVariants((v) => !v)}>
+          <Button size="sm" variant="outline" onClick={() => toggle("variants")}>
             {t("products.variants.toggle")}
           </Button>
           <PermissionGate permission="products.manage">
             <Button size="sm" variant="outline" onClick={onEdit}>
               {t("products.actions.edit")}
+            </Button>
+            <Button
+              size="sm"
+              variant={section === "wholesale" ? "primary" : "outline"}
+              onClick={() => toggle("wholesale")}
+            >
+              {t("products.wholesale.button")}
             </Button>
             {product.active ? (
               <Button size="sm" variant="ghost" onClick={onArchive}>
@@ -499,9 +510,168 @@ function ProductCard({
           </PermissionGate>
         </div>
 
-        {showVariants ? <VariantsPanel productId={product.id} onNotify={onNotify} /> : null}
+        {section === "variants" ? (
+          <VariantsPanel productId={product.id} onNotify={onNotify} />
+        ) : null}
+        {section === "wholesale" ? (
+          <WholesaleCostEditor
+            productId={product.id}
+            onNotify={onNotify}
+            onDone={() => setSection("none")}
+          />
+        ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/** Pounds as typed → minor units; `null` for blank ("not priced"), `undefined` when invalid. */
+function parsePounds(text: string): number | null | undefined {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  return Math.round(value * 100);
+}
+
+/**
+ * The wholesale-cost shortcut on the product panel (vendor payouts): one field
+ * per variant — a single field for the usual one-variant product — and one
+ * save. Only variants whose price actually changed are sent, so saving never
+ * touches the rest. Setting a price also completes that variant's vendor
+ * ledger rows still waiting for one (server side).
+ */
+function WholesaleCostEditor({
+  productId,
+  onNotify,
+  onDone,
+}: {
+  productId: string;
+  onNotify: (text: string) => void;
+  onDone: () => void;
+}): ReactNode {
+  const { t } = useI18n();
+  const [variants, setVariants] = useState<ProductVariant[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await listVariants(productId);
+        if (cancelled) return;
+        setVariants(res.data);
+        setDrafts(
+          Object.fromEntries(
+            res.data.map((v) => [
+              v.id,
+              v.wholesaleCostMinor === null || v.wholesaleCostMinor === undefined
+                ? ""
+                : (v.wholesaleCostMinor / 100).toFixed(2),
+            ]),
+          ),
+        );
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
+  const changes =
+    variants === null
+      ? []
+      : variants.flatMap((v) => {
+          const parsed = parsePounds(drafts[v.id] ?? "");
+          return parsed === undefined || parsed === (v.wholesaleCostMinor ?? null)
+            ? []
+            : [{ id: v.id, wholesaleCostMinor: parsed }];
+        });
+  const invalid =
+    variants !== null && variants.some((v) => parsePounds(drafts[v.id] ?? "") === undefined);
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    try {
+      for (const change of changes) {
+        await updateVariant(productId, change.id, {
+          wholesaleCostMinor: change.wholesaleCostMinor,
+        });
+      }
+      onNotify(t("products.saved"));
+      onDone();
+    } catch {
+      onNotify(t("products.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section
+      className="mt-1 flex flex-col gap-3 border-t border-border pt-3"
+      aria-label={t("products.wholesale.title")}
+    >
+      <div>
+        <h3 className="text-sm font-medium">{t("products.wholesale.title")}</h3>
+        <p className="text-caption text-muted-foreground">{t("products.wholesale.hint")}</p>
+      </div>
+
+      {failed ? <p className="text-sm text-destructive">{t("products.saveFailed")}</p> : null}
+      {variants === null && !failed ? (
+        <p className="text-sm text-muted-foreground">{t("products.wholesale.loading")}</p>
+      ) : null}
+      {variants !== null && variants.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("products.variants.empty")}</p>
+      ) : null}
+
+      {variants !== null && variants.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          {variants.map((variant) => {
+            const id = `wholesale-${variant.id}`;
+            const bad = parsePounds(drafts[variant.id] ?? "") === undefined;
+            return (
+              <FormField
+                key={variant.id}
+                label={
+                  variants.length === 1
+                    ? t("products.variant.field.wholesaleCost")
+                    : `${variant.name} — ${t("products.variant.field.wholesaleCost")}`
+                }
+                htmlFor={id}
+                {...(bad ? { error: t("products.variant.field.wholesaleCostInvalid") } : {})}
+              >
+                <Input
+                  id={id}
+                  inputMode="decimal"
+                  dir="ltr"
+                  autoFocus={variants.length === 1}
+                  placeholder={t("products.variant.wholesaleUnpriced")}
+                  value={drafts[variant.id] ?? ""}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [variant.id]: e.target.value }))}
+                />
+              </FormField>
+            );
+          })}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={saving || invalid || changes.length === 0}
+              onClick={() => void save()}
+            >
+              {t("products.actions.save")}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={saving} onClick={onDone}>
+              {t("products.actions.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

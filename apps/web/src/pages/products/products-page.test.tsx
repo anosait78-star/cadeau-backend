@@ -284,6 +284,42 @@ describe("ProductsPage", () => {
     await waitFor(() => expect(patched).toBeDefined());
   });
 
+  it("sets a wholesale cost straight from the product panel, next to Edit", async () => {
+    renderPage();
+    const panel = await openProduct("Mug");
+    await userEvent.click(within(panel).getByRole("button", { name: "Wholesale cost" }));
+    const input = await within(panel).findByLabelText("Wholesale cost (EGP)");
+    const save = within(panel).getByRole("button", { name: "Save" });
+    // Nothing changed yet, so there is nothing to save.
+    expect(save).toBeDisabled();
+    await userEvent.type(input, "-1");
+    expect(within(panel).getByText("Enter a valid amount (0 or more).")).toBeInTheDocument();
+    await userEvent.clear(input);
+    await userEvent.type(input, "90.50");
+    await userEvent.click(save);
+    await waitFor(() => {
+      const patched = fetchMock.mock.calls.find(
+        (c) =>
+          String(c[0]).endsWith("/products/p1/variants/v1") &&
+          (c[1] as RequestInit)?.method === "PATCH",
+      );
+      expect(patched).toBeDefined();
+      expect(JSON.parse(String((patched![1] as RequestInit).body))).toEqual({
+        wholesaleCostMinor: 9050,
+      });
+    });
+    // The editor closes once saved.
+    await waitFor(() =>
+      expect(within(panel).queryByLabelText("Wholesale cost (EGP)")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("hides the wholesale shortcut without the manage permission", async () => {
+    renderPage(["products"], ["products.read"]);
+    const panel = await openProduct("Mug");
+    expect(within(panel).queryByRole("button", { name: "Wholesale cost" })).not.toBeInTheDocument();
+  });
+
   it("searches by query", async () => {
     renderPage();
     await screen.findByText("Mug");
