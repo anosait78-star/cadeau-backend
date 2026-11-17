@@ -116,7 +116,8 @@ export class VendorPayoutsRepository implements VendorPayoutsRepositoryPort {
     companyId: string,
     userId: string,
   ): Promise<readonly VendorBalanceView[]> {
-    return this.tx(companyId, userId, (tx) => this.balances(tx, companyId, null));
+    const balances = await this.tx(companyId, userId, (tx) => this.balances(tx, companyId, null));
+    return this.withVendorNames(companyId, balances);
   }
 
   async getVendorBalance(
@@ -124,10 +125,47 @@ export class VendorPayoutsRepository implements VendorPayoutsRepositoryPort {
     userId: string,
     warehouseId: string,
   ): Promise<VendorBalanceView | null> {
-    return this.tx(companyId, userId, async (tx) => {
-      const [balance] = await this.balances(tx, companyId, warehouseId);
-      return balance ?? null;
+    const balances = await this.tx(companyId, userId, (tx) =>
+      this.balances(tx, companyId, warehouseId),
+    );
+    const [balance] = await this.withVendorNames(companyId, balances);
+    return balance ?? null;
+  }
+
+  /**
+   * The display name of each warehouse's (first active) vendor account.
+   *
+   * Read in a tenant-only transaction on purpose: with the user bound, the
+   * `profiles` RLS policy hides every profile but the caller's own, so the
+   * join returns `null` for a required relation and Prisma throws (the first
+   * production deploy did exactly that). The warehouses passed in were already
+   * read under the user-bound transaction, so this only adds names to rows the
+   * caller is allowed to see — the same tenant-scoped profile read the orders
+   * module uses for vendor groups.
+   */
+  private async withVendorNames(
+    companyId: string,
+    balances: readonly VendorBalanceView[],
+  ): Promise<VendorBalanceView[]> {
+    if (balances.length === 0) return [];
+    const members = await this.prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, companyId);
+      return tx.companyMember.findMany({
+        where: {
+          companyId,
+          status: "active",
+          warehouseId: { in: balances.map((b) => b.warehouseId) },
+        },
+        orderBy: { createdAt: "asc" },
+        select: { warehouseId: true, user: { select: { fullName: true, email: true } } },
+      });
     });
+    const nameBy = new Map<string, string>();
+    for (const member of members) {
+      if (member.warehouseId === null || nameBy.has(member.warehouseId)) continue;
+      nameBy.set(member.warehouseId, member.user.fullName ?? member.user.email);
+    }
+    return balances.map((b) => ({ ...b, vendorName: nameBy.get(b.warehouseId) ?? null }));
   }
 
   async listLedger(
@@ -428,16 +466,7 @@ export class VendorPayoutsRepository implements VendorPayoutsRepositoryPort {
           ...(warehouseId === null ? {} : { id: warehouseId }),
         },
         orderBy: [{ name: "asc" }, { id: "asc" }],
-        select: {
-          id: true,
-          name: true,
-          vendorMembers: {
-            where: { status: "active" },
-            orderBy: { createdAt: "asc" },
-            take: 1,
-            select: { user: { select: { fullName: true, email: true } } },
-          },
-        },
+        select: { id: true, name: true },
       }),
       tx.vendorLedgerEntry.groupBy({
         by: ["warehouseId"],
@@ -465,12 +494,13 @@ export class VendorPayoutsRepository implements VendorPayoutsRepositoryPort {
     const paidBy = new Map(paid.map((g) => [g.warehouseId, g._sum.amountMinor ?? 0n]));
 
     return warehouses.map((warehouse): VendorBalanceView => {
-      const vendor = warehouse.vendorMembers[0]?.user;
       const pendingPayout = pendingBy.get(warehouse.id);
       return {
         warehouseId: warehouse.id,
         warehouseName: warehouse.name,
-        vendorName: vendor === undefined ? null : (vendor.fullName ?? vendor.email),
+        // Filled in afterwards by `withVendorNames`, outside the user-bound
+        // transaction (see there).
+        vendorName: null,
         owedMinor: Number(openBy.get(warehouse.id) ?? 0n),
         pendingMinor: Number(pendingPayout?.amountMinor ?? 0n),
         paidMinor: Number(paidBy.get(warehouse.id) ?? 0n),

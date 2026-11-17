@@ -120,8 +120,12 @@ describe("VendorPayoutsRepository — balances", () => {
   it("combines open, unpriced, pending and paid figures per vendor warehouse", async () => {
     const { repo, models } = makeRepo();
     models.warehouse.findMany.mockResolvedValueOnce([
-      { id: "wa", name: "A", vendorMembers: [{ user: { fullName: null, email: "a@x.test" } }] },
-      { id: "wb", name: "B", vendorMembers: [] },
+      { id: "wa", name: "A" },
+      { id: "wb", name: "B" },
+    ]);
+    models.companyMember.findMany.mockResolvedValueOnce([
+      { warehouseId: "wa", user: { fullName: null, email: "a@x.test" } },
+      { warehouseId: "wa", user: { fullName: "Second", email: "s@x.test" } },
     ]);
     models.vendorLedgerEntry.groupBy
       .mockResolvedValueOnce([
@@ -172,10 +176,31 @@ describe("VendorPayoutsRepository — balances", () => {
     });
   });
 
+  it("reads vendor names without the user bound, so the profiles policy cannot hide them", async () => {
+    const { repo, models, queryRaw } = makeRepo();
+    models.warehouse.findMany.mockResolvedValueOnce([{ id: WAREHOUSE, name: "A" }]);
+    models.companyMember.findMany.mockResolvedValueOnce([
+      { warehouseId: WAREHOUSE, user: { fullName: "Ali", email: "a@x" } },
+    ]);
+    await repo.getVendorBalance(COMPANY, USER, WAREHOUSE);
+    // Two transactions: the balances one binds tenant + user; the names one
+    // binds only the tenant (one set_config for it, not two).
+    const configs = queryRaw.mock.calls.map((call) => (call[0] as readonly string[]).join("?"));
+    expect(configs.filter((sql) => sql.includes("app.company_id"))).toHaveLength(2);
+    expect(configs.filter((sql) => sql.includes("app.user_id"))).toHaveLength(1);
+    expect(models.companyMember.findMany.mock.calls[0]![0].where).toEqual({
+      companyId: COMPANY,
+      status: "active",
+      warehouseId: { in: [WAREHOUSE] },
+    });
+  });
+
   it("narrows to one warehouse, prefers a full name, and is null when it is not a vendor's", async () => {
     const { repo, models } = makeRepo();
-    models.warehouse.findMany.mockResolvedValueOnce([
-      { id: WAREHOUSE, name: "A", vendorMembers: [{ user: { fullName: "Ali", email: "a@x" } }] },
+    models.warehouse.findMany.mockResolvedValueOnce([{ id: WAREHOUSE, name: "A" }]);
+    models.companyMember.findMany.mockResolvedValueOnce([
+      { warehouseId: null, user: { fullName: "Staff", email: "s@x" } },
+      { warehouseId: WAREHOUSE, user: { fullName: "Ali", email: "a@x" } },
     ]);
     const balance = await repo.getVendorBalance(COMPANY, USER, WAREHOUSE);
     expect(balance?.vendorName).toBe("Ali");
